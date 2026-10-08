@@ -50,3 +50,5 @@ Sources: third-party write-ups citing the changelog (dev.to/valyuai, medium/@dan
 ## Change log
 
 - 2026-10-08: initial lock.
+- 2026-10-08 (Wave 1 review, Wassim): #7 changed to **Kev only** (kev-4b local, MLX); no Jev. LLM work runs in the user's agent session over MCP (Claude Code, Codex or Cursor), no Anthropic API key; UI and schedules start headless agent runs. #6 refined: LinkedIn people-reads on by default (still read-only, capped). Details: `wave1-decisions.md`.
+- 2026-10-08 (Wave 1 review, Wassim): #4 policy grid replaced by the Claude Design prototype's cells, with hard exclusions that always go to the human (submit, send, delete, dealbreaker change, comp floor change). Details: `wave1-decisions.md` #24.
