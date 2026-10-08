@@ -1,0 +1,211 @@
+import {
+  type ContactTier,
+  type OpContext,
+  type OpOutcome,
+  type OpOutput,
+  type Outreach,
+  outreachDraft,
+  outreachToGmail,
+  vaultPath,
+} from '@perfect-placement/contracts';
+import {
+  emitEvent,
+  getCompany,
+  getComponent,
+  getContact,
+  getLinkForRole,
+  getOutreach,
+  getOutreachFor,
+  getRole,
+  newId,
+  readVault,
+  stripFrontmatter,
+  upsertOutreach,
+  writeVault,
+} from './repo.js';
+import { checkDraft, composeBody } from './style.js';
+import { buildWriterPrompt, type DraftContext, TIER_TEMPLATES, templateDraft } from './templates.js';
+import { type DraftText, err, type Handler, type PeopleDeps } from './types.js';
+
+const storyText = (deps: PeopleDeps): string => {
+  const story = getComponent(deps, 'story');
+  return story ? `${JSON.stringify(story.data)}\n${story.text}` : '';
+};
+
+const q = (s: string) => JSON.stringify(s);
+
+/** Vault markdown for one draft. Frontmatter: id + type (structured fields live in the db). */
+export function renderOutreachMd(id: string, d: DraftText): string {
+  return `---\nid: ${q(id)}\ntype: "outreach"\n---\n\n## Subject\n\n${d.subject.trim()}\n\n## Hook\n\n${d.hook.trim()}\n\n## Proof\n\n${d.proof.trim()}\n\n## Ask\n\n${d.ask.trim()}\n`;
+}
+
+/** Reads the Hook / Proof / Ask long-form sections back for the Gmail body (the human may have edited them). */
+export function readOutreachSections(md: string): Partial<DraftText> {
+  const body = stripFrontmatter(md);
+  const out: Partial<DraftText> = {};
+  for (const part of body.split(/^## /m).slice(1)) {
+    const nl = part.indexOf('\n');
+    const head = part.slice(0, nl).trim().toLowerCase();
+    const text = part.slice(nl + 1).trim();
+    if (head === 'subject' || head === 'hook' || head === 'proof' || head === 'ask') out[head] = text;
+  }
+  return out;
+}
+
+/**
+ * outreach.draft: validate (no em dashes, short blocks, Proof numbers grounded in Story), write the
+ * vault draft, upsert the outreach row (status `drafted`), emit `outreach_drafted`.
+ * Re-drafting is allowed only while the row is still `drafted` (a Gmail draft would go stale).
+ */
+export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) => {
+  const parsed = outreachDraft.input.safeParse(raw);
+  if (!parsed.success) return err('invalid_input', 'outreach.draft input', parsed.error.issues);
+  const input = parsed.data;
+  const { db } = deps;
+
+  const contact = getContact(db, input.contact_id);
+  if (!contact) return err('not_found', `contact ${input.contact_id}`);
+  const role = getRole(db, input.role_id);
+  if (!role) return err('not_found', `role ${input.role_id}`);
+  const link = getLinkForRole(db, input.contact_id, input.role_id);
+  if (link && link.tier !== input.tier) return err('invalid_input', `tier ${input.tier} does not match the contact link tier ${link.tier}`);
+  if (input.tier === 'bridge' && !link?.via_contact_id)
+    return err('invalid_input', 'bridge drafts need a contact_link with via_contact_id (the mutual)');
+
+  const text: DraftText = {
+    subject: input.subject ?? `${role.title}`,
+    hook: input.hook,
+    proof: input.proof,
+    ask: input.ask,
+  };
+  const issues = checkDraft(text, storyText(deps), { bridge: input.tier === 'bridge' });
+  if (issues.length)
+    return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
+
+  const prev = getOutreachFor(db, input.contact_id, input.role_id);
+  if (prev && prev.status !== 'drafted') return err('conflict', `outreach ${prev.id} is ${prev.status}; edit it in Gmail`);
+
+  const id = prev?.id ?? newId(deps, 'or');
+  const outreach: Outreach = {
+    id,
+    contact_id: input.contact_id,
+    role_id: input.role_id,
+    tier: input.tier,
+    gmail_draft_id: null,
+    status: 'drafted',
+    md_path: vaultPath.outreach(input.contact_id, input.role_id),
+  };
+  if (ctx.dryRun) return { status: 'ok', output: { outreach }, eventIds: [] };
+
+  writeVault(deps.vaultDir, outreach.md_path as string, renderOutreachMd(id, text));
+  const eventIds: string[] = [];
+  db.transaction(() => {
+    upsertOutreach(db, outreach, Boolean(prev));
+    eventIds.push(
+      emitEvent(deps, {
+        type: 'outreach_drafted',
+        subject_type: 'outreach',
+        subject_id: id,
+        payload: { contact_id: input.contact_id, role_id: input.role_id, tier: input.tier, redraft: Boolean(prev) },
+        actor: ctx.actor,
+        ts: ctx.now().toISOString(),
+      }),
+    );
+  })();
+  return { status: 'ok', output: { outreach }, eventIds };
+};
+
+/**
+ * outreach.to_gmail: create a Gmail DRAFT from the vault draft. Never sends.
+ * Idempotent: an outreach already in Gmail returns its existing draft id.
+ * Recipient: the contact, or the mutual for bridge drafts. No email on file = draft with no To.
+ */
+export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, ctx, deps) => {
+  const parsed = outreachToGmail.input.safeParse(raw);
+  if (!parsed.success) return err('invalid_input', 'outreach.to_gmail input', parsed.error.issues);
+  const { db } = deps;
+  const o = getOutreach(db, parsed.data.outreach_id);
+  if (!o) return err('not_found', `outreach ${parsed.data.outreach_id}`);
+  if (o.gmail_draft_id && o.status !== 'drafted')
+    return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id }, eventIds: [] };
+  if (!o.md_path) return err('not_found', `outreach ${o.id} has no vault draft`);
+  const md = readVault(deps.vaultDir, o.md_path);
+  if (!md) return err('not_found', `vault draft ${o.md_path}`);
+
+  const s = readOutreachSections(md);
+  const role = getRole(db, o.role_id);
+  const company = role ? getCompany(db, role.company_id) : undefined;
+  const fallbackSubject = role ? `${role.title}${company ? ` at ${company.name}` : ''}` : '';
+  const text: DraftText = { subject: s.subject || fallbackSubject, hook: s.hook ?? '', proof: s.proof ?? '', ask: s.ask ?? '' };
+  const issues = checkDraft(text, storyText(deps), { bridge: o.tier === 'bridge' });
+  if (issues.length)
+    return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
+
+  const recipientId =
+    TIER_TEMPLATES[o.tier].recipient === 'via' ? getLinkForRole(db, o.contact_id, o.role_id)?.via_contact_id : o.contact_id;
+  const recipient = recipientId ? getContact(db, recipientId) : undefined;
+  if (!recipient) return err('not_found', `recipient for outreach ${o.id}`);
+
+  if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: 'dry-run' }, eventIds: [] };
+  if (!deps.gmail) return err('backend_unavailable', 'no Gmail draft client configured');
+
+  let draftId: string;
+  try {
+    draftId = (await deps.gmail.createDraft({ to: recipient.email, subject: text.subject, body: composeBody(text) })).draftId;
+  } catch (e) {
+    return err('backend_unavailable', `gmail: ${(e as Error).message}`);
+  }
+  const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail' };
+  upsertOutreach(db, next, true);
+  return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId }, eventIds: [] };
+};
+
+/** outreach.send: intentionally unimplemented (AGENTS.md rule 4). The human sends from Gmail. */
+export const outreachSendHandler: Handler<'outreach.send'> = async () =>
+  err('unimplemented', 'outreach.send is not implemented in v2: open the Gmail draft and send it yourself');
+
+// ------------------------------------------------------------- writer pipeline
+
+export interface ComposeInput {
+  contact_id: string;
+  role_id: string;
+  /** Draft a cold_other contact anyway (blueprint: skip unless asked). */
+  force?: boolean;
+}
+
+/** Builds the DraftContext for a contact on a role from the db + Story + Voice. */
+export function draftContext(deps: PeopleDeps, contactId: string, roleId: string): DraftContext | { error: string } {
+  const contact = getContact(deps.db, contactId);
+  const role = getRole(deps.db, roleId);
+  const link = getLinkForRole(deps.db, contactId, roleId);
+  if (!contact || !role || !link) return { error: `contact ${contactId} is not linked to role ${roleId}` };
+  const company = getCompany(deps.db, role.company_id);
+  const via = link.via_contact_id ? getContact(deps.db, link.via_contact_id) : undefined;
+  const story = getComponent(deps, 'story') ?? { data: {}, text: '' };
+  const voice = getComponent(deps, 'voice') ?? { data: {}, text: '' };
+  return {
+    tier: link.tier as ContactTier,
+    contact: { name: contact.name, headline: contact.headline },
+    via: via ? { name: via.name, headline: via.headline } : null,
+    role: { title: role.title },
+    company: { name: company?.name ?? role.company_id },
+    story,
+    voice,
+  };
+}
+
+/**
+ * Writer pipeline for scheduled runs and agents without their own LLM: tier template + Story + Voice
+ * -> LLM writer (or the deterministic template when none is wired) -> outreach.draft (validated).
+ */
+export async function composeAndDraft(
+  deps: PeopleDeps,
+  input: ComposeInput,
+  ctx: OpContext,
+): Promise<OpOutcome<OpOutput<'outreach.draft'>>> {
+  const c = draftContext(deps, input.contact_id, input.role_id);
+  if ('error' in c) return err('not_found', c.error);
+  if (TIER_TEMPLATES[c.tier].skipByDefault && !input.force) return err('conflict', `tier ${c.tier} is skipped unless asked (force: true)`);
+  const text = deps.writer ? await deps.writer.write(buildWriterPrompt(c)) : templateDraft(c);
+  return draftOutreach({ contact_id: input.contact_id, role_id: input.role_id, tier: c.tier, ...text }, ctx, deps);
+}
