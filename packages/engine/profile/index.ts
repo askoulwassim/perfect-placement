@@ -6,7 +6,6 @@ export * from './components.js';
 export * from './convert-v1.js';
 export * from './deps.js';
 export * from './errors.js';
-export * from './handlers.js';
 export * from './learn.js';
 export * from './markdown.js';
 export * from './onboard.js';
@@ -14,6 +13,4 @@ export * from './onboard-store.js';
 export * from './profile-ops.js';
 export * from './questions.js';
 export * from './resume.js';
-export * from './store.js';
-/** WAVE 2 SHIMS + test helpers (temp db, fake resolver). Not for production use. */
-export * as testing from './testing.js';
+export * from './versions.js';

@@ -3,8 +3,7 @@ import { join } from 'node:path';
 import { ROLE_STATUSES } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS, roles as fixtureRoles } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { okOut } from '../_shim/assert.js';
-import { ctxAt, type FixtureEngine, openFixtureEngine } from '../_shim/testing.js';
+import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../../testing/index.js';
 import { roleIdFor } from '../ids.js';
 
 let e: FixtureEngine;
@@ -95,7 +94,22 @@ describe('roles.add', () => {
     const [id] = okOut(o).added;
     const d = e.db.prepare(`SELECT * FROM decision WHERE kind = 'roles.dedupe' AND subject_id = ?`).get(id) as Record<string, string>;
     expect(d).toMatchObject({ policy_outcome: 'human', status: 'pending', impact: 'low' });
-    expect(JSON.parse(d.action_json as string)).toMatchObject({ op: 'roles.archive', input: { role_id: id, reason: 'passed' } });
+    expect(JSON.parse(d.action_json as string)).toMatchObject({
+      op: 'roles.archive',
+      input: { role_id: id, reason: 'duplicate' },
+      when: true,
+    });
+    expect(okOut(o).possible_duplicates).toEqual([
+      { index: 0, role_id: id, existing_id: 'stripe_staff-pm-data-platform', decision_id: d.id },
+    ]);
+    // Accepting archives the new copy as a duplicate (not a skip signal for Learn).
+    const r = okOut(await e.runOp('decisions.resolve', { decision_id: d.id, action: 'accept' }, ctxAt('human')));
+    expect(r.op_status).toBe('ok');
+    expect(e.db.prepare('SELECT status, archive_reason FROM role WHERE id = ?').get(id)).toEqual({
+      status: 'archived',
+      archive_reason: 'duplicate',
+    });
+    expect(events('role_skipped', id)).toBe(0);
   });
 
   it('suffixes colliding role ids', () => {

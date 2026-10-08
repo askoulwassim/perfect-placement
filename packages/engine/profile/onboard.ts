@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import {
   type Criterion,
   type OpContext,
@@ -11,15 +10,15 @@ import {
 } from '@perfect-placement/contracts';
 import { CALIBRATION_SIZE, type CalibrationSample, deriveWeights, samplesFromDb, statedPrior } from './calibration.js';
 import { parseComponentData, rubricWeights, weightsByComponent } from './components.js';
-import type { ProfileDeps } from './deps.js';
+import { newId, type ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
 import { clone, deepEqual } from './json.js';
-import { componentMdPath, joinVault, MD_COMPONENTS, renderComponentMd, writeVaultFile } from './markdown.js';
-import { createMemoryOnboardStore, type FillSource, type OnboardSession, type OnboardStore } from './onboard-store.js';
+import { componentMdPath, MD_COMPONENTS, renderComponentMd } from './markdown.js';
+import type { FillSource, OnboardSession, OnboardStore } from './onboard-store.js';
 import { profileProposeDiff } from './profile-ops.js';
 import { type AnswerValue, checkAnswer, type Draft, findQuestion, nextQuestion } from './questions.js';
 import { parseResumeHeuristic } from './resume.js';
-import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } from './store.js';
+import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } from './versions.js';
 
 /*
  * Onboarding protocol (blueprint.md): resume in -> interview by component -> calibrate -> confirm.
@@ -30,24 +29,17 @@ import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } 
 
 type OnboardState = OpOutput<'onboard.ingest_resume'>;
 
-const fallbackStores = new WeakMap<object, OnboardStore>();
 function store(deps: ProfileDeps): OnboardStore {
-  if (deps.onboardStore) return deps.onboardStore;
-  let s = fallbackStores.get(deps.db);
-  if (!s) {
-    s = createMemoryOnboardStore();
-    fallbackStores.set(deps.db, s);
-  }
-  return s;
+  return deps.onboardStore;
 }
 
 /** Seed a draft from the current profile so known components are skipped. */
 function draftFromProfile(deps: ProfileDeps): { draft: Draft; sources: OnboardSession['sources'] } {
-  const v = getCurrentVersion(deps.db);
+  const v = getCurrentVersion(deps.repos);
   const draft: Draft = {};
   const sources: OnboardSession['sources'] = {};
   if (!v) return { draft, sources };
-  for (const c of getComponents(deps.db, v.id)) {
+  for (const c of getComponents(deps.repos, v.id)) {
     if (Object.keys(c.data_json).length) {
       draft[c.key] = clone(c.data_json);
       sources[c.key] = ['profile'];
@@ -58,10 +50,13 @@ function draftFromProfile(deps: ProfileDeps): { draft: Draft; sources: OnboardSe
 
 function newSession(deps: ProfileDeps, now: Date, scope: ProfileComponentKey[] | null): OnboardSession {
   const { draft, sources } = draftFromProfile(deps);
+  // The latest session is the live one: never tie with the previous start.
+  const prev = store(deps).load();
+  const at = prev && prev.started_at >= now.toISOString() ? new Date(Date.parse(prev.started_at) + 1) : now;
   return {
-    id: `ob_${now.getTime().toString(36)}`,
-    started_at: now.toISOString(),
-    updated_at: now.toISOString(),
+    id: newId('ob', at),
+    started_at: at.toISOString(),
+    updated_at: at.toISOString(),
     step: 'resume',
     scope,
     draft,
@@ -121,12 +116,15 @@ export async function onboardIngestResume(
 ): Promise<OnboardState> {
   let text = input.text;
   if (!text && input.file_path) {
-    if (!deps.vaultDir) throw new OpError('invalid_input', 'file_path needs a vault');
+    if (!deps.vault) throw new OpError('invalid_input', 'file_path needs a vault');
+    let raw: string | null = null;
     try {
-      text = readFileSync(joinVault(deps.vaultDir, input.file_path), 'utf8');
+      raw = deps.vault.read(input.file_path);
     } catch {
-      throw new OpError('not_found', `cannot read ${input.file_path}`);
+      raw = null;
     }
+    if (raw === null) throw new OpError('not_found', `cannot read ${input.file_path}`);
+    text = raw;
   }
   if (!text?.trim()) throw new OpError('invalid_input', 'resume text or file_path required');
 
@@ -151,7 +149,7 @@ export async function onboardIngestResume(
 
 /** Start a re-interview of one or more components (seeded from the current profile). */
 export function startComponentInterview(deps: ProfileDeps, components: ProfileComponentKey[], ctx: OpContext): OnboardState {
-  if (!getCurrentVersion(deps.db)) throw new OpError('not_found', 'no profile yet: run full onboarding');
+  if (!getCurrentVersion(deps.repos)) throw new OpError('not_found', 'no profile yet: run full onboarding');
   const s = newSession(deps, ctx.now(), components);
   s.step = 'interview';
   advance(s);
@@ -180,14 +178,14 @@ export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'
 }
 
 function samplesFor(deps: ProfileDeps, s: OnboardSession): CalibrationSample[] {
-  const all = deps.calibrationSamples ? deps.calibrationSamples() : samplesFromDb(deps.db, CALIBRATION_SIZE);
+  const all = deps.calibrationSamples ? deps.calibrationSamples() : samplesFromDb(deps.repos, CALIBRATION_SIZE);
   if (!s.calibration.sample_ids.length) s.calibration.sample_ids = all.slice(0, CALIBRATION_SIZE).map((x) => x.id);
   return all.filter((x) => s.calibration.sample_ids.includes(x.id));
 }
 
 function priorFor(deps: ProfileDeps, s: OnboardSession): Record<Criterion, number> {
-  const v = getCurrentVersion(deps.db);
-  const base = v ? rubricWeights(getComponents(deps.db, v.id)) : null;
+  const v = getCurrentVersion(deps.repos);
+  const base = v ? rubricWeights(getComponents(deps.repos, v.id)) : null;
   return statedPrior(base, s.draft);
 }
 
@@ -230,17 +228,17 @@ function confidenceFor(s: OnboardSession, key: ProfileComponentKey, prevConfiden
  * components (work_mode, terms, dealbreakers) are NOT written; they become pending
  * high-impact diffs for a human (never auto-apply a filter or dealbreaker change).
  */
-export function onboardConfirm(
+export async function onboardConfirm(
   deps: ProfileDeps,
   _input: OpInput<'onboard.confirm'>,
   ctx: OpContext,
-): OpOutput<'onboard.confirm'> & { proposed_diffs: ProfileDiff[] } {
+): Promise<OpOutput<'onboard.confirm'> & { proposed_diffs: ProfileDiff[] }> {
   const s = activeSession(deps);
   if (s.step === 'resume') throw new OpError('conflict', 'ingest a resume first');
   if (s.step === 'interview' && nextQuestion(s.draft, s.answered, s.scope)) throw new OpError('conflict', 'interview not finished');
   const now = ctx.now();
-  const current = getCurrentVersion(deps.db);
-  const prevComps = current ? getComponents(deps.db, current.id) : [];
+  const current = getCurrentVersion(deps.repos);
+  const prevComps = current ? getComponents(deps.repos, current.id) : [];
 
   const calibrated = Object.keys(s.calibration.choices).length > 0;
   const samples = calibrated ? samplesFor(deps, s) : [];
@@ -277,7 +275,7 @@ export function onboardConfirm(
       confidence: confidenceFor(s, key, prev?.confidence, calibrated),
       weight: own.weight,
       data_json: parsed,
-      md_path: deps.vaultDir && MD_COMPONENTS.includes(key) ? componentMdPath(key) : (prev?.md_path ?? null),
+      md_path: deps.vault && MD_COMPONENTS.includes(key) ? componentMdPath(key) : (prev?.md_path ?? null),
     };
   }
   if (ctx.dryRun) {
@@ -287,27 +285,76 @@ export function onboardConfirm(
     };
   }
   const reason = s.scope ? `onboard: re-interview ${s.scope.join(', ')}` : current ? 'onboard: redo' : 'onboard';
-  const { version, components } = insertVersion(deps.db, { now, parent_id: current?.id ?? null, reason, event_id: null, drafts });
+  const { version, components } = insertVersion(deps.repos, { now, parent_id: current?.id ?? null, reason, event_id: null, drafts });
 
-  if (deps.vaultDir) {
+  if (deps.vault) {
     for (const c of components) {
       if (c.md_path && MD_COMPONENTS.includes(c.key) && drafts[c.key])
-        writeVaultFile(deps.vaultDir, c.md_path, renderComponentMd(c.key, c.id, c.data_json));
+        deps.vault.write(c.md_path, renderComponentMd(c.key, c.id, c.data_json));
     }
   }
   const proposed: ProfileDiff[] = [];
   for (const h of held) {
-    proposed.push(
-      profileProposeDiff(
-        deps,
-        { component: h.key, before: h.before, after: h.after, evidence: [`onboarding ${s.id} answers (agent-run)`] },
-        ctx,
-      ).output.diff,
-    );
+    const input = { component: h.key, before: h.before, after: h.after, evidence: [`onboarding ${s.id} answers (agent-run)`] };
+    if (deps.runOp) {
+      // Every write is an op: the held filter change is proposed through profile.propose_diff.
+      const o = await deps.runOp('profile.propose_diff', input, ctx);
+      if (o.status !== 'ok')
+        throw new OpError(o.status === 'error' ? o.code : 'internal', `propose ${h.key}: ${o.status === 'error' ? o.message : o.status}`);
+      proposed.push((o.output as { diff: ProfileDiff }).diff);
+    } else proposed.push(profileProposeDiff(deps, input, ctx).output.diff);
   }
   s.step = 'done';
   s.version_id = version.id;
   s.updated_at = now.toISOString();
   store(deps).save(s);
   return { version, proposed_diffs: proposed };
+}
+
+// ------------------------------------------------------------ start / state / samples
+
+/** onboard.start: a full onboarding (step resume), or a re-interview of some components. */
+export function onboardStart(deps: ProfileDeps, input: OpInput<'onboard.start'>, ctx: OpContext): OnboardState {
+  if (input.components?.length) return startComponentInterview(deps, input.components, ctx);
+  const s = newSession(deps, ctx.now(), null);
+  if (!ctx.dryRun) store(deps).save(s);
+  return stateOf(s);
+}
+
+/** onboard.state: the live session, or the start state when there is none. */
+export function onboardState(deps: ProfileDeps): OnboardState {
+  const s = store(deps).load();
+  if (s) return stateOf(s);
+  return { step: 'resume', components_filled: [], next_question: null };
+}
+
+const money = (n: number) => `$${Math.round(n / 1000)}k`;
+function compLabel(min: number | null | undefined, max: number | null | undefined): string {
+  if (min && max) return `${money(min)} to ${money(max)}`;
+  if (min) return `${money(min)}+`;
+  if (max) return `up to ${money(max)}`;
+  return 'Not listed';
+}
+
+/** onboard.samples (read-only): the calibration cards and the baseline weights the bars start from. */
+export function onboardSamples(deps: ProfileDeps): OpOutput<'onboard.samples'> {
+  const s = store(deps).load();
+  const all = deps.calibrationSamples ? deps.calibrationSamples() : samplesFromDb(deps.repos, CALIBRATION_SIZE);
+  const live =
+    s && s.step !== 'done' && s.calibration.sample_ids.length ? all.filter((x) => s.calibration.sample_ids.includes(x.id)) : null;
+  const samples = live?.length ? live : all.slice(0, CALIBRATION_SIZE);
+  const v = getCurrentVersion(deps.repos);
+  const weights = statedPrior(v ? rubricWeights(getComponents(deps.repos, v.id)) : null, s && s.step !== 'done' ? s.draft : {});
+  return {
+    items: samples.map((x) => ({
+      id: x.id,
+      company: x.company ?? '',
+      letter: (x.company ?? x.title).trim().charAt(0).toUpperCase() || '?',
+      title: x.title,
+      comp: compLabel(x.comp_min, x.comp_max),
+      mode: x.workplace ?? 'unspecified',
+      criteria: x.criteria,
+    })),
+    weights,
+  };
 }

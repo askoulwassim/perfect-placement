@@ -1,133 +1,80 @@
-import type { OpContext } from '@perfect-placement/contracts';
-import { FIXTURE_SEED_SQL } from '@perfect-placement/fixtures';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDbEmitter, type ProfileLlm } from './deps.js';
-import { learnFromEvent } from './learn.js';
-import { getComponent, getCurrentVersion, getDiff } from './store.js';
-import { createFakeResolver, createTempDb, testDeps } from './testing.js';
+import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ctxAt, type FixtureEngine, fakeProfileLlm, learnKev, okOut, openFixtureEngine, tickingClock } from '../testing/index.js';
 
-let tick = 0;
-const ctx: OpContext = { actor: 'agent', now: () => new Date(Date.UTC(2026, 9, 8, 13, 0, ++tick)) };
+/*
+ * The learn loop through runOp: profile.learn -> resolver Noulli x 11 -> writing model -> nested
+ * profile.propose_diff / profile.apply_diff / profile.reject_diff -> policy (#14, #24).
+ */
 
-/** Fake LLM: drafts a deterministic diff per component from the event. */
-const llm: ProfileLlm = {
-  async draftDiff({ component, data, event }) {
-    if (component === 'dealbreakers') {
-      const hard = (data.hard_nos as string[]) ?? [];
-      return {
-        before: { hard_nos: hard },
-        after: { hard_nos: [...hard, 'pure delivery roles'] },
-        evidence: [`rejected at ${String(event.payload.stage)}: delivery-heavy role`],
-      };
-    }
-    if (component === 'craft') {
-      return {
-        before: { level: 'wrong-recollection' },
-        after: { level: 'staff' },
-        evidence: ['rejected for principal; feedback said staff scope'],
-      };
-    }
-    if (component === 'domain') return null;
-    return { before: {}, after: { note: 'x' }, evidence: [] };
-  },
-};
+let e: FixtureEngine;
+const clock = tickingClock('2026-10-08T13:00:00.000Z');
+const agent = () => ctxAt('agent', {}, clock);
+afterEach(() => e.cleanup());
 
-describe('learn loop: synthetic rejection', () => {
-  let env: ReturnType<typeof createTempDb>;
-  let eventId: string;
+/** A rejection event, as the inbox monitor writes it (human-confirmed so it applies directly). */
+async function rejection(): Promise<string> {
+  const role = FIXTURE_ROLE_IDS.figmaIv;
+  const msg = { message_id: 'learn-1', received_at: '2026-10-08T12:30:00.000Z', role_id: role, class: 'rejection', p: 0.99 };
+  okOut(await e.runOp('inbox.ingest', { messages: [msg] }, ctxAt('human', {}, clock)));
+  return (e.db.prepare(`SELECT id FROM event WHERE type = 'rejection' AND subject_id = ?`).get(role) as { id: string }).id;
+}
+const diff = (id: string) => e.db.prepare('SELECT * FROM profile_diff WHERE id = ?').get(id) as Record<string, string>;
+const decisionOf = (diffId: string) => e.db.prepare('SELECT * FROM decision WHERE subject_id = ?').get(diffId) as Record<string, string>;
 
-  beforeEach(() => {
-    env = createTempDb(FIXTURE_SEED_SQL);
-    eventId = createDbEmitter(env.db)(
-      {
-        type: 'rejection',
-        subject_type: 'role',
-        subject_id: 'figma_staff-pm-data-platform',
-        payload: { stage: 'onsite', reason: 'looking for more delivery focus' },
-        actor: 'agent',
-      },
-      new Date('2026-10-08T12:30:00.000Z'),
-    );
+describe('learn loop (profile.learn)', () => {
+  it('proposes diffs and routes each by policy: dealbreakers to a human, a confident craft change auto + undo', async () => {
+    e = openFixtureEngine({ kev: learnKev(['dealbreakers', 'craft', 'domain']), services: { profileLlm: fakeProfileLlm } });
+    const eventId = await rejection();
+    const out = okOut(await e.runOp('profile.learn', { event_id: eventId }, agent()));
+    expect(e.kev.calls[0]?.questions).toHaveLength(11);
+    expect(e.kev.calls[0]?.questions.every((q) => q.type === 'noulli')).toBe(true);
+
+    // Domain: the writing model judged no change after all.
+    expect(out.proposed.map((d: { component_key: string }) => d.component_key).sort()).toEqual(['craft', 'dealbreakers']);
+
+    // Dealbreakers: a hard exclusion, queued for a human with the action that applies it.
+    const dq = out.queued.find((q: { diff_id: string }) => diff(q.diff_id).component_key === 'dealbreakers');
+    expect(diff(dq.diff_id)).toMatchObject({ status: 'pending', impact: 'high', event_id: eventId });
+    expect(decisionOf(dq.diff_id)).toMatchObject({ policy_outcome: 'human', status: 'pending', id: dq.decision_id });
+
+    // Craft: medium + confident -> auto + 24h undo (#14), profile v+1, 'before' from the data not the model.
+    expect(out.applied).toHaveLength(1);
+    const ap = out.applied[0];
+    expect(JSON.parse(diff(ap.diff_id).diff_json as string).before.level).toBe('principal');
+    const p = okOut(await e.runOp('profile.get', {}, agent()));
+    expect(p.version).toMatchObject({ id: ap.version_id, parent_id: 'pv_0002', event_id: eventId });
+    expect(p.components.find((c: { key: string }) => c.key === 'craft').data_json.level).toBe('staff');
+    expect(decisionOf(ap.diff_id)).toMatchObject({ policy_outcome: 'auto_undo', status: 'applied' });
+    // The applied weighted diff rescored the movable roles under v+1 (lane F).
+    expect(
+      (e.db.prepare('SELECT count(*) n FROM score WHERE profile_version_id = ?').get(ap.version_id) as { n: number }).n,
+    ).toBeGreaterThan(0);
   });
-  afterEach(() => env.cleanup());
 
-  it('proposes diffs and routes each by policy: filters to a human, confident weights auto', async () => {
-    const ask = createFakeResolver(env.db, (q, req) => {
-      if (req.decision === 'profile.learn') {
-        if (q.id === 'dealbreakers') return { value: true, p: 0.97 };
-        if (q.id === 'craft') return { value: true, p: 0.96 };
-        if (q.id === 'domain') return { value: true, p: 0.93 };
-        // Unsure "no": learn questions are low impact, which the #24 grid never routes to a human.
-        if (q.id === 'story') return { value: false, p: 0.6 };
-        return { value: false, p: 0.95 };
-      }
-      return { value: true, p: 0.95 }; // apply? yes, confident
+  it('a confident "no" on the apply question rejects the diff', async () => {
+    e = openFixtureEngine({
+      kev: (q, req) => (req.decision === 'profile.learn' ? { value: q.id === 'craft', p: 0.97 } : { value: false, p: 0.97 }),
+      services: { profileLlm: fakeProfileLlm },
     });
-    const deps = testDeps(env.db, { ask, llm });
-    const base = getCurrentVersion(env.db)?.id;
-    const res = await learnFromEvent(deps, eventId, ctx);
-
-    expect(res.asked).toHaveLength(11);
-    expect(ask.calls[0]?.questions.every((q) => q.type === 'noulli')).toBe(true);
-    expect(res.changed.sort()).toEqual(['craft', 'dealbreakers', 'domain']);
-    expect(res.learn_questions_for_human).toHaveLength(0);
-
-    // Dealbreakers: high impact, proposed, queued for a human, never applied.
-    const dq = res.queued.find((q) => getDiff(env.db, q.diff_id)?.component_key === 'dealbreakers');
-    expect(dq?.impact).toBe('high');
-    const ddiff = getDiff(env.db, dq?.diff_id ?? '');
-    expect(ddiff?.status).toBe('pending');
-    expect(ddiff?.event_id).toBe(eventId);
-    expect(ddiff?.evidence_json[0]).toContain('onsite');
-    const dec = env.db.prepare('SELECT * FROM decision WHERE id = ?').get(dq?.decision_id) as Record<string, string>;
-    expect(dec.policy_outcome).toBe('human');
-    expect(dec.status).toBe('pending');
-    expect(JSON.parse(dec.action_json)).toEqual({ op: 'profile.apply_diff', input: { diff_id: ddiff?.id } });
-
-    // Craft: medium, confident -> auto, profile v+1, 'before' taken from data not the model.
-    expect(res.applied).toHaveLength(1);
-    const ap = res.applied[0];
-    expect(ap?.impact).toBe('medium');
-    const cdiff = getDiff(env.db, ap?.diff_id ?? '');
-    expect((cdiff?.diff_json as { before: { level: string } } | undefined)?.before.level).toBe('principal');
-    const v = getCurrentVersion(env.db);
-    expect(v?.id).toBe(ap?.version_id);
-    expect(v?.parent_id).toBe(base);
-    expect(v?.event_id).toBe(eventId);
-    expect(getComponent(env.db, v?.id ?? '', 'craft')?.data_json.level).toBe('staff');
-    expect(getComponent(env.db, v?.id ?? '', 'dealbreakers')?.data_json).toEqual(
-      getComponent(env.db, base ?? '', 'dealbreakers')?.data_json,
-    );
-    expect(ap?.rescored_role_ids.length).toBeGreaterThan(0);
-    const undo = env.db.prepare('SELECT policy_outcome, undo_until FROM decision WHERE subject_id = ?').get(ap?.diff_id) as Record<
-      string,
-      string
-    >;
-    // #24 grid: medium + confident = auto (wave1-decisions #14 asked for auto + undo; Phase 2 reconciles).
-    expect(undo.policy_outcome).toBe('auto');
-
-    // Domain: the LLM judged no change after all -> nothing proposed.
-    expect(res.proposed.map((d) => d.component_key).sort()).toEqual(['craft', 'dealbreakers']);
+    const out = okOut(await e.runOp('profile.learn', { event_id: await rejection() }, agent()));
+    expect(out.applied).toHaveLength(0);
+    expect(diff(out.proposed[0].id).status).toBe('rejected');
   });
 
-  it('even a resolver that says auto cannot apply a dealbreaker change', async () => {
-    const ask = createFakeResolver(env.db, (q, req) =>
-      req.decision === 'profile.learn' ? { value: q.id === 'dealbreakers', p: 0.99 } : { value: true, p: 0.99 },
-    );
-    const res = await learnFromEvent(testDeps(env.db, { ask, llm }), eventId, ctx);
-    expect(res.applied).toHaveLength(0);
-    expect(res.queued).toHaveLength(1);
-    expect(getCurrentVersion(env.db)?.id).toBe('pv_0002');
+  it('without a writing model the resolver is still asked, and the learn skill drafts (no diffs here)', async () => {
+    e = openFixtureEngine({ kev: learnKev(['craft']) });
+    const out = okOut(await e.runOp('profile.learn', { event_id: await rejection() }, agent()));
+    expect(e.kev.calls).toHaveLength(1);
+    expect(out).toEqual({ proposed: [], applied: [], queued: [] });
   });
 
   it('ignores non-learning events', async () => {
-    const other = createDbEmitter(env.db)(
-      { type: 'role_added', subject_type: 'role', subject_id: 'x', payload: {}, actor: 'agent' },
-      new Date(),
-    );
-    const ask = createFakeResolver(env.db, () => ({ value: true, p: 0.99 }));
-    const res = await learnFromEvent(testDeps(env.db, { ask, llm }), other, ctx);
-    expect(res.asked).toHaveLength(0);
-    expect(ask.calls).toHaveLength(0);
+    e = openFixtureEngine({ kev: learnKev(['craft']), services: { profileLlm: fakeProfileLlm } });
+    okOut(await e.runOp('roles.add', { candidates: [{ company_name: 'Acme', title: 'PM', source: 'link' }] }, agent()));
+    const added = (e.db.prepare(`SELECT id FROM event WHERE type = 'role_added' ORDER BY rowid DESC`).get() as { id: string }).id;
+    expect(okOut(await e.runOp('profile.learn', { event_id: added }, agent()))).toEqual({ proposed: [], applied: [], queued: [] });
+    expect(e.kev.calls).toHaveLength(0);
+    expect(await e.runOp('profile.learn', { event_id: 'ev_nope' }, agent())).toMatchObject({ code: 'not_found' });
   });
 });

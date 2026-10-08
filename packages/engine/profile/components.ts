@@ -1,4 +1,5 @@
 import {
+  COMPONENT_DIFF_IMPACT,
   CRITERIA,
   CRITERION_OWNER,
   type CriterionWeights as CriteriaWeights,
@@ -94,23 +95,14 @@ export function weightsByComponent(
 }
 
 // ---------------------------------------------------------------------------
-// Impact tiers for profile diffs (decisions.md #4; lane E brief).
+// Impact tiers for profile diffs (wave1-decisions #14, #24).
 // ---------------------------------------------------------------------------
 
 /**
- * - filter components (work_mode, terms, dealbreakers): high. Never auto-applied.
- * - weighted components: medium (auto + 24h undo when confident).
- * - asset components (story, voice, network): low (internal inputs to drafting;
- *   every external use of them still ends at a human: Open portal / Gmail draft).
+ * COMPONENT_DIFF_IMPACT (contracts): filters (work_mode, terms, dealbreakers) high; weighted and asset
+ * (story, voice, network) medium. Hard exclusions (Dealbreakers, a comp floor change) are always human:
+ * see `isHardHumanDiff` in profile-ops.ts.
  */
 export function impactForComponent(key: ProfileComponentKey): Impact {
-  const kind = PROFILE_COMPONENT_KIND[key];
-  if (kind === 'filter') return 'high';
-  if (kind === 'weighted') return 'medium';
-  return 'low';
-}
-
-/** Hard guard: filters and dealbreakers can only change through a human. */
-export function isHumanOnlyComponent(key: ProfileComponentKey): boolean {
-  return PROFILE_COMPONENT_KIND[key] === 'filter';
+  return COMPONENT_DIFF_IMPACT[PROFILE_COMPONENT_KIND[key]];
 }

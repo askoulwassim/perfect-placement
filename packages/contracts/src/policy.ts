@@ -15,6 +15,19 @@ export const Thresholds = z.object({
 });
 export type Thresholds = z.infer<typeof Thresholds>;
 
+/** Outcomes a per-kind override may give a confident decision (Wave 2 Phase 2). */
+export const CONFIDENT_OUTCOMES = ['auto', 'auto_undo'] as const;
+
+/**
+ * Per decision-kind override (`config.overrides[kind]`): any threshold, plus `confident_outcome`,
+ * which replaces the grid's plain `auto` for a confident decision with `auto_undo` (applied now,
+ * one-tap undo for `undo_hours`). Hard exclusions still win.
+ */
+export const ThresholdOverride = Thresholds.partial().extend({ confident_outcome: z.enum(CONFIDENT_OUTCOMES).optional() });
+export type ThresholdOverride = z.infer<typeof ThresholdOverride>;
+/** Thresholds for one kind after the override merge. */
+export type KindThresholds = Thresholds & { confident_outcome?: (typeof CONFIDENT_OUTCOMES)[number] };
+
 export const CONFIDENCE_BANDS = ['confident', 'middle', 'low'] as const;
 export type ConfidenceBand = (typeof CONFIDENCE_BANDS)[number];
 
@@ -104,7 +117,7 @@ export const LINKEDIN_DRIVERS = ['claude-in-chrome', 'playwright'] as const;
 export const PolicyConfig = z.object({
   policy: Thresholds,
   /** Per decision-kind threshold overrides. */
-  overrides: z.partialRecord(DecisionKind, Thresholds.partial()),
+  overrides: z.partialRecord(DecisionKind, ThresholdOverride),
   backends: BackendsConfig,
   scoring: z.object({
     affinity_cap: z.number().int().min(0),
@@ -135,7 +148,13 @@ export type PolicyConfig = z.infer<typeof PolicyConfig>;
 
 export const DEFAULT_CONFIG: PolicyConfig = {
   policy: { auto: 0.9, second_opinion: 0.7, undo_hours: 24 },
-  overrides: { 'freshness.closed': { auto: 0.92 } },
+  overrides: {
+    'freshness.closed': { auto: 0.92 },
+    // wave1-decisions #14: confident profile diffs (asset components included) apply with a 24h undo.
+    'profile.apply_diff': { confident_outcome: 'auto_undo' },
+    // wave1-decisions #16: a confident confirmation (including one that revives an archived role) applies with a 24h undo.
+    'inbox.classify': { confident_outcome: 'auto_undo' },
+  },
   backends: {
     default: 'kev',
     fallback: 'agent',
@@ -159,6 +178,6 @@ export const DEFAULT_CONFIG: PolicyConfig = {
 };
 
 /** Effective thresholds for a decision kind (base merged with override). Pure data merge, no policy logic. */
-export function thresholdsFor(config: PolicyConfig, kind: DecisionKind): Thresholds {
+export function thresholdsFor(config: PolicyConfig, kind: DecisionKind): KindThresholds {
   return { ...config.policy, ...(config.overrides[kind] ?? {}) };
 }

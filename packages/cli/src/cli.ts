@@ -46,7 +46,7 @@ export async function runCli(argv: readonly string[], io: Io = processIo): Promi
   const home = args.get('home') ?? ops.resolveHome(io.env);
   let engine: ReturnType<typeof ops.openEngine> | undefined;
   try {
-    engine = ops.openEngine({ home });
+    engine = ops.openEngine({ home, ...(io.services ? { services: io.services } : {}) });
     switch (cmd) {
       case 'doctor': {
         const o = await engine.runOp('system.doctor', {}, { actor: 'human', now: () => new Date() });

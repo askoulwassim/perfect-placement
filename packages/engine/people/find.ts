@@ -16,14 +16,11 @@ import {
   linkedinReadsOn,
   newId,
   updateLink,
-} from './repo.js';
+} from './queries.js';
 import { tierFor } from './tier.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
 
-/**
- * People named in the JD or on the company team page, supplied by the connect skill (judgment).
- * WAVE2-SHIM: requested as an optional `hints` field on people.find input (CONTRACT_CHANGES.md).
- */
+/** People named in the JD or on the company team page, supplied by the connect skill (judgment). */
 export const PersonHint = z.object({
   name: z.string().min(1).max(120),
   headline: z.string().max(200).nullable().optional(),
@@ -71,7 +68,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   if (!parsed.success) return err('invalid_input', 'people.find input', parsed.error.issues);
   const input = parsed.data;
   const dryRun = Boolean(input.dry_run || ctx.dryRun);
-  const { db } = deps;
+  const { repos: db } = deps;
 
   const role = getRole(db, input.role_id);
   if (!role) return err('not_found', `role ${input.role_id}`);
@@ -221,8 +218,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
     }
   };
 
-  if (dryRun) apply();
-  else db.transaction(apply)();
+  // Inside runOp's transaction (dry run: nothing is written).
+  apply();
 
   return { status: 'ok', output: { found, capped: collected.capped }, eventIds };
 };

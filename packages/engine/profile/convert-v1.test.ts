@@ -1,10 +1,11 @@
 import { PROFILE_COMPONENT_KEYS } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { openDb } from '../db/connection.js';
+import { repos } from '../db/repo.js';
 import { rubricWeights, safeParseComponentData } from './components.js';
 import { convertV1Profile, parseBullets, parseSections, renderConversionReport, verifyCoverage } from './convert-v1.js';
-import { getComponents, insertVersion } from './store.js';
 import { SYNTH_V1 } from './synthetic.js';
-import { createTempDb } from './testing.js';
+import { getComponents, insertVersion } from './versions.js';
 
 const NOW = new Date('2026-10-08T00:00:00Z');
 
@@ -97,10 +98,10 @@ describe('v1 profile converter (synthetic v1-shaped inputs)', () => {
     expect(conv.components.voice.markdown).toContain('Imported from v1');
   });
 
-  it('writes into a db as a version (what lane A will do)', () => {
-    const env = createTempDb();
+  it('writes into a db as a version (lane A repositories)', () => {
+    const db = openDb(':memory:');
     try {
-      const { version } = insertVersion(env.db, {
+      const { version } = insertVersion(repos(db), {
         now: NOW,
         parent_id: null,
         reason: conv.version_reason,
@@ -118,9 +119,9 @@ describe('v1 profile converter (synthetic v1-shaped inputs)', () => {
           ]),
         ),
       });
-      expect(getComponents(env.db, version.id)).toHaveLength(11);
+      expect(getComponents(repos(db), version.id)).toHaveLength(11);
     } finally {
-      env.cleanup();
+      db.close();
     }
   });
 

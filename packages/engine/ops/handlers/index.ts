@@ -28,5 +28,3 @@ export const LANE_B_HANDLERS: HandlerMap = {
   'config.update': configUpdate,
   'vault.read': vaultRead,
 };
-
-export { NOT_LANE_B } from './stubs.js';

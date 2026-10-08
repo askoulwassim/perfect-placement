@@ -1,6 +1,8 @@
 import {
   type AskResult,
+  type DecisionAction,
   type Impact,
+  isHardHuman,
   type OpContext,
   type OpInput,
   type OpOutput,
@@ -9,7 +11,7 @@ import {
   type ProfileDiff,
   type ProfileVersion,
 } from '@perfect-placement/contracts';
-import { type CriteriaWeights, criteriaOwnedBy, impactForComponent, isHumanOnlyComponent, safeParseComponentData } from './components.js';
+import { type CriteriaWeights, criteriaOwnedBy, impactForComponent, safeParseComponentData } from './components.js';
 import { newId, type ProfileDeps } from './deps.js';
 import { OpError, RequiresHuman } from './errors.js';
 import { clone, deepEqual } from './json.js';
@@ -25,7 +27,7 @@ import {
   listVersions,
   rescoreScope,
   updateDiff,
-} from './store.js';
+} from './versions.js';
 
 /*
  * profile.get, profile.history, profile.propose_diff, profile.apply_diff, profile.reject_diff
@@ -59,7 +61,7 @@ function currentValues(data: Record<string, unknown>, keys: string[]): Record<st
 }
 
 function requireCurrent(deps: ProfileDeps): ProfileVersion {
-  const v = getCurrentVersion(deps.db);
+  const v = getCurrentVersion(deps.repos);
   if (!v) throw new OpError('not_found', 'no profile yet: run onboarding first');
   return v;
 }
@@ -67,21 +69,21 @@ function requireCurrent(deps: ProfileDeps): ProfileVersion {
 // ------------------------------------------------------------------ reads
 
 export function profileGet(deps: ProfileDeps, input: OpInput<'profile.get'>): OpOutput<'profile.get'> {
-  const version = input.version_id ? getVersion(deps.db, input.version_id) : getCurrentVersion(deps.db);
+  const version = input.version_id ? getVersion(deps.repos, input.version_id) : getCurrentVersion(deps.repos);
   if (!version) throw new OpError('not_found', input.version_id ? `version ${input.version_id} not found` : 'no profile yet');
-  return { version, components: getComponents(deps.db, version.id), pending_diffs: listDiffs(deps.db, 'pending') };
+  return { version, components: getComponents(deps.repos, version.id), pending_diffs: listDiffs(deps.repos, 'pending') };
 }
 
 /** All versions; with `component`, only the versions where that component changed (root included). */
 export function profileHistory(deps: ProfileDeps, input: OpInput<'profile.history'>): OpOutput<'profile.history'> {
-  const versions = listVersions(deps.db);
+  const versions = listVersions(deps.repos);
   const key = input.component;
   if (!key) return { versions };
   return {
     versions: versions.filter((v) => {
       if (!v.parent_id) return true;
-      const a = getComponent(deps.db, v.id, key);
-      const b = getComponent(deps.db, v.parent_id, key);
+      const a = getComponent(deps.repos, v.id, key);
+      const b = getComponent(deps.repos, v.parent_id, key);
       return !b || !a || !deepEqual([a.data_json, a.confidence, a.weight], [b.data_json, b.confidence, b.weight]);
     }),
   };
@@ -95,7 +97,7 @@ export function profileProposeDiff(
   ctx: OpContext,
 ): { output: OpOutput<'profile.propose_diff'>; eventIds: string[] } {
   const version = requireCurrent(deps);
-  const comp = getComponent(deps.db, version.id, input.component);
+  const comp = getComponent(deps.repos, version.id, input.component);
   if (!comp) throw new OpError('not_found', `component ${input.component} missing on ${version.id}`);
   const keys = [...new Set([...Object.keys(input.before), ...Object.keys(input.after)])];
   const actual = currentValues(comp.data_json, keys);
@@ -123,7 +125,7 @@ export function profileProposeDiff(
     applied_version_id: null,
   };
   if (ctx.dryRun) return { output: { diff }, eventIds: [] };
-  insertDiff(deps.db, diff);
+  insertDiff(deps.repos, diff);
   const evId = deps.emit(
     {
       type: 'profile_diff_proposed',
@@ -137,7 +139,7 @@ export function profileProposeDiff(
   // event_id = causing event when given, else the proposal event (matches fixtures).
   if (!diff.event_id) {
     diff.event_id = evId;
-    updateDiff(deps.db, diff.id, { event_id: evId });
+    updateDiff(deps.repos, diff.id, { event_id: evId });
   }
   return { output: { diff }, eventIds: [evId] };
 }
@@ -149,25 +151,33 @@ export function diffImpact(diff: ProfileDiff): Impact {
   return maxImpact(diff.impact, impactForComponent(diff.component_key));
 }
 
+/** Keys a diff changes (top level). */
+export function diffChangedKeys(diff: ProfileDiff): string[] {
+  const { before = {}, after = {} } = diff.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> };
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => !deepEqual(before[k], after[k]));
+}
+
+/** Hard exclusion (wave1-decisions #24): Dealbreakers, or a Terms comp floor change. Always a human. */
+export function isHardHumanDiff(diff: ProfileDiff): boolean {
+  return isHardHuman({ kind: 'profile.apply_diff', component: diff.component_key, changedKeys: diffChangedKeys(diff) });
+}
+
 /** True when ctx carries an explicit human approval: a human actor, or a resolved decision a human chose. */
 function humanApproved(deps: ProfileDeps, ctx: OpContext): boolean {
   if (ctx.actor === 'human') return true;
   if (!ctx.decisionId) return false;
-  const row = deps.db.prepare('SELECT human_choice, resolved_at, policy_outcome FROM decision WHERE id = ?').get(ctx.decisionId) as
-    | { human_choice: string | null; resolved_at: string | null; policy_outcome: string }
-    | undefined;
+  const row = deps.repos.decision.get(ctx.decisionId);
   return !!row && row.policy_outcome === 'human' && (row.human_choice != null || row.resolved_at != null);
 }
 
-/** Auto outcome from the resolver (low/medium only). */
-function autoApproved(deps: ProfileDeps, ctx: OpContext, impact: Impact): boolean {
-  if (impact === 'high' || !ctx.decisionId) return false;
-  const row = deps.db.prepare('SELECT policy_outcome, answer_json FROM decision WHERE id = ?').get(ctx.decisionId) as
-    | { policy_outcome: string; answer_json: string }
-    | undefined;
-  if (!row || row.policy_outcome === 'human') return false;
-  const ans = JSON.parse(row.answer_json) as { value?: unknown };
-  return ans.value === true;
+/** An auto outcome from the resolver for this diff (never for a hard exclusion). */
+function autoApproved(deps: ProfileDeps, ctx: OpContext, diff: ProfileDiff): boolean {
+  if (isHardHumanDiff(diff) || !ctx.decisionId) return false;
+  const row = deps.repos.decision.get(ctx.decisionId);
+  if (!row || row.policy_outcome === 'human' || row.status !== 'applied') return false;
+  const action = row.action_json as DecisionAction | null;
+  if ((action?.input as { diff_id?: string } | undefined)?.diff_id !== diff.id) return false;
+  return (row.answer_json as { value?: unknown }).value === true;
 }
 
 /**
@@ -196,45 +206,48 @@ export async function routeDiff(
       { id: 'apply', type: 'noulli', instructions: `Apply this change to the ${diff.component_key.replace('_', ' ')} component?` },
     ],
     subject: { type: 'profile_diff', id: diff.id },
+    // Accept applies it; an auto + undo apply is reverted by profile.undo_diff.
+    action: {
+      op: 'profile.apply_diff',
+      input: { diff_id: diff.id },
+      when: true,
+      undo: { op: 'profile.undo_diff', input: { diff_id: diff.id } },
+    },
   });
   const decisionId = result.decisionIds[0];
   const answer = result.answers[0];
   let outcome = result.outcomes[0];
   if (!decisionId || !answer || !outcome) throw new OpError('internal', 'resolver returned no answer');
-  // Belt and braces: whatever the resolver says, filters and dealbreakers go to a human.
-  if (impact === 'high') outcome = 'human';
-  deps.attachAction?.(decisionId, { op: 'profile.apply_diff', input: { diff_id: diff.id } });
-  if (!ctx.dryRun) updateDiff(deps.db, diff.id, { decision_id: decisionId });
+  // Belt and braces: whatever the resolver says, hard exclusions go to a human.
+  if (isHardHumanDiff(diff)) outcome = 'human';
+  if (!ctx.dryRun) updateDiff(deps.repos, diff.id, { decision_id: decisionId });
   return { result, decisionId, outcome, value: answer.value, p: answer.p };
 }
 
 /**
- * Apply a pending diff -> profile v+1. Routing:
+ * Apply a pending diff -> profile v+1. Routing (wave1-decisions #24):
  *  - human actor, or a human-resolved decision in ctx: apply.
- *  - high impact (filters, dealbreakers) otherwise: requires_human. Never auto-applied.
- *  - low/medium from an agent: resolver decides (auto, auto_second, auto_undo apply; human queues).
+ *  - a live auto decision for this diff in ctx (the learn loop, an undo window): apply.
+ *  - otherwise the resolver decides with the component's impact (#14: asset and weighted medium,
+ *    filters high); hard exclusions (Dealbreakers, comp floor) always wait for a human.
  */
 export async function profileApplyDiff(
   deps: ProfileDeps,
   input: OpInput<'profile.apply_diff'>,
   ctx: OpContext,
 ): Promise<{ output: OpOutput<'profile.apply_diff'>; eventIds: string[] }> {
-  const diff = getDiff(deps.db, input.diff_id);
+  const diff = getDiff(deps.repos, input.diff_id);
   if (!diff) throw new OpError('not_found', `diff ${input.diff_id} not found`);
   if (diff.status !== 'pending') throw new OpError('conflict', `diff ${diff.id} is ${diff.status}`);
-  const impact = diffImpact(diff);
 
-  if (!humanApproved(deps, ctx)) {
-    if (impact === 'high' || isHumanOnlyComponent(diff.component_key)) {
-      if (diff.decision_id) throw new RequiresHuman(diff.decision_id);
-      if (deps.ask) throw new RequiresHuman((await routeDiff(deps, diff, ctx)).decisionId);
-      throw new OpError('human_only', `${diff.component_key} changes need a human`);
-    }
-    if (!autoApproved(deps, ctx, impact)) {
-      const r = await routeDiff(deps, diff, ctx);
-      if (r.outcome === 'human' || r.value !== true) throw new RequiresHuman(r.decisionId);
-      ctx = { ...ctx, decisionId: r.decisionId };
-    }
+  if (!humanApproved(deps, ctx) && !autoApproved(deps, ctx, diff)) {
+    const queued = diff.decision_id ? deps.repos.decision.get(diff.decision_id) : undefined;
+    if (queued?.status === 'pending' && queued.policy_outcome === 'human') throw new RequiresHuman(queued.id);
+    if (!deps.ask)
+      throw new OpError(isHardHumanDiff(diff) ? 'human_only' : 'backend_unavailable', `${diff.component_key} changes need a human`);
+    const r = await routeDiff(deps, diff, ctx);
+    if (r.outcome === 'human' || r.value !== true) throw new RequiresHuman(r.decisionId);
+    ctx = { ...ctx, decisionId: r.decisionId };
   }
   return applyApproved(deps, diff, ctx);
 }
@@ -247,7 +260,7 @@ export async function applyApproved(
 ): Promise<{ output: OpOutput<'profile.apply_diff'>; eventIds: string[] }> {
   const now = ctx.now();
   const version = requireCurrent(deps);
-  const comp = getComponent(deps.db, version.id, diff.component_key);
+  const comp = getComponent(deps.repos, version.id, diff.component_key);
   if (!comp) throw new OpError('not_found', `component ${diff.component_key} missing`);
   const { before = {}, after = {} } = diff.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> };
   const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
@@ -279,7 +292,7 @@ export async function applyApproved(
       eventIds: [],
     };
   }
-  const { version: next } = insertVersion(deps.db, {
+  const { version: next } = insertVersion(deps.repos, {
     now,
     parent_id: version.id,
     reason: `diff ${diff.id}: ${diff.component_key}`,
@@ -288,7 +301,7 @@ export async function applyApproved(
       [diff.component_key]: { key: diff.component_key, confidence: comp.confidence, weight, data_json: data, md_path: comp.md_path },
     },
   });
-  updateDiff(deps.db, diff.id, {
+  updateDiff(deps.repos, diff.id, {
     status: 'applied',
     applied_version_id: next.id,
     ...(ctx.decisionId ? { decision_id: ctx.decisionId } : {}),
@@ -305,7 +318,7 @@ export async function applyApproved(
     now,
   );
   // Asset changes (story, voice, network) do not change scores.
-  const scope = comp.kind === 'asset' ? [] : rescoreScope(deps.db);
+  const scope = comp.kind === 'asset' ? [] : rescoreScope(deps.repos);
   const rescored = deps.rescore ? await deps.rescore(scope, next.id) : scope;
   return { output: { version: next, rescored_role_ids: rescored }, eventIds: [evId] };
 }
@@ -317,12 +330,12 @@ export function profileRejectDiff(
   input: OpInput<'profile.reject_diff'>,
   ctx: OpContext,
 ): { output: OpOutput<'profile.reject_diff'>; eventIds: string[] } {
-  const diff = getDiff(deps.db, input.diff_id);
+  const diff = getDiff(deps.repos, input.diff_id);
   if (!diff) throw new OpError('not_found', `diff ${input.diff_id} not found`);
   if (diff.status !== 'pending') throw new OpError('conflict', `diff ${diff.id} is ${diff.status}`);
   if (ctx.dryRun) return { output: { ok: true }, eventIds: [] };
   const now = ctx.now();
-  updateDiff(deps.db, diff.id, { status: 'rejected' });
+  updateDiff(deps.repos, diff.id, { status: 'rejected' });
   const evId = deps.emit(
     {
       type: 'profile_diff_rejected',
@@ -342,11 +355,11 @@ export function profileRejectDiff(
  * Not an op in the contract yet; lane I's decisions.undo calls this (CONTRACT_CHANGES lane E).
  */
 export async function undoDiff(deps: ProfileDeps, diffId: string, ctx: OpContext): Promise<{ version: ProfileVersion }> {
-  const diff = getDiff(deps.db, diffId);
+  const diff = getDiff(deps.repos, diffId);
   if (!diff) throw new OpError('not_found', `diff ${diffId} not found`);
   if (diff.status !== 'applied') throw new OpError('conflict', `diff ${diffId} is ${diff.status}`);
   const version = requireCurrent(deps);
-  const comp = getComponent(deps.db, version.id, diff.component_key as ProfileComponentKey);
+  const comp = getComponent(deps.repos, version.id, diff.component_key as ProfileComponentKey);
   if (!comp) throw new OpError('not_found', 'component missing');
   const { before = {}, after = {} } = diff.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> };
   const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
@@ -355,12 +368,12 @@ export async function undoDiff(deps: ProfileDeps, diffId: string, ctx: OpContext
   }
   // Exact restore when nothing came after the diff; else reverse-patch the touched keys.
   const prior =
-    diff.applied_version_id === version.id && version.parent_id ? getComponent(deps.db, version.parent_id, diff.component_key) : null;
+    diff.applied_version_id === version.id && version.parent_id ? getComponent(deps.repos, version.parent_id, diff.component_key) : null;
   const data = prior ? clone(prior.data_json) : applyPatch(comp.data_json, after, before);
-  const parent = diff.applied_version_id ? getComponent(deps.db, diff.applied_version_id, diff.component_key) : null;
-  const base = getComponent(deps.db, diff.base_version_id, diff.component_key);
+  const parent = diff.applied_version_id ? getComponent(deps.repos, diff.applied_version_id, diff.component_key) : null;
+  const base = getComponent(deps.repos, diff.base_version_id, diff.component_key);
   const now = ctx.now();
-  const { version: next } = insertVersion(deps.db, {
+  const { version: next } = insertVersion(deps.repos, {
     now,
     parent_id: version.id,
     reason: `undo ${diff.id}: ${diff.component_key}`,
@@ -375,6 +388,6 @@ export async function undoDiff(deps: ProfileDeps, diffId: string, ctx: OpContext
       },
     },
   });
-  updateDiff(deps.db, diff.id, { status: 'undone' });
+  updateDiff(deps.repos, diff.id, { status: 'undone' });
   return { version: next };
 }

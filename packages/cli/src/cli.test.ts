@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ops } from '@perfect-placement/engine';
-import { openFixtureEngine } from '@perfect-placement/engine/ops/testing';
+import { fakeBackend, fakeLauncher, noNetwork, openFixtureEngine } from '@perfect-placement/engine/testing';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
@@ -19,7 +19,14 @@ beforeEach(() => {
   e.close();
   out = [];
   err = [];
-  io = { env: { PP_HOME: home }, out: (l) => out.push(l), err: (l) => err.push(l), stdin: () => '[]' };
+  io = {
+    env: { PP_HOME: home },
+    out: (l) => out.push(l),
+    err: (l) => err.push(l),
+    stdin: () => '[]',
+    // No network, no Kev, no runner spawn in tests.
+    services: { fetch: noNetwork, launcher: fakeLauncher(), backends: { kev: fakeBackend('kev', 'down') }, freshnessDelayMs: 0, env: {} },
+  };
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
@@ -62,14 +69,25 @@ describe('pp', () => {
     expect(lastJson().status).toBe('requires_human');
   });
 
-  it('score, fresh and doctor pass through to lanes F, G and A (unimplemented until merged)', async () => {
+  it('score, fresh and doctor run lanes F, G and A through runOp', async () => {
     const file = join(home, 'scores.json');
-    writeFileSync(file, '[]');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          role_id: FIXTURE_ROLE_IDS.notionInbox,
+          criteria: { c1: 4, c2: 4, c3: 4, c4: 4, c5: 4, c6: 4, c7: 4, c8: 4, c9: 4 },
+          facts: { workplace: 'remote', remote_ok: true },
+        },
+      ]),
+    );
     expect(await runCli(['score', '--in', file], io)).toBe(0);
-    expect(await runCli(['fresh', '--role', FIXTURE_ROLE_IDS.datadogActive], io)).toBe(1);
-    expect(lastJson()).toMatchObject({ code: 'unimplemented' });
-    expect(await runCli(['doctor'], io)).toBe(1);
-    expect(lastJson().message).toContain('lane A');
+    expect(lastJson()).toMatchObject({ status: 'ok', output: { status: 'active' } });
+    // No network and Kev down: the posting cannot be judged, so it waits in Needs you.
+    expect(await runCli(['fresh', '--role', FIXTURE_ROLE_IDS.datadogActive], io)).toBe(0);
+    expect(lastJson().output.results[0]).toMatchObject({ role_id: FIXTURE_ROLE_IDS.datadogActive, freshness: 'unsure' });
+    expect(await runCli(['doctor'], io)).toBe(0);
+    expect(lastJson().output.counts.active).toBeGreaterThan(0);
   });
 
   it('bad input is a usage error', async () => {

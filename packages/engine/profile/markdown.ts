@@ -1,12 +1,10 @@
-import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { type ProfileComponentKey, vaultPath } from '@perfect-placement/contracts';
 
 /*
  * Long-form markdown for asset components (Story, Voice) at `profile/<key>.md`.
  * Frontmatter carries the component id + type (vault rule). The db stays canonical;
  * this file is for reading and for writing skills to quote from. Never parsed back.
- * SHIM: lane A's vault helpers replace writeVaultFile in Wave 2.
+ * Written through runOp's staged vault (ProfileDeps.vault).
  */
 
 export const MD_COMPONENTS: readonly ProfileComponentKey[] = ['story', 'voice'];
@@ -86,16 +84,4 @@ export function renderComponentMd(key: ProfileComponentKey, id: string, data: Re
   return `${out.join('\n').trimEnd()}\n`;
 }
 
-export function writeVaultFile(vaultDir: string, rel: string, content: string): void {
-  const abs = join(vaultDir, rel);
-  mkdirSync(dirname(abs), { recursive: true });
-  const tmp = `${abs}.tmp`;
-  writeFileSync(tmp, content);
-  renameSync(tmp, abs);
-}
-
 export const componentMdPath = (key: ProfileComponentKey) => vaultPath.profileComponent(key);
-
-export function joinVault(vaultDir: string, rel: string): string {
-  return join(vaultDir, rel);
-}

@@ -1,14 +1,21 @@
 import { vaultPath } from '@perfect-placement/contracts';
-import { get, insert, select, update } from '../_shim/repo.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
+import { get, insert, select, update } from '../rows.js';
+import { buildRunnerSpec, createSpawnLauncher, DEFAULT_SKILLS_DIR, defaultMcpServer, skillPrompt } from '../runner.js';
 import { defineHandler } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { getRole } from './shared.js';
 
+/**
+ * runs.start: write the run row and its log, then (after commit, for a human or schedule actor) launch
+ * the configured headless runner (`config.runner`) with the skill prompt and the pp MCP server. If the
+ * runner cannot start, the run is finished as `error`. An agent actor is already the running session.
+ */
 export const runsStart = defineHandler('runs.start', {
   run(input, h) {
     if (input.role_id) getRole(h.db, input.role_id);
+    if (input.contact_id && !get(h.db, 'contact', input.contact_id)) throw notFound('contact', input.contact_id);
     const now = h.ctx.now();
     const iso = now.toISOString();
     const id = newId('run', now);
@@ -23,7 +30,13 @@ export const runsStart = defineHandler('runs.start', {
       started_at: iso,
       finished_at: null,
       status: 'running' as const,
-      summary_json: { skill: input.skill, ...(input.role_id ? { role_id: input.role_id } : {}), actor: h.ctx.actor },
+      summary_json: {
+        skill: input.skill,
+        ...(input.role_id ? { role_id: input.role_id } : {}),
+        ...(input.contact_id ? { contact_id: input.contact_id } : {}),
+        actor: h.ctx.actor,
+        runner: h.config.runner.command,
+      },
       log_path,
     };
     insert(h.db, 'run', run);
@@ -31,10 +44,42 @@ export const runsStart = defineHandler('runs.start', {
       log_path,
       renderMarkdown(
         { id, type: 'run' },
-        `# ${date} ${input.skill}${input.role_id ? ` (${input.role_id})` : ''}\n\nStarted ${iso} by ${h.ctx.actor}.`,
+        `# ${date} ${input.skill}${input.role_id ? ` (${input.role_id})` : ''}\n\nStarted ${iso} by ${h.ctx.actor} (runner: ${h.config.runner.command}).`,
       ),
     );
-    h.emit('run_started', 'run', id, { skill: input.skill, role_id: input.role_id ?? null });
+    h.emit('run_started', 'run', id, { skill: input.skill, role_id: input.role_id ?? null, contact_id: input.contact_id ?? null });
+
+    // A UI button or a schedule starts a headless agent run. An agent calling runs.start is already
+    // the session doing the work (skills open their own run), so nothing is launched for it.
+    if (!h.ctx.dryRun && h.ctx.actor !== 'agent') {
+      const spec = buildRunnerSpec({
+        runner: h.config.runner,
+        skill: input.skill,
+        runId: id,
+        home: h.home,
+        mcp: defaultMcpServer(h.home),
+        prompt: skillPrompt(DEFAULT_SKILLS_DIR, {
+          runId: id,
+          skill: input.skill,
+          ...(input.role_id ? { roleId: input.role_id } : {}),
+          ...(input.contact_id ? { contactId: input.contact_id } : {}),
+        }),
+      });
+      const launcher = h.services.launcher ?? createSpawnLauncher();
+      const runOp = h.runOp;
+      const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+      h.afterCommit(async () => {
+        try {
+          await launcher.launch(spec);
+        } catch (e) {
+          await runOp(
+            'runs.finish',
+            { run_id: id, status: 'error', note: `runner ${spec.command} did not start: ${(e as Error).message}` },
+            ctx,
+          );
+        }
+      });
+    }
     return { run };
   },
 });

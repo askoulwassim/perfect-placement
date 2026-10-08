@@ -29,9 +29,8 @@ export interface FreshnessEvent {
 type MaybePromise<T> = T | Promise<T>;
 
 /**
- * Everything the freshness run reads or writes. Wave 1 ships `sqliteStore` (a direct-SQL shim);
- * Wave 2 swaps in a store backed by lane A repositories + lane B ops (`roles.archive`, event writer,
- * run log), so the run itself never changes.
+ * Everything the freshness run reads or writes. The engine implements it over lane A repositories and
+ * runOp's event writer (packages/engine/ops/lanes/freshness.ts); dry runs use the read-only `memoryStore`.
  */
 export interface FreshnessStore {
   /** Roles in FRESHNESS_SCOPE only (optionally limited to ids). Applied-or-later roles never appear. */
@@ -41,8 +40,6 @@ export interface FreshnessStore {
   /** Closed: archive with reason `closed`. Must refuse roles outside scope. Returns false if refused. */
   archiveClosed(u: { roleId: string; at: string; flags: Record<string, unknown>; decisionId: string | null }): MaybePromise<boolean>;
   emit(e: FreshnessEvent): MaybePromise<string>;
-  /** Attach the op a human accept should run to a pending decision (see CONTRACT_CHANGES "Lane G requests"). */
-  attachDecisionAction(decisionId: string, action: { op: string; input: Record<string, unknown> }): MaybePromise<void>;
   startRun(op: string, at: string): MaybePromise<string>;
   finishRun(id: string, u: { at: string; status: RunStatus; summary: Record<string, unknown>; logPath: string | null }): MaybePromise<void>;
 }

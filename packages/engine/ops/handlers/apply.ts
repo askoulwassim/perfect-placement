@@ -1,6 +1,6 @@
 import { vaultPath } from '@perfect-placement/contracts';
-import { select, update } from '../_shim/repo.js';
 import { OpError } from '../errors.js';
+import { select, update } from '../rows.js';
 import { defineHandler } from '../runtime.js';
 import { renderMarkdown } from '../vault.js';
 import { applicationFor, getCompany, getRole, laterStage, moveRole, upsertApplication } from './shared.js';

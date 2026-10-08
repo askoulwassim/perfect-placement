@@ -22,7 +22,7 @@ import {
   stripFrontmatter,
   upsertOutreach,
   writeVault,
-} from './repo.js';
+} from './queries.js';
 import { checkDraft, composeBody } from './style.js';
 import { buildWriterPrompt, type DraftContext, TIER_TEMPLATES, templateDraft } from './templates.js';
 import { type DraftText, err, type Handler, type PeopleDeps } from './types.js';
@@ -61,7 +61,7 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
   const parsed = outreachDraft.input.safeParse(raw);
   if (!parsed.success) return err('invalid_input', 'outreach.draft input', parsed.error.issues);
   const input = parsed.data;
-  const { db } = deps;
+  const { repos: db } = deps;
 
   const contact = getContact(db, input.contact_id);
   if (!contact) return err('not_found', `contact ${input.contact_id}`);
@@ -97,21 +97,19 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
   };
   if (ctx.dryRun) return { status: 'ok', output: { outreach }, eventIds: [] };
 
-  writeVault(deps.vaultDir, outreach.md_path as string, renderOutreachMd(id, text));
+  writeVault(deps, outreach.md_path as string, renderOutreachMd(id, text));
   const eventIds: string[] = [];
-  db.transaction(() => {
-    upsertOutreach(db, outreach, Boolean(prev));
-    eventIds.push(
-      emitEvent(deps, {
-        type: 'outreach_drafted',
-        subject_type: 'outreach',
-        subject_id: id,
-        payload: { contact_id: input.contact_id, role_id: input.role_id, tier: input.tier, redraft: Boolean(prev) },
-        actor: ctx.actor,
-        ts: ctx.now().toISOString(),
-      }),
-    );
-  })();
+  upsertOutreach(db, outreach, Boolean(prev));
+  eventIds.push(
+    emitEvent(deps, {
+      type: 'outreach_drafted',
+      subject_type: 'outreach',
+      subject_id: id,
+      payload: { contact_id: input.contact_id, role_id: input.role_id, tier: input.tier, redraft: Boolean(prev) },
+      actor: ctx.actor,
+      ts: ctx.now().toISOString(),
+    }),
+  );
   return { status: 'ok', output: { outreach }, eventIds };
 };
 
@@ -123,13 +121,13 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
 export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, ctx, deps) => {
   const parsed = outreachToGmail.input.safeParse(raw);
   if (!parsed.success) return err('invalid_input', 'outreach.to_gmail input', parsed.error.issues);
-  const { db } = deps;
+  const { repos: db } = deps;
   const o = getOutreach(db, parsed.data.outreach_id);
   if (!o) return err('not_found', `outreach ${parsed.data.outreach_id}`);
   if (o.gmail_draft_id && o.status !== 'drafted')
     return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id }, eventIds: [] };
   if (!o.md_path) return err('not_found', `outreach ${o.id} has no vault draft`);
-  const md = readVault(deps.vaultDir, o.md_path);
+  const md = readVault(deps, o.md_path);
   if (!md) return err('not_found', `vault draft ${o.md_path}`);
 
   const s = readOutreachSections(md);
@@ -175,12 +173,12 @@ export interface ComposeInput {
 
 /** Builds the DraftContext for a contact on a role from the db + Story + Voice. */
 export function draftContext(deps: PeopleDeps, contactId: string, roleId: string): DraftContext | { error: string } {
-  const contact = getContact(deps.db, contactId);
-  const role = getRole(deps.db, roleId);
-  const link = getLinkForRole(deps.db, contactId, roleId);
+  const contact = getContact(deps.repos, contactId);
+  const role = getRole(deps.repos, roleId);
+  const link = getLinkForRole(deps.repos, contactId, roleId);
   if (!contact || !role || !link) return { error: `contact ${contactId} is not linked to role ${roleId}` };
-  const company = getCompany(deps.db, role.company_id);
-  const via = link.via_contact_id ? getContact(deps.db, link.via_contact_id) : undefined;
+  const company = getCompany(deps.repos, role.company_id);
+  const via = link.via_contact_id ? getContact(deps.repos, link.via_contact_id) : undefined;
   const story = getComponent(deps, 'story') ?? { data: {}, text: '' };
   const voice = getComponent(deps, 'voice') ?? { data: {}, text: '' };
   return {

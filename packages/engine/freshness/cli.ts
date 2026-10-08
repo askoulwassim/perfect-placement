@@ -5,15 +5,14 @@
  *   node packages/engine/dist/freshness/cli.js dry-run --db <pp.db> --out <dir> [--limit N] [--delay-ms 1500]
  *   node packages/engine/dist/freshness/cli.js dry-run --v1 <pipeline.json> --out <dir> [--limit N]
  *
- * Reports name real roles, so --out must be outside this repo (enforced). Wave 2 folds this into `pp fresh --dry-run`.
+ * Reports name real roles, so --out must be outside this repo (enforced).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import { type Db, openDb } from '../db/connection.js';
 import { defaultFetch } from '../integrations/ats/index.js';
-import { backfillDryRun, memoryStore, rolesFromV1Pipeline } from './backfill.js';
-import { sqliteStore } from './sqlite-store.js';
+import { backfillDryRun, memoryStore, rolesFromDb, rolesFromV1Pipeline } from './backfill.js';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), import.meta.url.includes('/dist/') ? '../../../..' : '../../..');
 
@@ -37,15 +36,15 @@ async function main() {
 
   let store: ReturnType<typeof memoryStore>;
   let source: string;
-  let db: Database.Database | undefined;
+  let db: Db | undefined;
   const v1 = arg('v1');
   const dbPath = arg('db');
   if (v1) {
     store = memoryStore(rolesFromV1Pipeline(JSON.parse(readFileSync(v1, 'utf8'))));
     source = 'v1 pipeline.json';
   } else if (dbPath) {
-    db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    store = sqliteStore(db);
+    db = openDb(dbPath, { readonly: true });
+    store = memoryStore(rolesFromDb(db));
     source = 'pp.db (read-only)';
   } else {
     throw new Error('one of --db or --v1 is required');

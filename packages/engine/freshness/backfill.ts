@@ -1,4 +1,6 @@
 import { type AskFn, DEFAULT_CONFIG, FRESHNESS_SCOPE, type OpContext, type RoleStatus } from '@perfect-placement/contracts';
+import type { Db } from '../db/connection.js';
+import { repos } from '../db/repo.js';
 import { atsTypeOf, detectAts, type FetchLike } from '../integrations/ats/index.js';
 import { renderDryRunReport } from './report.js';
 import { checkFreshness, type FreshnessRun } from './run.js';
@@ -15,10 +17,33 @@ export function memoryStore(roles: ScopeRole[]): FreshnessStore {
     recordCheck: refuse,
     archiveClosed: refuse,
     emit: refuse,
-    attachDecisionAction: refuse,
     startRun: refuse,
     finishRun: refuse,
   };
+}
+
+/** Roles in FRESHNESS_SCOPE from a pp.db, read through lane A repositories (dry runs; open the db read-only). */
+export function rolesFromDb(db: Db): ScopeRole[] {
+  const R = repos(db);
+  const scope = FRESHNESS_SCOPE.map(() => '?').join(',');
+  return R.role.select(`status IN (${scope}) ORDER BY id`, [...FRESHNESS_SCOPE]).map((r) => {
+    const c = R.company.get(r.company_id);
+    return {
+      id: r.id,
+      title: r.title,
+      url: r.url,
+      status: r.status,
+      found_at: r.found_at,
+      posted_at: r.posted_at,
+      freshness: r.freshness,
+      last_checked_at: r.last_checked_at,
+      flags_json: r.flags_json,
+      company_id: r.company_id,
+      company_name: c?.name ?? r.company_id,
+      ats_type: c?.ats_type ?? null,
+      ats_board: c?.ats_board ?? null,
+    };
+  });
 }
 
 const slug = (s: string) =>

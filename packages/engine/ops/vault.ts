@@ -36,11 +36,15 @@ type Pending = { kind: 'write' | 'append'; path: string; content: string };
 
 /**
  * Vault writes staged during an op and flushed only after the db transaction commits,
- * so a failed or dry-run op leaves the vault untouched.
+ * so a failed or dry-run op leaves the vault untouched. A nested op (an op run from inside
+ * another op) stages into a child that merges into its parent on success.
  */
 export class VaultTx {
   private pending: Pending[] = [];
-  constructor(readonly home: string) {}
+  constructor(
+    readonly home: string,
+    private readonly parent?: VaultTx,
+  ) {}
 
   abs(rel: string): string {
     const parsed = VaultPath.safeParse(rel);
@@ -58,11 +62,14 @@ export class VaultTx {
     this.pending.push({ kind: 'append', path: rel, content });
   }
 
-  /** Current content, including staged writes. */
+  /** Current content, including staged writes (own and the parents'). */
   read(rel: string): string | null {
-    let base: string | null = null;
-    const abs = this.abs(rel);
-    if (existsSync(abs)) base = readFileSync(abs, 'utf8');
+    let base: string | null;
+    if (this.parent) base = this.parent.read(rel);
+    else {
+      const abs = this.abs(rel);
+      base = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    }
     for (const p of this.pending) {
       if (p.path !== rel) continue;
       base = p.kind === 'write' ? p.content : (base ?? '') + p.content;
@@ -74,7 +81,15 @@ export class VaultTx {
     return this.read(rel) !== null;
   }
 
+  /** Nested op succeeded: hand its staged writes to the parent. */
+  mergeIntoParent(): void {
+    if (!this.parent) throw new Error('top-level vault transaction has no parent');
+    this.parent.pending.push(...this.pending);
+    this.pending = [];
+  }
+
   flush(): void {
+    if (this.parent) throw new Error('a nested vault transaction never flushes; it merges into its parent');
     for (const p of this.pending) {
       const abs = this.abs(p.path);
       mkdirSync(dirname(abs), { recursive: true });

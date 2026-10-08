@@ -3,8 +3,11 @@ import {
   type ConfidenceBand,
   type Decision,
   type DecisionKind,
+  type HardHumanSubject,
   IMPACTS,
   type Impact,
+  isHardHuman,
+  type KindThresholds,
   POLICY_GRID,
   type PolicyConfig,
   type PolicyOutcome,
@@ -27,17 +30,33 @@ export function confidenceBand(p: number, t: Thresholds): ConfidenceBand {
 }
 
 /**
- * Pure grid lookup. `auto_second` means "auto only if a second backend agrees";
+ * Pure grid lookup (wave1-decisions #24). `auto_second` means "auto only if a second backend agrees";
  * the resolver turns it into `human` when the second opinion fails (see `finalOutcome`).
- * High impact is always `human`, whatever the thresholds say.
+ * Hard exclusions are not part of the grid: use `policyOutcome` for a full decision.
  */
 export function decide(answer: Pick<Answer, 'p'>, impact: Impact, thresholds: Thresholds): PolicyOutcome {
-  if (impact === 'high') return 'human';
   return POLICY_GRID[impact][confidenceBand(answer.p, thresholds)];
 }
 
+/**
+ * The full policy for one answer: hard exclusions (`isHardHuman`, never tunable) win, then the grid,
+ * then the per-kind `confident_outcome` override (plain `auto` on a confident answer becomes `auto_undo`).
+ */
+export function policyOutcome(
+  answer: Pick<Answer, 'p'>,
+  impact: Impact,
+  thresholds: KindThresholds,
+  hard: HardHumanSubject = {},
+): PolicyOutcome {
+  if (isHardHuman(hard)) return 'human';
+  const outcome = decide(answer, impact, thresholds);
+  if (outcome === 'auto' && thresholds.confident_outcome && confidenceBand(answer.p, thresholds) === 'confident')
+    return thresholds.confident_outcome;
+  return outcome;
+}
+
 /** Effective thresholds: base config, then the per-kind override, then a per-call override. */
-export function effectiveThresholds(config: PolicyConfig, kind: DecisionKind, perCall?: Partial<Thresholds>): Thresholds {
+export function effectiveThresholds(config: PolicyConfig, kind: DecisionKind, perCall?: Partial<Thresholds>): KindThresholds {
   return { ...thresholdsFor(config, kind), ...(perCall ?? {}) };
 }
 

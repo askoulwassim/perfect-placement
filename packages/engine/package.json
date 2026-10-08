@@ -11,9 +11,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./ops/testing": {
-      "types": "./dist/ops/_shim/testing.d.ts",
-      "default": "./dist/ops/_shim/testing.js"
+    "./testing": {
+      "types": "./testing/index.ts",
+      "default": "./testing/index.ts"
     }
   },
   "scripts": {
@@ -23,7 +23,8 @@
   "dependencies": {
     "@perfect-placement/contracts": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@perfect-placement/resolver": "workspace:*"
   },
   "devDependencies": {
     "@perfect-placement/fixtures": "workspace:*",

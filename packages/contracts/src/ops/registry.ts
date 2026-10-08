@@ -285,7 +285,7 @@ export const rolesScore = defineOp({
     criteria: z.record(Criterion, CriterionScore),
     facts: z.record(z.string(), z.unknown()),
     /** Rationale per criterion, kept in the role markdown, not the db. */
-    notes: z.record(Criterion, z.string()).optional(),
+    notes: z.partialRecord(Criterion, z.string()).optional(),
     /** Score under this profile version (Learn loop rescoring). Default: latest. */
     profile_version_id: Id.optional(),
   }),
@@ -514,7 +514,12 @@ export const peopleLink = defineOp({
 export const peopleClassify = defineOp({
   name: 'people.classify',
   description: 'Classify a contact relative to a role and set the tier.',
-  input: z.object({ contact_id: Id, role_id: Id }),
+  input: z.object({
+    contact_id: Id,
+    role_id: Id,
+    /** Set the classification directly (a human's pick from Needs you, via DecisionAction `$value`); skips the resolver. */
+    role: ContactRole.optional(),
+  }),
   /** `outcome`: whether the tier was applied (auto*) or waits in Needs you (human). A human accept runs `people.link` via DecisionAction. */
   output: z.object({ role: ContactRole, tier: ContactTier, p: z.number(), decision_id: Id, outcome: PolicyOutcome }),
   impact: 'low',

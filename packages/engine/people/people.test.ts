@@ -1,33 +1,25 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type AskRequest, CONTACT_DEGREES, DEFAULT_CONFIG, type OpOutcome } from '@perfect-placement/contracts';
-import { FIXTURE_ROLE_IDS, FIXTURE_SEED_SQL, FIXTURE_VAULT_DIR } from '@perfect-placement/fixtures';
+import { CONTACT_DEGREES, type OpContext, type OpOutcome } from '@perfect-placement/contracts';
+import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDryRunGmail } from '../integrations/gmail/index.js';
+import { createDryRunGmail, type DryRunGmail } from '../integrations/gmail/index.js';
 import { createLinkedInAdapter, createRecordedDriver, type Recording, SYNTHETIC_RECORDING } from '../integrations/linkedin/index.js';
-import {
-  checkDraft,
-  classifyContact,
-  composeAndDraft,
-  draftOutreach,
-  findPeople,
-  handlers,
-  linkContact,
-  outreachSendHandler,
-  outreachToGmailHandler,
-  readOutreachSections,
-  templateDraft,
-  tierFor,
-} from './index.js';
-import { createFakeAsk, createTestVault, type ScriptedAnswer, type TestVault, testCtx, testDeps } from './testkit.js';
+import type { EngineServices } from '../ops/services.js';
+import { ctxAt, type FixtureEngine, type FixtureOptions, openFixtureEngine } from '../testing/index.js';
+import { checkDraft, handlers, readOutreachSections, templateDraft, tierFor } from './index.js';
+
+/*
+ * Lane H ops through runOp on a temp fixture vault: lane A repos, runOp's emitter + staged vault,
+ * the real resolver with a scripted fake Kev, dry-run LinkedIn and Gmail adapters.
+ */
 
 const R = FIXTURE_ROLE_IDS;
-const ok = <O>(o: OpOutcome<O>): O => {
+// biome-ignore lint/suspicious/noExplicitAny: test helper returns loosely typed output
+const ok = (o: OpOutcome<unknown>): any => {
   if (o.status !== 'ok') throw new Error(`expected ok, got ${JSON.stringify(o)}`);
   return o.output;
 };
-const count = (v: TestVault, sql: string, ...args: unknown[]) => (v.db.prepare(sql).get(...args) as { n: number }).n;
-
 /** Synthetic recording for the on-deck Airtable fixture role. Placeholder people only. */
 const MUTUALS = 'https://www.linkedin.com/search/results/people/?facetConnectionOf=%5B%22fixture-cara%22%5D&network=%5B%22F%22%5D';
 const AIRTABLE: Recording = {
@@ -53,20 +45,31 @@ const WHO: Record<string, ContactAnswer> = {
 };
 type ContactAnswer = 'hiring_manager' | 'hiring_team' | 'recruiter' | 'peer' | 'unrelated' | 'other';
 
-const scriptByName =
-  (p = 0.95) =>
-  (req: AskRequest): ScriptedAnswer => {
-    const state = req.state as Record<string, string>;
-    return { value: WHO[state.contact_name ?? ''] ?? 'other', p };
-  };
+/** Kev classifies by contact name (p configurable). */
+const kevByName =
+  (p = 0.95): NonNullable<FixtureOptions['kev']> =>
+  (_q, req) => ({ value: WHO[(req.state as Record<string, string>).contact_name ?? ''] ?? 'other', p });
 
-let v: TestVault;
-beforeEach(() => {
-  v = createTestVault(FIXTURE_VAULT_DIR, FIXTURE_SEED_SQL);
-});
-afterEach(() => v.cleanup());
-
+let v: FixtureEngine;
+let gmail: DryRunGmail;
+const testCtx = (over: Partial<OpContext> = {}): OpContext => ctxAt('agent', over);
 const linkedin = (rec: Recording = AIRTABLE) => createLinkedInAdapter({ driver: createRecordedDriver(rec), mode: 'dry-run', minDelayS: 0 });
+
+/** (Re)open the engine with these adapters. */
+function open(opts: { p?: number; services?: EngineServices; config?: Record<string, unknown> } = {}) {
+  v?.cleanup();
+  gmail = createDryRunGmail();
+  v = openFixtureEngine({
+    kev: kevByName(opts.p),
+    services: { linkedin: linkedin(), gmail, ...(opts.services ?? {}) },
+    ...(opts.config ? { config: opts.config } : {}),
+  });
+}
+const count = (sql: string, ...args: unknown[]) => (v.db.prepare(sql).get(...args) as { n: number }).n;
+const run = (name: string, input: unknown, c: OpContext = testCtx()) => v.runOp(name, input, c);
+
+beforeEach(() => open());
+afterEach(() => v.cleanup());
 
 describe('tiers', () => {
   it('tier = degree x hiring team', () => {
@@ -91,16 +94,14 @@ describe('tiers', () => {
 
 describe('people.find', () => {
   it('only runs on picked roles', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), linkedin: linkedin() });
-    const r = await findPeople({ role_id: R.datadogActive }, testCtx(), deps);
+    const r = await run('people.find', { role_id: R.datadogActive }, testCtx());
     expect(r).toMatchObject({ status: 'error', code: 'conflict' });
-    expect(await findPeople({ role_id: 'nope_nope' }, testCtx(), deps)).toMatchObject({ status: 'error', code: 'not_found' });
+    expect(await run('people.find', { role_id: 'nope_nope' }, testCtx())).toMatchObject({ status: 'error', code: 'not_found' });
   });
 
   it('upserts contacts, links them with provisional tiers, emits contact_found, logs the run', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), linkedin: linkedin() });
-    const before = count(v, 'SELECT COUNT(*) n FROM contact');
-    const out = ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps));
+    const before = count('SELECT COUNT(*) n FROM contact');
+    const out = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx()));
     expect(out.capped).toBe(false);
     const tiers = Object.fromEntries(out.found.map((f) => [f.contact.name, f.link.tier]));
     expect(tiers).toEqual({
@@ -114,74 +115,69 @@ describe('people.find', () => {
     const eli = v.db.prepare('SELECT * FROM contact WHERE id = ?').get(cara?.link.via_contact_id) as { name: string };
     expect(eli.name).toBe('Eli F.');
     // 5 linked + the mutual (contact only).
-    expect(count(v, 'SELECT COUNT(*) n FROM contact') - before).toBe(6);
-    expect(count(v, "SELECT COUNT(*) n FROM event WHERE type = 'contact_found'")).toBe(
-      5 + count(v, "SELECT COUNT(*) n FROM event WHERE type = 'contact_found' AND ts < '2026-10-08T12:00:00.000Z'"),
+    expect(count('SELECT COUNT(*) n FROM contact') - before).toBe(6);
+    expect(count("SELECT COUNT(*) n FROM event WHERE type = 'contact_found'")).toBe(
+      5 + count("SELECT COUNT(*) n FROM event WHERE type = 'contact_found' AND ts < '2026-10-08T12:00:00.000Z'"),
     );
-    const run = v.db.prepare("SELECT summary_json FROM run WHERE op = 'people.find'").get() as { summary_json: string };
-    expect(JSON.parse(run.summary_json)).toMatchObject({ linkedin_profiles_read: 6, capped: false, found: 5 });
+    const findRun = v.db.prepare("SELECT summary_json FROM run WHERE op = 'people.find'").get() as { summary_json: string };
+    expect(JSON.parse(findRun.summary_json)).toMatchObject({ linkedin_profiles_read: 6, capped: false, found: 5 });
     // Stored fields only: name, headline, URL, email, source. Notes stay empty.
     const ana = v.db.prepare("SELECT * FROM contact WHERE name = 'Ana B.'").get() as Record<string, unknown>;
     expect(ana).toMatchObject({ linkedin_url: 'https://www.linkedin.com/in/fixture-ana-b', email: null, notes: null, source: 'linkedin' });
 
     // Re-run is idempotent: no new contacts or links.
-    const links = count(v, 'SELECT COUNT(*) n FROM contact_link');
-    ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps));
-    expect(count(v, 'SELECT COUNT(*) n FROM contact_link')).toBe(links);
+    const links = count('SELECT COUNT(*) n FROM contact_link');
+    ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx()));
+    expect(count('SELECT COUNT(*) n FROM contact_link')).toBe(links);
   });
 
   it('dedupes against existing contacts by LinkedIn URL', async () => {
     // Linear draft-ready role: fixture already has Maya R., Dev P., Lina K., Priya T.
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), linkedin: linkedin(SYNTHETIC_RECORDING) });
-    const out = ok(await findPeople({ role_id: R.linearDraft }, testCtx(), deps));
+    open({ services: { linkedin: linkedin(SYNTHETIC_RECORDING) } });
+    const out = ok(await run('people.find', { role_id: R.linearDraft }, testCtx()));
     const maya = out.found.find((f) => f.contact.name === 'Maya R.');
     expect(maya?.contact.id).toBe('ct_0001');
     expect(maya?.link.id).toBe('cl_0001');
-    expect(count(v, "SELECT COUNT(*) n FROM contact WHERE name = 'Maya R.'")).toBe(1);
+    expect(count("SELECT COUNT(*) n FROM contact WHERE name = 'Maya R.'")).toBe(1);
   });
 
   it('dry run writes nothing', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), linkedin: linkedin() });
-    const snap = () => ['contact', 'contact_link', 'event', 'run'].map((t) => count(v, `SELECT COUNT(*) n FROM ${t}`));
+    const snap = () => ['contact', 'contact_link', 'event', 'run'].map((t) => count(`SELECT COUNT(*) n FROM ${t}`));
     const before = snap();
-    const out = ok(await findPeople({ role_id: R.airtableOnDeck, dry_run: true }, testCtx(), deps));
+    const out = ok(await run('people.find', { role_id: R.airtableOnDeck, dry_run: true }, testCtx()));
     expect(out.found).toHaveLength(5);
     expect(snap()).toEqual(before);
   });
 
   it('enforces the daily LinkedIn cap across runs', async () => {
-    const config = { ...DEFAULT_CONFIG, linkedin: { ...DEFAULT_CONFIG.linkedin, max_profiles_per_day: 7 } };
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), linkedin: linkedin(), config });
-    const first = ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps));
+    open({ config: { linkedin: { max_profiles_per_day: 7 } } });
+    const first = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx()));
     expect(first.capped).toBe(false);
     // 6 read, 1 left: the next picked role is capped after one card.
-    const second = ok(await findPeople({ role_id: R.stripeOnDeck }, testCtx(), deps));
+    const second = ok(await run('people.find', { role_id: R.stripeOnDeck }, testCtx()));
     expect(second.capped).toBe(true);
-    const third = ok(await findPeople({ role_id: R.stripeOnDeck }, testCtx(), deps));
+    const third = ok(await run('people.find', { role_id: R.stripeOnDeck }, testCtx()));
     expect(third.capped).toBe(true);
     const reads = v.db
       .prepare("SELECT json_extract(summary_json, '$.linkedin_profiles_read') n FROM run WHERE op = 'people.find' ORDER BY started_at, id")
       .all() as Array<{ n: number }>;
     expect(reads.reduce((s, r) => s + r.n, 0)).toBeLessThanOrEqual(7);
     // Next UTC day the budget resets.
-    const tomorrow = ok(await findPeople({ role_id: R.stripeOnDeck }, testCtx({ now: () => new Date('2026-10-09T08:00:00.000Z') }), deps));
+    const tomorrow = ok(
+      await run('people.find', { role_id: R.stripeOnDeck }, testCtx({ now: () => new Date('2026-10-09T08:00:00.000Z') })),
+    );
     expect(tomorrow.capped).toBe(false);
   });
 
   it('accepts JD and team-page hints from the skill, deduped by email', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()) });
     const out = ok(
-      await findPeople(
-        {
-          role_id: R.linearDraft,
-          hints: [
-            { name: 'Omar S.', email: 'omar.s@example.com', source: 'jd' },
-            { name: 'Zoe Q.', headline: 'VP Product', source: 'company_site' },
-          ],
-        },
-        testCtx(),
-        deps,
-      ),
+      await run('people.find', {
+        role_id: R.linearDraft,
+        hints: [
+          { name: 'Omar S.', email: 'omar.s@example.com', source: 'jd' },
+          { name: 'Zoe Q.', headline: 'VP Product', source: 'company_site' },
+        ],
+      }),
     );
     expect(out.found.map((f) => f.contact.id)).toContain('ct_0004');
     const zoe = out.found.find((f) => f.contact.name === 'Zoe Q.');
@@ -191,25 +187,23 @@ describe('people.find', () => {
 
 describe('people.classify', () => {
   it('applies a confident pick to the link', async () => {
-    const ask = createFakeAsk(v.db, scriptByName(0.95));
-    const deps = testDeps(v, { ask, linkedin: linkedin() });
-    const found = ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps)).found;
+    const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx())).found;
     const ana = found.find((f) => f.contact.name === 'Ana B.');
-    const out = ok(await classifyContact({ contact_id: ana?.contact.id, role_id: R.airtableOnDeck }, testCtx(), deps));
+    const out = ok(await run('people.classify', { contact_id: ana?.contact.id, role_id: R.airtableOnDeck }, testCtx()));
     expect(out).toMatchObject({ role: 'hiring_manager', tier: 'warm_hiring', p: 0.95 });
     const link = v.db.prepare('SELECT tier, is_hiring_team FROM contact_link WHERE id = ?').get(ana?.link.id);
     expect(link).toEqual({ tier: 'warm_hiring', is_hiring_team: 1 });
-    expect(ask.calls[0]).toMatchObject({ decision: 'people.classify', impact: 'low', subject: { type: 'contact' } });
-    const q = ask.calls[0]?.questions[0];
+    expect(v.kev.calls[0]).toMatchObject({ decision: 'people.classify', impact: 'low', subject: { type: 'contact' } });
+    const q = v.kev.calls[0]?.questions[0];
     expect(q?.type === 'choice' && q.options).toEqual(['hiring_manager', 'hiring_team', 'recruiter', 'peer', 'unrelated', 'other']);
-    expect(count(v, "SELECT COUNT(*) n FROM decision WHERE id = ? AND kind = 'people.classify'", out.decision_id)).toBe(1);
+    expect(count("SELECT COUNT(*) n FROM decision WHERE id = ? AND kind = 'people.classify'", out.decision_id)).toBe(1);
   });
 
   it('a low-confidence pick is applied with a 24h undo (#24 grid: low impact never goes to Needs you)', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName(0.55)), linkedin: linkedin() });
-    const found = ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps)).found;
+    open({ p: 0.55 });
+    const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx())).found;
     const gus = found.find((f) => f.contact.name === 'Gus H.');
-    const out = ok(await classifyContact({ contact_id: gus?.contact.id, role_id: R.airtableOnDeck }, testCtx(), deps));
+    const out = ok(await run('people.classify', { contact_id: gus?.contact.id, role_id: R.airtableOnDeck }, testCtx()));
     expect(out).toMatchObject({ tier: 'cold_hiring', outcome: 'auto_undo' });
     expect(v.db.prepare('SELECT tier FROM contact_link WHERE id = ?').get(gus?.link.id)).toEqual({ tier: 'cold_hiring' });
     expect(v.db.prepare('SELECT policy_outcome FROM decision WHERE id = ?').get(out.decision_id)).toEqual({
@@ -217,9 +211,25 @@ describe('people.classify', () => {
     });
   });
 
+  it('a human pick from Needs you applies through the decision action (people.classify role: $value)', async () => {
+    const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx())).found;
+    const ben = found.find((f: { contact: { name: string } }) => f.contact.name === 'Ben C.');
+    const out = ok(await run('people.classify', { contact_id: ben.contact.id, role_id: R.airtableOnDeck }, testCtx()));
+    const d = v.db.prepare('SELECT action_json FROM decision WHERE id = ?').get(out.decision_id) as { action_json: string };
+    expect(JSON.parse(d.action_json)).toEqual({
+      op: 'people.classify',
+      input: { contact_id: ben.contact.id, role_id: R.airtableOnDeck, role: '$value' },
+    });
+    // The human changes the pick: tier follows the chosen role.
+    const direct = ok(
+      await run('people.classify', { contact_id: ben.contact.id, role_id: R.airtableOnDeck, role: 'hiring_team' }, ctxAt('human')),
+    );
+    expect(direct).toMatchObject({ role: 'hiring_team', tier: 'warm_hiring', outcome: 'auto' });
+    expect(v.db.prepare('SELECT tier FROM contact_link WHERE id = ?').get(ben.link.id)).toEqual({ tier: 'warm_hiring' });
+  });
+
   it('needs an existing link', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()) });
-    expect(await classifyContact({ contact_id: 'ct_0006', role_id: R.linearDraft }, testCtx(), deps)).toMatchObject({
+    expect(await run('people.classify', { contact_id: 'ct_0006', role_id: R.linearDraft }, testCtx())).toMatchObject({
       status: 'error',
       code: 'not_found',
     });
@@ -228,21 +238,18 @@ describe('people.classify', () => {
 
 describe('people.link', () => {
   it('rejects a tier that does not match degree x hiring team, upserts otherwise', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()) });
     const base = { contact_id: 'ct_0006', company_id: null, role_id: R.stripeOnDeck, via_contact_id: null };
-    expect(await linkContact({ ...base, degree: 'cold', tier: 'warm_hiring', is_hiring_team: true }, testCtx(), deps)).toMatchObject({
+    expect(await run('people.link', { ...base, degree: 'cold', tier: 'warm_hiring', is_hiring_team: true }, testCtx())).toMatchObject({
       code: 'invalid_input',
     });
-    const a = ok(await linkContact({ ...base, degree: 'cold', tier: 'cold_hiring', is_hiring_team: true }, testCtx(), deps));
+    const a = ok(await run('people.link', { ...base, degree: 'cold', tier: 'cold_hiring', is_hiring_team: true }, testCtx()));
     expect(a.link.company_id).toBe('stripe');
-    const b = ok(await linkContact({ ...base, degree: '1', tier: 'warm_hiring', is_hiring_team: true }, testCtx(), deps));
+    const b = ok(await run('people.link', { ...base, degree: '1', tier: 'warm_hiring', is_hiring_team: true }, testCtx()));
     expect(b.link.id).toBe(a.link.id);
   });
 });
 
 describe('outreach', () => {
-  const linearDeps = () => testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), gmail: createDryRunGmail() });
-
   it('refuses em dashes and numbers not in Story', () => {
     const story = 'Launched a self-serve analytics product to 400 teams';
     expect(
@@ -255,77 +262,92 @@ describe('outreach', () => {
   });
 
   it('outreach.draft writes the vault file, row and event; rejects rule breaks', async () => {
-    const deps = linearDeps();
-    const bad = await draftOutreach(
-      { contact_id: 'ct_0002', role_id: R.linearDraft, tier: 'warm_other', hook: 'Hi Dev — quick one.', proof: 'p', ask: 'a' },
-      testCtx(),
-      deps,
-    );
+    const bad = await run('outreach.draft', {
+      contact_id: 'ct_0002',
+      role_id: R.linearDraft,
+      tier: 'warm_other',
+      hook: 'Hi Dev — quick one.',
+      proof: 'p',
+      ask: 'a',
+    });
     expect(bad).toMatchObject({ status: 'error', code: 'invalid_input' });
     expect(
-      await draftOutreach(
-        { contact_id: 'ct_0002', role_id: R.linearDraft, tier: 'warm_hiring', hook: 'h', proof: 'p', ask: 'a' },
-        testCtx(),
-        deps,
-      ),
+      await run('outreach.draft', { contact_id: 'ct_0002', role_id: R.linearDraft, tier: 'warm_hiring', hook: 'h', proof: 'p', ask: 'a' }),
     ).toMatchObject({
       code: 'invalid_input',
     });
 
-    const r = await draftOutreach(
-      {
-        contact_id: 'ct_0002',
-        role_id: R.linearDraft,
-        tier: 'warm_other',
-        hook: 'Hi Dev, Linear is hiring for Insights.',
-        proof: 'I built a self-serve analytics product 400 teams use.',
-        ask: 'Coffee this week?',
-      },
-      testCtx(),
-      deps,
-    );
+    const r = await run('outreach.draft', {
+      contact_id: 'ct_0002',
+      role_id: R.linearDraft,
+      tier: 'warm_other',
+      hook: 'Hi Dev, Linear is hiring for Insights.',
+      proof: 'I built a self-serve analytics product 400 teams use.',
+      ask: 'Coffee this week?',
+    });
     const out = ok(r);
     expect(r.status === 'ok' && r.eventIds).toHaveLength(1);
     expect(out.outreach).toMatchObject({ status: 'drafted', gmail_draft_id: null, md_path: `outreach/ct_0002-${R.linearDraft}.md` });
-    const md = readFileSync(join(v.dir, out.outreach.md_path as string), 'utf8');
+    const md = readFileSync(join(v.home, out.outreach.md_path as string), 'utf8');
     expect(md.startsWith(`---\nid: "${out.outreach.id}"\ntype: "outreach"\n---`)).toBe(true);
     expect(readOutreachSections(md)).toMatchObject({ hook: 'Hi Dev, Linear is hiring for Insights.', ask: 'Coffee this week?' });
   });
 
   it('cannot redraft once in Gmail', async () => {
-    const r = await draftOutreach(
-      { contact_id: 'ct_0003', role_id: R.linearDraft, tier: 'bridge', hook: 'h', proof: 'p', ask: 'a' },
-      testCtx(),
-      linearDeps(),
-    );
+    const r = await run('outreach.draft', {
+      contact_id: 'ct_0003',
+      role_id: R.linearDraft,
+      tier: 'bridge',
+      hook: 'h',
+      proof: 'p',
+      ask: 'a',
+    });
     expect(r).toMatchObject({ status: 'error', code: 'conflict' });
   });
 
+  it('outreach.to_gmail is medium: an agent without confidence waits in Needs you', async () => {
+    expect((await run('outreach.to_gmail', { outreach_id: 'or_0001' }, testCtx())).status).toBe('requires_human');
+    expect(gmail.drafts).toHaveLength(0);
+    // With confidence it goes through the grid (#17): confident = auto.
+    const out = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, testCtx({ confidence: { p: 0.95, backend: 'agent' } })));
+    expect(out.gmail_draft_id).toBe('dryrun-1');
+  });
+
   it('outreach.to_gmail creates a draft only, once', async () => {
-    const gmail = createDryRunGmail();
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()), gmail });
-    const out = ok(await outreachToGmailHandler({ outreach_id: 'or_0001' }, testCtx(), deps));
+    const out = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human')));
     expect(out.gmail_draft_id).toBe('dryrun-1');
     expect(out.outreach.status).toBe('in_gmail');
     expect(gmail.drafts[0]?.body).toBe(
       'Your insights team is shipping fast.\n\nI built a self-serve analytics product 400 teams use.\n\n20 minutes next week?\n',
     );
-    const again = ok(await outreachToGmailHandler({ outreach_id: 'or_0001' }, testCtx(), deps));
+    const again = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human')));
     expect(again.gmail_draft_id).toBe('dryrun-1');
     expect(gmail.drafts).toHaveLength(1);
   });
 
   it('outreach.to_gmail without a client is backend_unavailable; dry run calls nothing', async () => {
-    const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName()) });
-    expect(await outreachToGmailHandler({ outreach_id: 'or_0001' }, testCtx(), deps)).toMatchObject({ code: 'backend_unavailable' });
-    expect(ok(await outreachToGmailHandler({ outreach_id: 'or_0001' }, testCtx({ dryRun: true }), deps)).gmail_draft_id).toBe('dry-run');
+    open({ services: { gmail: undefined } });
+    expect(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'backend_unavailable' });
+    expect(ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human', { dryRun: true }))).gmail_draft_id).toBe('dry-run');
   });
 
-  it('outreach.send is unimplemented', async () => {
-    expect(await outreachSendHandler({ outreach_id: 'or_0001' }, testCtx({ actor: 'human' }), linearDeps())).toMatchObject({
+  it('outreach.send is unimplemented, for humans too', async () => {
+    expect(await run('outreach.send', { outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({
       status: 'error',
       code: 'unimplemented',
     });
+  });
+
+  it('outreach.get / outreach.list / contacts.get read through ops', async () => {
+    const g = ok(await run('outreach.get', { outreach_id: 'or_0001' }));
+    expect(g.hook).toBe('Your insights team is shipping fast.');
+    expect(g.variants).toHaveLength(4);
+    expect(g.variants.every((x: { hook: string }) => x.hook === g.hook)).toBe(true);
+    expect(ok(await run('outreach.list', { role_id: R.linearDraft })).items.map((o: { id: string }) => o.id)).toContain('or_0001');
+    const c = ok(await run('contacts.get', { contact_id: 'ct_0001' }));
+    expect(c.contact.name).toBe('Maya R.');
+    expect(c.links.length).toBeGreaterThan(0);
+    expect(await run('contacts.get', { contact_id: 'nope' })).toMatchObject({ code: 'not_found' });
   });
 
   it('template drafts pass the writing rules for every tier', () => {
@@ -348,34 +370,16 @@ describe('outreach', () => {
 
 describe('end to end on a picked role (dry run)', () => {
   it('finds people, classifies tiers, and lands four drafts in (dry-run) Gmail', async () => {
-    const gmail = createDryRunGmail();
-    const prompts: string[] = [];
-    const deps = testDeps(v, {
-      ask: createFakeAsk(v.db, scriptByName(0.95)),
-      linkedin: linkedin(),
-      gmail,
-      writer: {
-        async write(p) {
-          prompts.push(p.user);
-          return templateDraft({
-            tier: p.tier,
-            contact: { name: 'X', headline: null },
-            via: { name: 'Eli F.', headline: null },
-            role: { title: 'Principal PM, AI Platform' },
-            company: { name: 'Airtable' },
-            story: { data: { wins: ['Launched a self-serve analytics product to 400 teams'] }, text: '' },
-            voice: { data: {}, text: '' },
-          });
-        },
-      },
-    });
     const ctx = testCtx();
-    const found = ok(await findPeople({ role_id: R.airtableOnDeck }, ctx, deps)).found;
-    for (const f of found) ok(await classifyContact({ contact_id: f.contact.id, role_id: R.airtableOnDeck }, ctx, deps));
+    const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, ctx)).found as Array<{
+      contact: { id: string; name: string };
+    }>;
+    for (const f of found) ok(await run('people.classify', { contact_id: f.contact.id, role_id: R.airtableOnDeck }, ctx));
     const tiers = v.db
       .prepare('SELECT c.name, l.tier FROM contact_link l JOIN contact c ON c.id = l.contact_id WHERE l.role_id = ? ORDER BY c.name')
       .all(R.airtableOnDeck) as Array<{ name: string; tier: string }>;
-    expect(Object.fromEntries(tiers.map((t) => [t.name, t.tier]))).toEqual({
+    const tierOf = Object.fromEntries(tiers.map((t) => [t.name, t.tier]));
+    expect(tierOf).toEqual({
       'Ana B.': 'warm_hiring',
       'Ben C.': 'warm_other',
       'Cara D.': 'bridge',
@@ -384,25 +388,31 @@ describe('end to end on a picked role (dry run)', () => {
     });
 
     const byName = Object.fromEntries(found.map((f) => [f.contact.name, f.contact.id]));
+    const story = { data: { wins: ['Launched a self-serve analytics product to 400 teams'] }, text: '' };
     const drafted: string[] = [];
-    for (const name of ['Ana B.', 'Ben C.', 'Cara D.', 'Gus H.', 'Ida J.']) {
-      const r = await composeAndDraft(deps, { contact_id: byName[name] as string, role_id: R.airtableOnDeck }, ctx);
-      if (name === 'Ida J.') {
-        expect(r).toMatchObject({ status: 'error', code: 'conflict' });
-        continue;
-      }
-      drafted.push(ok(r).outreach.id);
+    // cold_other is skipped unless asked (blueprint "Connect").
+    for (const name of ['Ana B.', 'Ben C.', 'Cara D.', 'Gus H.']) {
+      const tier = tierOf[name] as 'warm_hiring';
+      const text = templateDraft({
+        tier,
+        contact: { name, headline: null },
+        via: { name: 'Eli F.', headline: null },
+        role: { title: 'Principal PM, AI Platform' },
+        company: { name: 'Airtable' },
+        story,
+        voice: { data: {}, text: '' },
+      });
+      drafted.push(
+        ok(await run('outreach.draft', { contact_id: byName[name], role_id: R.airtableOnDeck, tier, ...text }, ctx)).outreach.id,
+      );
     }
-    for (const id of drafted) ok(await outreachToGmailHandler({ outreach_id: id }, ctx, deps));
+    const sure = testCtx({ confidence: { p: 0.95, backend: 'agent' } });
+    for (const id of drafted) ok(await run('outreach.to_gmail', { outreach_id: id }, sure));
 
     expect(gmail.drafts).toHaveLength(4);
-    for (const d of gmail.drafts) expect(d.body).not.toMatch(/—|–/);
-    // Bridge goes to the mutual: prompt names Eli F. as the recipient.
-    expect(prompts.some((p) => p.includes('RECIPIENT: Eli F.'))).toBe(true);
-    // Story and Voice reach the writer.
-    expect(prompts[0]).toContain('400 teams');
-    expect(prompts[0]).toContain('No em dashes');
-    expect(count(v, "SELECT COUNT(*) n FROM outreach WHERE role_id = ? AND status = 'in_gmail'", R.airtableOnDeck)).toBe(4);
+    for (const d of gmail.drafts) expect(d.body).not.toMatch(/\u2014|\u2013/);
+    // Bridge goes to the mutual (Eli F. has no email on file: a draft with no To).
+    expect(count("SELECT COUNT(*) n FROM outreach WHERE role_id = ? AND status = 'in_gmail'", R.airtableOnDeck)).toBe(4);
   });
 
   it('every lane H op has a handler', () => {

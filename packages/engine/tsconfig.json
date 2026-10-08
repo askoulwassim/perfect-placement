@@ -5,5 +5,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["index.ts", "db", "ops", "status", "profile", "scoring", "freshness", "people", "integrations"]
+  "include": ["index.ts", "db", "ops", "status", "profile", "scoring", "freshness", "people", "integrations", "testing"]
 }

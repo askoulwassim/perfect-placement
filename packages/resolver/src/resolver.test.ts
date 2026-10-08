@@ -7,11 +7,13 @@ import {
   type PolicyConfig,
 } from '@perfect-placement/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createAgentBackend } from './backends/agent.js';
 import { createRuleBackend } from './backends/rule.js';
+import { backendsFromConfig } from './config.js';
 import { BackendUnavailableError } from './errors.js';
 import { type BackendMap, createResolver } from './resolver.js';
-import { createSqliteDecisionStore, type DecisionStore } from './store.js';
-import { fakeRunOp, tempDb } from './test-helpers.js';
+import type { DecisionStore } from './store.js';
+import { createSqliteDecisionStore, fakeRunOp, tempDb } from './test-helpers.js';
 
 const NOW = new Date('2026-10-08T12:00:00.000Z');
 
@@ -132,6 +134,75 @@ describe('routing and fallback', () => {
     const llm = stub('llm', () => ({ value: 'peer', p: 0.95 }));
     expect((await resolver({ jev, llm }).ask({ ...WHO_Q, backend: 'llm' })).backend).toBe('llm');
     expect(jev.calls).toBe(0);
+  });
+});
+
+describe('default routing: rule -> Kev -> agent -> human (wave1-decisions #9)', () => {
+  const kevOnly = () => createResolver({ config: DEFAULT_CONFIG, backends: {}, store, now: () => NOW, newId: () => `dc_a${++n}` });
+  it('Kev down, agent attached with an answer: the agent answer is logged', async () => {
+    const r = createResolver({
+      config: DEFAULT_CONFIG,
+      backends: { kev: stub('kev', 'down'), agent: createAgentBackend({ confidence: { p: 0.95 } }) },
+      store,
+      now: () => NOW,
+      newId: () => `dc_a${++n}`,
+    });
+    expect(r.route(OPEN_Q)).toEqual(['kev', 'agent']);
+    const res = await r.ask(OPEN_Q);
+    expect(res.backend).toBe('agent');
+    expect(res.answers[0]).toMatchObject({ value: true, p: 0.95 });
+  });
+  it('Kev down, agent attached without an answer: yields to a human', async () => {
+    const r = createResolver({
+      config: DEFAULT_CONFIG,
+      backends: { kev: stub('kev', 'down'), agent: createAgentBackend({}) },
+      store,
+      now: () => NOW,
+    });
+    const res = await r.ask(WHO_M);
+    expect(res.backend).toBe('human');
+    expect(res.outcomes).toEqual(['human']);
+  });
+  it('no backends at all: human', async () => {
+    expect((await kevOnly().ask(OPEN_Q)).backend).toBe('human');
+  });
+  it('Jev and the API adapter only when enabled', () => {
+    const env = { JEV_API_KEY: 'k', ANTHROPIC_API_KEY: 'k' };
+    expect(Object.keys(backendsFromConfig(DEFAULT_CONFIG, { env })).sort()).toEqual(['kev', 'rule']);
+    const on = {
+      ...DEFAULT_CONFIG,
+      backends: {
+        ...DEFAULT_CONFIG.backends,
+        jev: { ...DEFAULT_CONFIG.backends.jev, enabled: true },
+        llm: { provider: 'anthropic' as const, enabled: true },
+      },
+    };
+    expect(Object.keys(backendsFromConfig(on, { env, agent: {} })).sort()).toEqual(['agent', 'jev', 'kev', 'llm', 'rule']);
+  });
+  it('second opinion comes from the attached agent', async () => {
+    const r = createResolver({
+      config: DEFAULT_CONFIG,
+      backends: {
+        kev: stub('kev', () => ({ value: 'peer', p: 0.8 })),
+        agent: createAgentBackend({ answers: { who: { value: 'peer', p: 0.85 } } }),
+      },
+      store,
+      now: () => NOW,
+    });
+    const res = await r.ask(WHO_M);
+    expect(res.outcomes).toEqual(['auto_second']);
+    expect(store.get(res.decisionIds[0] as string)?.answer_json).toMatchObject({ second: { backend: 'agent', value: 'peer' } });
+  });
+  it('a hard-exclusion hint forces a human', async () => {
+    const r = createResolver({
+      config: DEFAULT_CONFIG,
+      backends: { kev: stub('kev', () => ({ value: true, p: 0.99 })) },
+      store,
+      now: () => NOW,
+      hardHuman: () => ({ component: 'dealbreakers' }),
+    });
+    const res = await r.ask({ ...OPEN_Q, decision: 'profile.apply_diff', impact: 'high' });
+    expect(res.outcomes).toEqual(['human']);
   });
 });
 
@@ -317,10 +388,23 @@ describe('record (externally judged answers)', () => {
       answer: { id: 'class', value: 'confirmation', p: 0.95 },
       action: { op: 'roles.move', input: { role_id: 'notion_staff-pm', to: 'applied' } },
     });
-    expect(res.outcome).toBe('auto');
+    // inbox.classify carries confident_outcome auto_undo in DEFAULT_CONFIG (wave1-decisions #16).
+    expect(res.outcome).toBe('auto_undo');
     expect(kev.calls).toBe(0);
     expect(runOp.calls).toHaveLength(1);
     expect(store.get(res.decisionId)).toMatchObject({ backend: 'agent', status: 'applied', kind: 'inbox.classify' });
+  });
+
+  it('forceHuman queues whatever the p; hard exclusions too', async () => {
+    const a = await resolver({}).record({ ...base, answer: { id: 'class', value: 'confirmation', p: 0.99 } }, { forceHuman: true });
+    expect(a.outcome).toBe('human');
+    const b = await resolver({}).record({
+      ...base,
+      decision: 'other',
+      answer: { id: 'class', value: true, p: 0.99 },
+      action: { op: 'outreach.send', input: {} },
+    });
+    expect(b.outcome).toBe('human');
   });
 
   it('middle confidence on medium impact has no second opinion: human', async () => {

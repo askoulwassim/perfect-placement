@@ -3,6 +3,7 @@ import type { AskRequest, AskResult, Resolver } from '@perfect-placement/contrac
 export const OWNER_LANE = 'I' as const;
 
 export * from './actions.js';
+export * from './backends/agent.js';
 export * from './backends/human.js';
 export * from './backends/llm.js';
 export * from './backends/rule.js';

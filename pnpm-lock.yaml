@@ -82,6 +82,9 @@ importers:
       '@perfect-placement/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@perfect-placement/resolver':
+        specifier: workspace:*
+        version: link:../resolver
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3

@@ -7,6 +7,12 @@
   "overrides": {
     "freshness.closed": {
       "auto": 0.92
+    },
+    "profile.apply_diff": {
+      "confident_outcome": "auto_undo"
+    },
+    "inbox.classify": {
+      "confident_outcome": "auto_undo"
     }
   },
   "backends": {

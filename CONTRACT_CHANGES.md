@@ -430,3 +430,34 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Why: genui is a standalone package with its own lockfile during Wave 1 because lane D owns apps/web's package.json.
 - Shim: `cd apps/web/genui && pnpm install --ignore-workspace && pnpm check` (see genui/README.md).
 - Status: accepted as Phase 3 integration work (not a contract change).
+
+## Wave 2 Phase 2
+
+Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
+
+### Per-kind confident outcome override
+- Lane: integration (I, E, B)
+- Date: 2026-10-08
+- Contract: packages/contracts/src/policy.ts (`ThresholdOverride`, `PolicyConfig.overrides`, `DEFAULT_CONFIG`, `thresholdsFor`)
+- Change: `config.overrides[kind]` is `Thresholds.partial()` plus `confident_outcome?: 'auto' | 'auto_undo'`. When set to `auto_undo`, a confident decision of that kind whose grid cell is plain `auto` applies with a `undo_hours` undo window instead. Hard exclusions still win. `DEFAULT_CONFIG.overrides` sets it for `profile.apply_diff` (wave1-decisions #14: asset and weighted diffs, auto + 24h undo when confident) and `inbox.classify` (#16: a confident confirmation, including one that revives an archived role, auto + 24h undo; every confident inbox move gets the undo, with `action_json.undo` restoring the prior status). `freshness.closed` keeps the plain grid (#18); Settings may set the same override there.
+- Why: #14 and #16 ask for auto + undo, but the #24 grid gives medium + confident plain `auto`; a kind-level override keeps the grid itself unchanged.
+- Shim: none.
+- Status: accepted
+
+### people.classify takes the human's pick
+- Lane: integration (H, I)
+- Date: 2026-10-08
+- Contract: registry `peopleClassify.input`
+- Change: optional `role: ContactRole`: apply that classification directly (tier = degree x hiring team), no resolver call. A `people.classify` decision's action is `{ op: 'people.classify', input: { contact_id, role_id, role: '$value' } }`, so accepting or changing the pick in Needs you applies it. Amends "people.classify decision action" above (`people.link` cannot derive the tier from the chosen value).
+- Why: `people.link` needs `tier` and `is_hiring_team`, which `$value` substitution cannot compute.
+- Shim: none.
+- Status: accepted
+
+### roles.score notes: any subset of criteria
+- Lane: integration (F)
+- Date: 2026-10-08
+- Contract: registry `rolesScore.input.notes`
+- Change: `z.partialRecord(Criterion, z.string())` instead of `z.record(Criterion, ...)` (zod 4 records over an enum are exhaustive, so a note for one criterion failed validation).
+- Why: rationale is written per criterion when there is something to say.
+- Shim: none.
+- Status: accepted

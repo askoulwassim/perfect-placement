@@ -5,7 +5,7 @@ import { draftOutreach, outreachSendHandler, outreachToGmailHandler } from './ou
 
 export const OWNER_LANE = 'H' as const;
 
-/** Lane H op handlers, keyed by op name. Wave 2: lane B registers these in runOp with a PeopleDeps factory. */
+/** Lane H op handlers, keyed by op name. The engine registers them (ops/lanes/people.ts) with a PeopleDeps per call. */
 export const handlers = {
   'people.find': findPeople,
   'people.link': linkContact,
@@ -17,7 +17,6 @@ export const handlers = {
 
 export { CLASSIFY_INSTRUCTIONS, classifyContact, linkContact } from './classify.js';
 export { findPeople, PeopleFindInput, PersonHint } from './find.js';
-export { defaultNewId, ulid } from './ids.js';
 export {
   type ComposeInput,
   composeAndDraft,
@@ -28,7 +27,7 @@ export {
   readOutreachSections,
   renderOutreachMd,
 } from './outreach.js';
-export { isPicked, linkedinReadsOn, PICKED_STATUSES } from './repo.js';
+export { isPicked, linkedinReadsOn, PICKED_STATUSES } from './queries.js';
 export { BRIDGE_ASK_MAX, checkDraft, composeBody, LIMITS, type StyleIssue } from './style.js';
 export { buildWriterPrompt, type DraftContext, TIER_TEMPLATES, type TierTemplate, templateDraft } from './templates.js';
 export { HIRING_TEAM_ROLES, isHiringTeam, TIER_PRIORITY, tierFor } from './tier.js';

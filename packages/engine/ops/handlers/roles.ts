@@ -1,11 +1,21 @@
-import { ARCHIVE_REASONS, type Company, ROLE_STATUSES, type Role, type RoleStatus, Slug, vaultPath } from '@perfect-placement/contracts';
-import { get, insert, select } from '../_shim/repo.js';
+import {
+  ARCHIVE_REASONS,
+  ArchiveReason,
+  type Company,
+  type DecisionAction,
+  ROLE_STATUSES,
+  type Role,
+  type RoleStatus,
+  Slug,
+  vaultPath,
+} from '@perfect-placement/contracts';
 import { atsFromUrl, normalizeUrl, TITLE_DUPLICATE_MIN, TITLE_POSSIBLE_MIN, titleSimilarity } from '../dedupe.js';
 import { OpError } from '../errors.js';
 import { roleIdFor, slugify } from '../ids.js';
+import { get, insert, select } from '../rows.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
-import { applicationFor, getCompany, getRole, latestScore, latestScores, moveRole } from './shared.js';
+import { applicationFor, getCompany, getRole, latestScore, latestScores, moveRole, undoMove } from './shared.js';
 
 // ------------------------------------------------------------------ roles.add
 
@@ -63,7 +73,7 @@ interface Known {
 }
 
 export const rolesAdd = defineHandler('roles.add', {
-  run(input, h) {
+  async run(input, h) {
     const now = h.nowIso();
     const known: Known[] = select(h.db, 'role').map((r) => ({
       id: r.id,
@@ -74,7 +84,7 @@ export const rolesAdd = defineHandler('roles.add', {
     }));
     const added: string[] = [];
     const duplicates: { index: number; existing_id: string; match: 'url' | 'ats_job_id' | 'company_title' }[] = [];
-    const possible: { role_id: string; existing_id: string; similarity: number; decision_id: string }[] = [];
+    const possible: { index: number; role_id: string; existing_id: string; similarity: number; decision_id: string }[] = [];
 
     for (const [index, c] of input.candidates.entries()) {
       const ats = atsFromUrl(c.url);
@@ -146,10 +156,10 @@ export const rolesAdd = defineHandler('roles.add', {
       known.push({ id, company_id: co.id, title: role.title, url: nurl, jobId: jobId ?? null });
 
       if (best && best.sim >= TITLE_POSSIBLE_MIN) {
-        const { decisionId } = h.decisions.record(
-          h.db,
+        // Near matches are always queued for a human; accepting archives the new copy as `duplicate`.
+        const { decisionId } = await h.resolver.record(
           {
-            kind: 'roles.dedupe',
+            decision: 'roles.dedupe',
             impact: 'low',
             subject: { type: 'role', id },
             question: {
@@ -160,12 +170,11 @@ export const rolesAdd = defineHandler('roles.add', {
             },
             answer: { id: 'same', value: true, p: Math.round(best.sim * 100) / 100 },
             backend: 'rule',
-            action: { op: 'roles.archive', input: { role_id: id, reason: 'passed', note: `duplicate of ${best.k.id}` } },
-            forceHuman: true,
+            action: { op: 'roles.archive', input: { role_id: id, reason: 'duplicate', note: `duplicate of ${best.k.id}` }, when: true },
           },
-          { ctx: h.ctx, config: h.config },
+          { forceHuman: true, actor: h.ctx.actor },
         );
-        possible.push({ role_id: id, existing_id: best.k.id, similarity: best.sim, decision_id: decisionId });
+        possible.push({ index, role_id: id, existing_id: best.k.id, similarity: best.sim, decision_id: decisionId });
       }
     }
 
@@ -191,19 +200,39 @@ export const rolesAdd = defineHandler('roles.add', {
           : []),
       ],
     });
-    return { added, duplicates };
+    return {
+      added,
+      duplicates,
+      possible_duplicates: possible.map(({ index, role_id, existing_id, decision_id }) => ({ index, role_id, existing_id, decision_id })),
+    };
   },
 });
 
 // ----------------------------------------------------------- roles.move/archive
+
+/** Is this call `decisions.undo` running the inverse move recorded on the decision? */
+function isUndoOf(h: HandlerContext, roleId: string, to: RoleStatus): boolean {
+  if (!h.ctx.decisionId) return false;
+  const d = get(h.db, 'decision', h.ctx.decisionId);
+  const undo = (d?.action_json as DecisionAction | null)?.undo;
+  const input = undo?.input as { role_id?: string; to?: string } | undefined;
+  return d?.status === 'applied' && undo?.op === 'roles.move' && input?.role_id === roleId && input?.to === to;
+}
 
 export const rolesMove = defineHandler('roles.move', {
   decisionKind: 'roles.move',
   run(input, h) {
     const role = getRole(h.db, input.role_id);
     const from = role.status;
-    const moved = moveRole(h, role, input.to, { via: 'move', ...(input.reason ? { note: input.reason } : {}) });
+    const undo = isUndoOf(h, role.id, input.to);
+    const archiveReason = undo && input.to === 'archived' ? ArchiveReason.safeParse(input.reason) : null;
+    const moved = moveRole(h, role, input.to, {
+      via: undo ? 'undo' : 'move',
+      ...(archiveReason?.success ? { archiveReason: archiveReason.data } : {}),
+      ...(input.reason && !archiveReason?.success ? { note: input.reason } : {}),
+    });
     if (input.to === 'on-deck' && from === 'active') h.emit('role_picked', 'role', role.id, { from });
+    h.setUndo(undoMove(role));
     return { role: moved, from };
   },
 });
@@ -221,6 +250,7 @@ export const rolesArchive = defineHandler('roles.archive', {
       ...(input.note ? { note: input.note } : {}),
     });
     if (input.reason === 'passed' && SKIPPABLE.includes(role.status)) h.emit('role_skipped', 'role', role.id, { from: role.status });
+    h.setUndo(undoMove(role));
     return { role: moved };
   },
 });

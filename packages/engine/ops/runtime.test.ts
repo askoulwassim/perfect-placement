@@ -1,11 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { OPS, type OpName } from '@perfect-placement/contracts';
+import { OP_NAMES, OPS } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { okOut } from './_shim/assert.js';
-import { ctxAt, type FixtureEngine, openFixtureEngine } from './_shim/testing.js';
-import { defineHandler, LANE_B_HANDLERS, NOT_LANE_B } from './index.js';
+import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
+import { ALL_HANDLERS, defineHandler, LANE_B_HANDLERS } from './index.js';
 
 let e: FixtureEngine;
 beforeEach(() => {
@@ -16,20 +15,12 @@ afterEach(() => e.cleanup());
 const count = (sql: string, ...p: unknown[]) => (e.db.prepare(sql).get(...p) as { n: number }).n;
 
 describe('runOp', () => {
-  it('covers the registry: every lane B op has a handler, every other op is someone else', () => {
-    for (const name of Object.keys(OPS) as OpName[]) {
-      const isB = OPS[name].owner === 'B';
-      expect(name in LANE_B_HANDLERS, name).toBe(isB);
-      expect((NOT_LANE_B as readonly string[]).includes(name), name).toBe(!isB);
+  it('covers the registry: every op has a handler except outreach.send (unimplemented by contract)', async () => {
+    for (const name of OP_NAMES) {
+      expect(name in ALL_HANDLERS, name).toBe(name !== 'outreach.send');
+      expect(e.has(name), name).toBe(name !== 'outreach.send');
+      if (OPS[name].owner === 'B') expect(name in LANE_B_HANDLERS, name).toBe(true);
     }
-  });
-
-  it('answers unimplemented for unmerged lanes and for outreach.send', async () => {
-    expect(await e.runOp('roles.score', { role_id: 'x', criteria: {}, facts: {} }, ctxAt())).toMatchObject({
-      status: 'error',
-      code: 'unimplemented',
-      message: expect.stringContaining('lane F'),
-    });
     expect(await e.runOp('outreach.send', { outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'unimplemented' });
     expect(await e.runOp('nope.nope', {}, ctxAt())).toMatchObject({ code: 'not_found' });
   });
@@ -130,5 +121,60 @@ describe('runOp', () => {
     expect(e.has('roles.score')).toBe(true);
     const criteria = { c1: 3, c2: 3, c3: 3, c4: 3, c5: 3, c6: 3, c7: 3, c8: 3, c9: 3 };
     expect(await e.runOp('roles.score', { role_id: 'x', criteria, facts: {} }, ctxAt())).toMatchObject({ message: 'not lane B' });
+  });
+});
+
+describe('runtime: nesting, backends, policy gate', () => {
+  it('a nested op that fails rolls back alone; the parent commits', async () => {
+    const roleId = FIXTURE_ROLE_IDS.datadogActive;
+    e.register(
+      'roles.move',
+      defineHandler('roles.move', {
+        async run(input, h) {
+          const bad = await h.runOp('roles.archive', { role_id: 'nope', reason: 'passed' }, h.ctx);
+          expect(bad.status).toBe('error');
+          const good = await h.runOp('roles.archive', { role_id: input.role_id, reason: 'passed' }, h.ctx);
+          expect(good.status).toBe('ok');
+          return { role: (good as { output: { role: never } }).output.role, from: 'active' };
+        },
+      }),
+    );
+    okOut(await e.runOp('roles.move', { role_id: roleId, to: 'on-deck' }, ctxAt('human')));
+    expect(count(`SELECT count(*) n FROM role WHERE id = ? AND status = 'archived'`, roleId)).toBe(1);
+  });
+
+  it('system.backends lists rule, Kev (down in tests) and the agent session; Jev only when enabled', async () => {
+    const out = okOut(await e.runOp('system.backends', {}, ctxAt('human')));
+    expect(out.items).toEqual([
+      { name: 'rule', mode: 'local', status: 'ok', latencyMs: 0 },
+      { name: 'kev', mode: 'local', status: 'down', latencyMs: null },
+      { name: 'agent', mode: 'session', status: 'ok', latencyMs: 0 },
+    ]);
+  });
+
+  it('system.doctor runs lane A checks over the open db', async () => {
+    const out = okOut(await e.runOp('system.doctor', {}, ctxAt('human')));
+    expect(out.counts.active).toBeGreaterThan(0);
+  });
+
+  it('agent medium ops go through the grid with ctx.confidence (#17)', async () => {
+    const roleId = FIXTURE_ROLE_IDS.datadogActive;
+    const sure = await e.runOp(
+      'roles.move',
+      { role_id: roleId, to: 'on-deck' },
+      ctxAt('agent', { confidence: { p: 0.95, backend: 'agent' } }),
+    );
+    expect(okOut(sure).role.status).toBe('on-deck');
+    const d = e.db.prepare(`SELECT * FROM decision WHERE kind = 'roles.move' AND subject_id = ? ORDER BY ts DESC`).get(roleId) as Record<
+      string,
+      string
+    >;
+    expect(d).toMatchObject({ policy_outcome: 'auto', status: 'applied', backend: 'agent', impact: 'medium' });
+    const unsure = await e.runOp(
+      'roles.move',
+      { role_id: roleId, to: 'active' },
+      ctxAt('agent', { confidence: { p: 0.5, backend: 'agent' } }),
+    );
+    expect(unsure.status).toBe('requires_human');
   });
 });

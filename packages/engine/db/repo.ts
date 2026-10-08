@@ -81,6 +81,18 @@ export class Repo<T extends TableName> {
     );
   }
 
+  /**
+   * Read rows with a raw SQL condition (after WHERE; may end in ORDER BY / LIMIT) and positional params.
+   * Reads only: every write still goes through `insert` / `update`.
+   */
+  select(whereSql = '1', params: readonly unknown[] = []): Row<T>[] {
+    if (/;|\b(insert|update|delete|drop|alter|create|attach|pragma)\b/i.test(whereSql))
+      throw new Error(`${this.table}: select condition must be a read-only expression`);
+    return (this.db.prepare(`SELECT * FROM ${this.table} WHERE ${whereSql}`).all(...params) as Record<string, unknown>[]).map((r) =>
+      hydrate(this.table, r),
+    );
+  }
+
   count(where: Where = {}): number {
     const keys = Object.keys(where);
     assertCols(this.table, keys);

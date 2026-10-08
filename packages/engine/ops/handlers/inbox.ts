@@ -1,17 +1,18 @@
 import { INBOX_CLASSES, type InboxClass, type Role, type RoleStatus } from '@perfect-placement/contracts';
 import { checkTransition } from '../../status/index.js';
-import { get, insert, select, update } from '../_shim/repo.js';
 import { newId } from '../ids.js';
+import { get, insert, select, update } from '../rows.js';
 import { defineHandler, type HandlerContext, type HandlerInput } from '../runtime.js';
-import { appendRoleLog, moveRole, upsertApplication } from './shared.js';
+import { appendRoleLog, moveRole, undoMove, upsertApplication } from './shared.js';
 
 /*
  * inbox.ingest: v1 monitor.py mechanics. The skill classifies Gmail (read-only) and
  * supplies `class` + `p` per message; this op applies the confidence x impact policy
- * per message (medium impact), then moves roles:
+ * per message (medium impact; config gives confident classifications a 24h undo, wave1-decisions #16), then moves roles:
  *   confirmation -> applied, interview_request -> interviews, offer -> offers,
  *   rejection -> archived (rejected), outreach_reply -> outreach replied.
  * No-downgrade: a confirmation never pulls a role back from interviews; rejection always archives.
+ * A confirmation revives an archived role to applied (#16); the decision's undo restores the archive.
  */
 
 type Message = HandlerInput<'inbox.ingest'>['messages'][number];
@@ -114,7 +115,7 @@ function applyMessage(h: HandlerContext, m: Message, role: Role | null, decision
 
 export const inboxIngest = defineHandler('inbox.ingest', {
   selfGated: true,
-  run(input, h) {
+  async run(input, h) {
     const applied: { message_id: string; role_id: string | null; to: RoleStatus | null }[] = [];
     const queued: { message_id: string; decision_id: string }[] = [];
     const ignored: string[] = [];
@@ -146,10 +147,21 @@ export const inboxIngest = defineHandler('inbox.ingest', {
           m.class === 'outreach_reply'
             ? { type: 'outreach' as const, id: m.outreach_id as string }
             : { type: 'role' as const, id: role?.id as string };
-        const r = h.decisions.record(
-          h.db,
+        // Undo restores the exact prior status when the message moves the role.
+        const target = role ? INBOX_TARGET[m.class] : undefined;
+        const moves =
+          role &&
+          target &&
+          checkTransition({
+            from: role.status,
+            to: target,
+            actor: h.ctx.actor,
+            via: 'inbox',
+            ...(target === 'archived' ? { archiveReason: 'rejected' as const } : {}),
+          }).ok;
+        const r = await h.resolver.record(
           {
-            kind: 'inbox.classify',
+            decision: 'inbox.classify',
             impact: 'medium',
             subject,
             question: {
@@ -161,10 +173,14 @@ export const inboxIngest = defineHandler('inbox.ingest', {
               thread_id: m.thread_id ?? null,
             },
             answer: { id: 'class', value: m.class, p: m.p },
-            backend: 'llm',
-            action: { op: 'inbox.ingest', input: { messages: [m] } },
+            backend: h.ctx.confidence?.backend ?? 'agent',
+            action: {
+              op: 'inbox.ingest',
+              input: { messages: [m] },
+              ...(moves && role ? { undo: undoMove(role) } : {}),
+            },
           },
-          { ctx: h.ctx, config: h.config },
+          { actor: h.ctx.actor },
         );
         if (r.outcome === 'human') {
           queued.push({ message_id: m.message_id, decision_id: r.decisionId });
