@@ -27,7 +27,7 @@ export const canMove = (from: RoleStatus, to: RoleStatus) => MANUAL_MOVES.some((
 type FilterKey = 'band' | 'fresh' | 'company' | 'mode';
 
 export function River() {
-  const { now, config, showToast } = useApp();
+  const { now, config, showToast, watchRun } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const list = useOp('roles.list', { limit: 500 });
@@ -81,7 +81,9 @@ export function River() {
     op: 'runs.start' as const,
     onClick: async () => {
       const o = await act('runs.start', { skill: 'scout' });
-      if (o.status === 'ok') showToast('role-scout queued');
+      if (o.status !== 'ok') return;
+      showToast('role-scout queued');
+      watchRun(o.output.run.id);
     },
   };
 

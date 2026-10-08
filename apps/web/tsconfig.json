@@ -9,5 +9,5 @@
     "declaration": false,
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "include": ["src", "genui/src"]
 }

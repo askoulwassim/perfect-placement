@@ -169,6 +169,8 @@ describe('(b) one role through every stage, runOp only', () => {
     expect((await e.runOp('outreach.to_gmail', { outreach_id: draft.id }, agent())).status).toBe('requires_human');
     expect(okOut(await e.runOp('outreach.to_gmail', { outreach_id: draft.id }, agent(sure))).gmail_draft_id).toBe('dryrun-1');
     expect(gmail.drafts).toHaveLength(1);
+    // A Gmail draft completes Connect: the application moves to Fill.
+    expect(okOut(await e.runOp('roles.get', { role_id: id }, human())).application?.stage).toBe('fill');
     expect(await e.runOp('outreach.send', { outreach_id: draft.id }, human())).toMatchObject({ code: 'unimplemented' });
 
     // Fill: answers to the real portal questions.

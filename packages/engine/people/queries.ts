@@ -97,6 +97,12 @@ export function upsertOutreach(R: Repos, o: Outreach, exists: boolean): void {
   else R.outreach.insert(o);
 }
 
+/** Connect is done once a draft for the role is in Gmail: move its application from `connect` to `fill`. */
+export function advanceConnectToFill(R: Repos, roleId: string): void {
+  const app = R.application.list({ role_id: roleId })[0];
+  if (app?.stage === 'connect') R.application.update(app.id, { stage: 'fill' });
+}
+
 // --------------------------------------------------------------------- profile
 
 /** Latest-version profile component (Story, Voice) with its markdown body. */

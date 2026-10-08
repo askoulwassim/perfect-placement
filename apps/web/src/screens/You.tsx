@@ -5,14 +5,9 @@ import { Btn } from '../components/Btn';
 import { Constellation, DiffBlock, KIND_HEX, KIND_LABEL, type NodeData, ProfileNode, VersionTimeline } from '../components/profile';
 import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { COMPONENT_NAME, chipsOf } from '../lib/profile';
+import { COMPONENT_NAME, chipText } from '../lib/profile';
 import { timeline } from '../lib/view';
 import { go } from '../router';
-
-const chipText = (data: Record<string, unknown>) =>
-  chipsOf(Object.fromEntries(Object.entries(data).filter(([, v]) => typeof v !== 'number' || v >= 1000))).map((c) =>
-    c.value ? `${c.label} ${c.value}` : c.label,
-  );
 
 export function You() {
   const { mobile } = useLayout();

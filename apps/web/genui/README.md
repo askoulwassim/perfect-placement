@@ -1,32 +1,21 @@
 # apps/web/genui
 
-**Owner: lane J** (OpenUI spike). Registers RoleCard, ScoreRadar, ContactCard and ProfileDiff with Thesys OpenUI (`@openuidev/react-lang`) and renders streamed Ask replies as those cards on fixtures. The verdict is in [`VERDICT.md`](./VERDICT.md). Lane D's components are imported in Wave 2; the files in `src/standins/` are temporary.
-
-## Standalone package
-
-`pnpm-workspace.yaml` covers `apps/*` only, so this folder is **not** a workspace package (Wave 2 decides how to fold it in; see `CONTRACT_CHANGES.md`, Lane J requests). The root `pnpm build && pnpm test && pnpm lint` stays green without it: checks are named `*.check.ts(x)`, so `apps/web`'s vitest never picks them up, and biome lints these sources from the root.
-
-```sh
-# from the repo root, once: build contracts + fixtures (genui links their dist)
-pnpm i && pnpm build
-cd apps/web/genui
-pnpm install --ignore-workspace   # own lockfile; lang-core postinstall telemetry is blocked (neverBuiltDependencies)
-pnpm check                        # tsc + 17 vitest checks (happy-dom)
-pnpm measure                      # token / latency table used in VERDICT.md
-pnpm demo                         # Ask panel at a realistic pace (600 ms TTFT, 60 tok/s) on fixtures
-```
-
-## Layout
+**Owner: lane J.** Ask replies as generated UI: OpenUI Lang (`@openuidev/react-lang` + `@openuidev/lang-core`, pinned 0.3.2) parsed and streamed into lane D's cards inside the CommandBar. Part of the `apps/web` build, typecheck and vitest run (no package of its own, no lockfile). The spike verdict is in [`VERDICT.md`](./VERDICT.md).
 
 | Path | What |
 | --- | --- |
-| `src/library.tsx` | OpenUI library: Reply (root), Group, Text, RoleCard, ScoreRadar, ContactCard, ProfileDiff; `askSystemPrompt()` |
-| `src/data.ts` | `GenuiData`: id lookups the cards hydrate from (fixtures now, ops client in Wave 2) |
-| `src/AskPanel.tsx` | Ask panel shell + `AskReply` (the `<Renderer>` slot for lane D's CommandBar) |
-| `src/standins/` | **Stand-ins** for lane D's RoleCard, ScoreRadar, ContactAvatar, DiffBlock. Delete in Wave 2. |
-| `src/replies.ts`, `src/ask.ts`, `src/stream.ts` | Recorded replies, scripted Ask backend, token-paced stream (no API key) |
-| `src/measure.ts`, `src/tokens.ts` | Tokens (OpenUI vs JSON, ids vs inline), first-card latency, parse cost |
-| `src/checks/` | vitest checks |
-| `demo/` | Vite demo page |
+| `src/library.tsx` | OpenUI library: Reply (root), Group, Text, RoleCard, ScoreRadar, ContactCard, ProfileDiff, OpButton; `askSystemPrompt()` |
+| `src/reply.tsx` | `GenuiReply`: the `<Renderer>` the Ask screen puts in the CommandBar |
+| `src/compose.ts` | Local Ask: a few keyword intents compose an id-only reply from op reads |
+| `src/stream.ts` | Paced stream of a reply (model-like token chunks) |
+| `src/devtools-stub.ts` | Empty `@openuidev/devtools` (aliased in `apps/web/vite.config.ts`) |
+| `src/genui.test.tsx` | Library, parsing, hydration through ops, OpButton, compose |
 
-Ids, not data: the model emits `RoleCard("linear_product-lead-insights")` and the card looks the facts up. A wrong id renders "No role", never an invented card.
+- **Ids, not data.** Props are the contract's `GENUI_PROPS` (id-only, key order = argument order). Cards fetch through ops (`roles.get`, `contacts.get`, `profile.get`) with the app's client; a wrong id renders "No role", never an invented card.
+- **Cards are lane D's**: RoleCard, ScoreRadar, ContactAvatar (+ name), DiffBlock.
+- **OpButton** (OpenUI reserves `Action`): one button, one op, limited to the PRIMARY_ACTIONS ops an Ask reply can act on (`runs.start`, `roles.check_freshness`, `outreach.to_gmail`, `profile.apply_diff`); never submit or send, forbidden labels render nothing. Whatever the engine routes to a human comes back as `requires_human` and lands in Needs you.
+
+## Supply chain
+
+- `@openuidev/lang-core` has an install-telemetry postinstall. It stays out of `onlyBuiltDependencies` (root `package.json` `pnpm.onlyBuiltDependencies` for pnpm 9, mirrored in `pnpm-workspace.yaml` for pnpm 10), so pnpm never runs it. Opt out anyway: `export OPENUI_TELEMETRY_DISABLED=1`.
+- react-lang auto-mounts its Inspect devtools in development; `@openuidev/devtools` is aliased to `src/devtools-stub.ts`, so nothing loads from a CDN. Production builds drop the block.
