@@ -1,12 +1,28 @@
 #!/usr/bin/env node
-// Lane B owns this package (except commands/migrate.ts and commands/doctor.ts: lane A). Wave 0 stub.
-const [cmd] = process.argv.slice(2);
-const COMMANDS = ['up', 'migrate', 'doctor', 'scout', 'score', 'fresh', 'inbox'] as const;
+// `pp` CLI (lane B; commands/migrate.ts and commands/doctor.ts: lane A). Thin: every command calls ops.
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { runCli } from './cli.js';
 
-if (!cmd || !COMMANDS.includes(cmd as (typeof COMMANDS)[number])) {
-  console.log(`pp <${COMMANDS.join('|')}>`);
-  process.exitCode = cmd ? 1 : 0;
-} else {
-  console.error(`pp ${cmd}: not implemented yet`);
-  process.exitCode = 1;
+export { COMMANDS, runCli } from './cli.js';
+export { up } from './commands/up.js';
+
+const isMain = (() => {
+  try {
+    return process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  runCli(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (e) => {
+      console.error(e);
+      process.exitCode = 1;
+    },
+  );
 }
