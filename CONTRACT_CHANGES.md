@@ -294,4 +294,13 @@ _None yet._
 - Change: add `mode: 'off'|'dry-run'|'live'` (default `'off'`), `driver: 'playwright'|'claude-in-chrome'` , `max_pages_per_run: 6`, `max_mutual_expansions: 3`.
 - Why: live LinkedIn reads must be opt-in per install; per-run caps are hard-coded defaults in the adapter today.
 - Shim: adapter options + defaults in packages/engine/integrations/linkedin/index.ts; deps decide whether a LinkedIn source is injected.
+## Lane C requests
+
+### `companies.get` read op
+- Lane: C
+- Date: 2026-10-08
+- Contract: packages/contracts/src/ops/registry.ts (`OPS`)
+- Change: add `companies.get` { input: `{ company_id: Id }`, output: `{ company: Company, roles: RoleSummary[], dossier_md: string | null }`, impact low, readOnly, emits [], owner B }.
+- Why: the MCP "company" resource (lane C brief) has no op to read one company. A company with no roles, or its dossier, cannot be served.
+- Shim: `pp://companies/{company_id}` calls `roles.list({ company_id, limit: 500 })` and returns the first item's company plus the roles; not found when the company has no roles.
 - Status: open
