@@ -49,6 +49,18 @@ const WHO_Q: AskRequest = {
   ],
 };
 
+/** Medium-impact variant: the #24 grid's second-opinion row. */
+const WHO_M: AskRequest = { ...WHO_Q, impact: 'medium' };
+
+/**
+ * Jev first, then Kev: the routing tests exercise the full adapter chain. DEFAULT_CONFIG is now
+ * Kev only with the agent fallback (wave1-decisions #7, #9); Jev stays in code, off by default.
+ */
+const JEV_FIRST: PolicyConfig = {
+  ...DEFAULT_CONFIG,
+  backends: { ...DEFAULT_CONFIG.backends, default: 'jev', fallback: 'kev', jev: { ...DEFAULT_CONFIG.backends.jev, enabled: true } },
+};
+
 let h: ReturnType<typeof tempDb>;
 let store: DecisionStore;
 beforeEach(() => {
@@ -60,7 +72,7 @@ afterEach(() => h.close());
 let n = 0;
 function resolver(backends: BackendMap, extra: { config?: PolicyConfig; runOp?: ReturnType<typeof fakeRunOp> } = {}) {
   return createResolver({
-    config: extra.config ?? DEFAULT_CONFIG,
+    config: extra.config ?? JEV_FIRST,
     backends,
     store,
     now: () => NOW,
@@ -138,9 +150,20 @@ describe('policy outcomes written to the decisions log', () => {
     });
   });
 
-  it('low + middle -> auto_second when Kev agrees (p >= 0.70)', async () => {
+  it('low + middle -> auto (#24 grid)', async () => {
+    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.8 })) }).ask(WHO_Q);
+    expect(res.outcomes).toEqual(['auto']);
+  });
+
+  it('low + low -> auto_undo with a 24h window (#24 grid)', async () => {
+    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.5 })) }).ask(WHO_Q);
+    expect(res.outcomes).toEqual(['auto_undo']);
+    expect(store.get(res.decisionIds[0] as string)).toMatchObject({ undo_until: '2026-10-09T12:00:00.000Z', status: 'applied' });
+  });
+
+  it('medium + middle -> auto_second when Kev agrees (p >= 0.70)', async () => {
     const kev = stub('kev', () => ({ value: 'peer', p: 0.72 }));
-    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.8 })), kev }).ask(WHO_Q);
+    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.8 })), kev }).ask(WHO_M);
     expect(res.outcomes).toEqual(['auto_second']);
     expect(store.get(res.decisionIds[0] as string)?.answer_json).toMatchObject({
       value: 'peer',
@@ -148,26 +171,26 @@ describe('policy outcomes written to the decisions log', () => {
     });
   });
 
-  it('low + middle -> human when the second backend disagrees, is unsure, or is missing', async () => {
+  it('medium + middle -> human when the second backend disagrees, is unsure, or is missing', async () => {
     const jev = () => stub('jev', () => ({ value: 'peer', p: 0.8 }));
-    expect((await resolver({ jev: jev(), kev: stub('kev', () => ({ value: 'hiring_manager', p: 0.9 })) }).ask(WHO_Q)).outcomes).toEqual([
+    expect((await resolver({ jev: jev(), kev: stub('kev', () => ({ value: 'hiring_manager', p: 0.9 })) }).ask(WHO_M)).outcomes).toEqual([
       'human',
     ]);
-    expect((await resolver({ jev: jev(), kev: stub('kev', () => ({ value: 'peer', p: 0.69 })) }).ask(WHO_Q)).outcomes).toEqual(['human']);
-    expect((await resolver({ jev: jev() }).ask(WHO_Q)).outcomes).toEqual(['human']);
+    expect((await resolver({ jev: jev(), kev: stub('kev', () => ({ value: 'peer', p: 0.69 })) }).ask(WHO_M)).outcomes).toEqual(['human']);
+    expect((await resolver({ jev: jev() }).ask(WHO_M)).outcomes).toEqual(['human']);
   });
 
   it('second opinion falls through Kev down -> LLM', async () => {
     const llm = stub('llm', () => ({ value: 'peer', p: 0.75 }));
-    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.8 })), kev: stub('kev', 'down'), llm }).ask(WHO_Q);
+    const res = await resolver({ jev: stub('jev', () => ({ value: 'peer', p: 0.8 })), kev: stub('kev', 'down'), llm }).ask(WHO_M);
     expect(res.outcomes).toEqual(['auto_second']);
     expect(llm.calls).toBe(1);
   });
 
-  it('medium + confident -> auto_undo with a 24h window', async () => {
+  it('medium + confident -> auto, no undo window (#24 grid)', async () => {
     const res = await resolver({ jev: stub('jev', () => ({ value: false, p: 0.97 })) }).ask(OPEN_Q);
-    expect(res.outcomes).toEqual(['auto_undo']);
-    expect(store.get(res.decisionIds[0] as string)).toMatchObject({ undo_until: '2026-10-09T12:00:00.000Z', status: 'applied' });
+    expect(res.outcomes).toEqual(['auto']);
+    expect(store.get(res.decisionIds[0] as string)).toMatchObject({ undo_until: null, status: 'applied' });
   });
 
   it('per-kind override: freshness.closed needs 0.92', async () => {
@@ -193,7 +216,7 @@ describe('policy outcomes written to the decisions log', () => {
     const res = await resolver({ jev }).ask({
       ...OPEN_Q,
       decision: 'roles.dedupe',
-      impact: 'low',
+      impact: 'medium',
       questions: [
         { id: 'a', type: 'noulli', instructions: '' },
         { id: 'b', type: 'noulli', instructions: '' },
@@ -209,7 +232,7 @@ describe('policy outcomes written to the decisions log', () => {
     await resolver({ jev }).ask({
       ...OPEN_Q,
       decision: 'roles.dedupe',
-      impact: 'low',
+      impact: 'medium',
       questions: [
         { id: 'a', type: 'noulli', instructions: '' },
         { id: 'b', type: 'noulli', instructions: '' },
@@ -273,5 +296,36 @@ describe('auto actions', () => {
       undo_until: null,
       answer_json: { value: false, p: 0.97, action_error: 'no-downgrade' },
     });
+  });
+});
+
+describe('record (externally judged answers)', () => {
+  const base = {
+    decision: 'inbox.classify' as const,
+    impact: 'medium' as const,
+    subject: { type: 'role', id: 'notion_staff-pm' },
+    question: { id: 'class', type: 'choice', options: ['confirmation', 'other'] },
+    backend: 'agent' as const,
+  };
+
+  it('applies policy without calling a backend and runs the action when auto', async () => {
+    const runOp = fakeRunOp();
+    const kev = stub('kev', () => ({ value: 'other', p: 0.99 }));
+    const r = resolver({ kev }, { runOp });
+    const res = await r.record({
+      ...base,
+      answer: { id: 'class', value: 'confirmation', p: 0.95 },
+      action: { op: 'roles.move', input: { role_id: 'notion_staff-pm', to: 'applied' } },
+    });
+    expect(res.outcome).toBe('auto');
+    expect(kev.calls).toBe(0);
+    expect(runOp.calls).toHaveLength(1);
+    expect(store.get(res.decisionId)).toMatchObject({ backend: 'agent', status: 'applied', kind: 'inbox.classify' });
+  });
+
+  it('middle confidence on medium impact has no second opinion: human', async () => {
+    const res = await resolver({}).record({ ...base, answer: { id: 'class', value: 'confirmation', p: 0.8 } });
+    expect(res.outcome).toBe('human');
+    expect(store.get(res.decisionId)).toMatchObject({ status: 'pending', policy_outcome: 'human' });
   });
 });

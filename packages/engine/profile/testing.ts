@@ -46,7 +46,8 @@ export type Script = (
 
 function decide(p: number, impact: Impact, t: { auto: number; second_opinion: number }): PolicyOutcome {
   const band = p >= t.auto ? 'confident' : p >= t.second_opinion ? 'middle' : 'low';
-  return POLICY_GRID[impact][band];
+  // High stays human, as in lane I's decide() until Phase 2 wires isHardHuman (wave1-decisions #24).
+  return impact === 'high' ? 'human' : POLICY_GRID[impact][band];
 }
 
 /**

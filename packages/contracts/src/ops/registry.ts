@@ -5,6 +5,7 @@ import {
   Contact,
   ContactLink,
   Decision,
+  OnboardStep,
   Outreach,
   ProfileComponent,
   ProfileDiff,
@@ -22,13 +23,15 @@ import {
   DecisionStatus,
   Freshness,
   InboxClass,
+  PolicyOutcome,
   ProfileComponentKey,
   RoleSource,
   RoleStatus,
+  RunStatus,
   Skill,
   Workplace,
 } from '../enums.js';
-import { PolicyConfig } from '../policy.js';
+import { PolicyConfig, ROUTABLE_BACKENDS } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, VaultPath } from '../primitives.js';
 import { Ack, defineOp, Page } from './define.js';
 
@@ -106,10 +109,36 @@ export const profileRejectDiff = defineOp({
   owner: 'E',
 });
 
+/** Added in Wave 2 (lane E): undo an applied diff inside its window; `decisions.undo` dispatches here via DecisionAction.undo. */
+export const profileUndoDiff = defineOp({
+  name: 'profile.undo_diff',
+  description: 'Undo an applied diff: new version restoring the prior data; the diff becomes undone.',
+  input: z.object({ diff_id: Id }),
+  output: z.object({ version: ProfileVersion }),
+  impact: 'low',
+  emits: [],
+  owner: 'E',
+});
+
+/** Added in Wave 2 (lane E): run the Learn loop for one event (schedules, inbox monitor, MCP). */
+export const profileLearn = defineOp({
+  name: 'profile.learn',
+  description: 'Learn from one event: propose diffs, apply or queue them through the policy.',
+  input: z.object({ event_id: Id }),
+  output: z.object({
+    proposed: z.array(ProfileDiff),
+    applied: z.array(z.object({ diff_id: Id, version_id: Id })),
+    queued: z.array(z.object({ diff_id: Id, decision_id: Id })),
+  }),
+  impact: 'low',
+  emits: ['profile_diff_proposed', 'profile_diff_applied'],
+  owner: 'E',
+});
+
 // --------------------------------------------------------------- onboard (E)
 
 const OnboardState = z.object({
-  step: z.enum(['resume', 'interview', 'calibrate', 'confirm', 'done']),
+  step: OnboardStep,
   components_filled: z.array(ProfileComponentKey),
   next_question: z
     .object({
@@ -120,8 +149,55 @@ const OnboardState = z.object({
       options: z.array(z.string()).optional(),
       min: z.number().optional(),
       max: z.number().optional(),
+      /** Slider step (Wave 2, lane D request). */
+      step: z.number().optional(),
     })
     .nullable(),
+});
+
+/** Added in Wave 2 (lane E): start full onboarding, or re-interview only some components. */
+export const onboardStart = defineOp({
+  name: 'onboard.start',
+  description: 'Start onboarding; with components, re-interview only those.',
+  input: z.object({ components: z.array(ProfileComponentKey).optional() }),
+  output: OnboardState,
+  impact: 'low',
+  emits: [],
+  owner: 'E',
+});
+
+/** Added in Wave 2 (lane E): resume mid-flow. */
+export const onboardState = defineOp({
+  name: 'onboard.state',
+  description: 'Current onboarding state.',
+  input: z.object({}),
+  output: OnboardState,
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'E',
+});
+
+const CalibrationSample = z.object({
+  id: z.string(),
+  company: z.string(),
+  letter: z.string(),
+  title: z.string(),
+  comp: z.string(),
+  mode: z.string(),
+  criteria: z.record(Criterion, CriterionScore),
+});
+
+/** Added in Wave 2 (lanes D + E): the calibration cards plus the baseline weights the bars start from. */
+export const onboardSamples = defineOp({
+  name: 'onboard.samples',
+  description: 'Calibration sample roles and baseline criterion weights.',
+  input: z.object({}),
+  output: z.object({ items: z.array(CalibrationSample), weights: z.record(Criterion, z.number()) }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'E',
 });
 
 export const onboardIngestResume = defineOp({
@@ -158,7 +234,11 @@ export const onboardConfirm = defineOp({
   name: 'onboard.confirm',
   description: 'Save the onboarded profile as a new version.',
   input: z.object({}),
-  output: z.object({ version: ProfileVersion }),
+  output: z.object({
+    version: ProfileVersion,
+    /** Filter changes held back as pending high-impact diffs when re-onboarding over an existing profile. */
+    proposed_diffs: z.array(ProfileDiff).default([]),
+  }),
   impact: 'low',
   emits: [],
   owner: 'E',
@@ -189,6 +269,8 @@ export const rolesAdd = defineOp({
   output: z.object({
     added: z.array(Id),
     duplicates: z.array(z.object({ index: z.number().int(), existing_id: Id, match: z.enum(['url', 'ats_job_id', 'company_title']) })),
+    /** Near matches that were added and queued as `roles.dedupe` decisions. */
+    possible_duplicates: z.array(z.object({ index: z.number().int(), role_id: Id, existing_id: Id, decision_id: Id })).default([]),
   }),
   impact: 'low',
   emits: ['role_added'],
@@ -204,8 +286,16 @@ export const rolesScore = defineOp({
     facts: z.record(z.string(), z.unknown()),
     /** Rationale per criterion, kept in the role markdown, not the db. */
     notes: z.record(Criterion, z.string()).optional(),
+    /** Score under this profile version (Learn loop rescoring). Default: latest. */
+    profile_version_id: Id.optional(),
   }),
-  output: z.object({ score: Score, status: RoleStatus, held: z.boolean() }),
+  output: z.object({
+    score: Score,
+    status: RoleStatus,
+    held: z.boolean(),
+    /** Other roles the per-company cap moved. */
+    cap: z.array(z.object({ role_id: Id, from: z.enum(['active', 'held']), to: z.enum(['active', 'held']) })).default([]),
+  }),
   impact: 'low',
   emits: ['role_scored', 'role_archived', 'role_held', 'role_promoted'],
   owner: 'F',
@@ -245,10 +335,12 @@ export const rolesCheckFreshness = defineOp({
         decision_id: Id.nullable(),
       }),
     ),
+    /** Requested ids not checked: outside FRESHNESS_SCOPE or unknown. */
+    skipped: z.array(Id).default([]),
   }),
   impact: 'medium',
   dynamicImpact: true,
-  emits: ['freshness_checked', 'role_closed', 'role_archived'],
+  emits: ['freshness_checked', 'role_closed', 'role_archived', 'role_promoted'],
   owner: 'G',
 });
 
@@ -312,6 +404,18 @@ export const pipelineSummary = defineOp({
 
 // --------------------------------------------------------------- companies (B)
 
+/** Added in Wave 2 (lane C): one company with its roles and dossier (MCP company resource). */
+export const companiesGet = defineOp({
+  name: 'companies.get',
+  description: 'One company with its roles and dossier.',
+  input: z.object({ company_id: Id }),
+  output: z.object({ company: Company, roles: z.array(RoleSummary), dossier_md: z.string().nullable() }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'B',
+});
+
 export const companiesDossierWrite = defineOp({
   name: 'companies.dossier.write',
   description: 'Write or refresh a company dossier.',
@@ -335,7 +439,7 @@ export const applyTailor = defineOp({
   }),
   output: z.object({ application: Application }),
   impact: 'low',
-  emits: ['application_tailored', 'role_moved'],
+  emits: ['application_tailored', 'role_moved', 'role_promoted'],
   owner: 'B',
 });
 
@@ -360,7 +464,7 @@ export const applyMarkSubmitted = defineOp({
   output: z.object({ role: Role, application: Application }),
   impact: 'high',
   humanOnly: true,
-  emits: ['application_submitted', 'role_moved'],
+  emits: ['application_submitted', 'role_moved', 'role_promoted'],
   owner: 'B',
 });
 
@@ -369,7 +473,28 @@ export const applyMarkSubmitted = defineOp({
 export const peopleFind = defineOp({
   name: 'people.find',
   description: 'Find people for a picked role via LinkedIn (read-only, rate-limited), Gmail and the JD.',
-  input: z.object({ role_id: Id, dry_run: z.boolean().optional() }),
+  input: z.object({
+    role_id: Id,
+    dry_run: z.boolean().optional(),
+    /** People the skill found in the JD, on the company site, or that the user named. */
+    hints: z
+      .array(
+        z.object({
+          name: z.string().min(1),
+          headline: z.string().nullable().optional(),
+          linkedin_url: z.string().url().nullable().optional(),
+          email: z.string().email().nullable().optional(),
+          source: z.enum(['jd', 'company_site', 'manual']),
+        }),
+      )
+      .max(20)
+      .optional(),
+    /** LinkedIn vanity slug when it differs from the company slug. */
+    linkedin_company_slug: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .optional(),
+  }),
   output: z.object({ found: z.array(z.object({ contact: Contact, link: ContactLink })), capped: z.boolean() }),
   impact: 'low',
   emits: ['contact_found'],
@@ -390,7 +515,8 @@ export const peopleClassify = defineOp({
   name: 'people.classify',
   description: 'Classify a contact relative to a role and set the tier.',
   input: z.object({ contact_id: Id, role_id: Id }),
-  output: z.object({ role: ContactRole, tier: ContactTier, p: z.number(), decision_id: Id }),
+  /** `outcome`: whether the tier was applied (auto*) or waits in Needs you (human). A human accept runs `people.link` via DecisionAction. */
+  output: z.object({ role: ContactRole, tier: ContactTier, p: z.number(), decision_id: Id, outcome: PolicyOutcome }),
   impact: 'low',
   emits: [],
   owner: 'H',
@@ -413,6 +539,53 @@ export const outreachDraft = defineOp({
   output: z.object({ outreach: Outreach }),
   impact: 'low',
   emits: ['outreach_drafted'],
+  owner: 'H',
+});
+
+const DraftText = z.object({ hook: z.string(), proof: z.string(), ask: z.string() });
+
+/** Tone variants, in this order (the Outreach screen's tone chips switch between them locally). */
+export const OUTREACH_TONES = ['Ask for the conversation', 'Coffee or intro', 'Forwardable blurb', 'Positioning note'] as const;
+
+/** Added in Wave 2 (lane D): draft text for the Outreach screen and the Needs-you card. */
+export const outreachGet = defineOp({
+  name: 'outreach.get',
+  description: 'One outreach draft with its contact, text and one variant per tone.',
+  input: z.object({ outreach_id: Id }),
+  output: DraftText.extend({
+    outreach: Outreach,
+    contact: Contact,
+    subject: z.string().nullable(),
+    /** One per OUTREACH_TONES entry, same order. */
+    variants: z.array(DraftText).length(OUTREACH_TONES.length),
+  }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'H',
+});
+
+/** Added in Wave 2 (lane D): drafts for a role (DraftStatusChip per person). */
+export const outreachList = defineOp({
+  name: 'outreach.list',
+  description: 'Outreach drafts for a role.',
+  input: z.object({ role_id: Id }),
+  output: z.object({ items: z.array(Outreach) }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'H',
+});
+
+/** Added in Wave 2 (lane D): one contact with its links (Needs-you people cards). */
+export const contactsGet = defineOp({
+  name: 'contacts.get',
+  description: 'One contact with its links.',
+  input: z.object({ contact_id: Id }),
+  output: z.object({ contact: Contact, links: z.array(ContactLink) }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
   owner: 'H',
 });
 
@@ -463,7 +636,16 @@ export const inboxIngest = defineOp({
     ignored: z.array(z.string()),
   }),
   impact: 'medium',
-  emits: ['inbox_classified', 'role_moved', 'role_archived', 'interview_scheduled', 'rejection', 'offer', 'outreach_replied'],
+  emits: [
+    'inbox_classified',
+    'role_moved',
+    'role_archived',
+    'role_promoted',
+    'interview_scheduled',
+    'rejection',
+    'offer',
+    'outreach_replied',
+  ],
   owner: 'B',
 });
 
@@ -533,14 +715,48 @@ export const runsGet = defineOp({
   owner: 'B',
 });
 
-/** Added in Wave 0: UI buttons (Scout now, Research, Tailor, Connect, Fill, Check all) start skill runs. */
+/**
+ * Added in Wave 0: UI buttons (Scout now, Research, Tailor, Connect, Fill, Check all) start skill runs.
+ * Launches the configured headless runner (`config.runner`). A `connect` run's
+ * `summary_json.outreach_id` names the draft it wrote.
+ */
 export const runsStart = defineOp({
   name: 'runs.start',
-  description: 'Start a skill run, optionally for one role.',
-  input: z.object({ skill: Skill, role_id: Id.optional() }),
+  description: 'Start a skill run, optionally for one role or one person.',
+  input: z.object({ skill: Skill, role_id: Id.optional(), contact_id: Id.optional() }),
   output: z.object({ run: Run }),
   impact: 'low',
   emits: ['run_started'],
+  owner: 'B',
+});
+
+/** Added in Wave 2 (lane B): close a run started with runs.start. */
+export const runsFinish = defineOp({
+  name: 'runs.finish',
+  description: 'Close a skill run started with runs.start.',
+  input: z.object({
+    run_id: Id,
+    status: RunStatus.exclude(['running']),
+    summary: z.record(z.string(), z.unknown()).optional(),
+    note: z.string().optional(),
+  }),
+  output: z.object({ run: Run }),
+  impact: 'low',
+  emits: ['run_finished'],
+  owner: 'B',
+});
+
+// -------------------------------------------------------------------- vault (B)
+
+/** Added in Wave 2 (lane D): package previews. Only paths the db references; frontmatter stripped. */
+export const vaultRead = defineOp({
+  name: 'vault.read',
+  description: 'Read a vault markdown file the db references (frontmatter stripped).',
+  input: z.object({ path: VaultPath }),
+  output: z.object({ markdown: z.string().nullable() }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
   owner: 'B',
 });
 
@@ -559,6 +775,27 @@ export const systemDoctor = defineOp({
   readOnly: true,
   emits: [],
   owner: 'A',
+});
+
+/** Added in Wave 2 (lane D, amended): Settings backend cards. */
+export const systemBackends = defineOp({
+  name: 'system.backends',
+  description: 'Decision backends with mode, status and latency.',
+  input: z.object({}),
+  output: z.object({
+    items: z.array(
+      z.object({
+        name: z.enum(['rule', ...ROUTABLE_BACKENDS]),
+        mode: z.enum(['hosted', 'local', 'session']),
+        status: z.enum(['ok', 'slow', 'down']),
+        latencyMs: z.number().nonnegative().nullable(),
+      }),
+    ),
+  }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'I',
 });
 
 /** Added in Wave 0: Settings screen reads and saves config.json. */
@@ -591,6 +828,11 @@ export const OPS = {
   'profile.propose_diff': profileProposeDiff,
   'profile.apply_diff': profileApplyDiff,
   'profile.reject_diff': profileRejectDiff,
+  'profile.undo_diff': profileUndoDiff,
+  'profile.learn': profileLearn,
+  'onboard.start': onboardStart,
+  'onboard.state': onboardState,
+  'onboard.samples': onboardSamples,
   'onboard.ingest_resume': onboardIngestResume,
   'onboard.answer': onboardAnswer,
   'onboard.calibrate': onboardCalibrate,
@@ -603,6 +845,7 @@ export const OPS = {
   'roles.get': rolesGet,
   'roles.list': rolesList,
   'pipeline.summary': pipelineSummary,
+  'companies.get': companiesGet,
   'companies.dossier.write': companiesDossierWrite,
   'apply.tailor': applyTailor,
   'apply.fill': applyFill,
@@ -610,6 +853,9 @@ export const OPS = {
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,
+  'contacts.get': contactsGet,
+  'outreach.get': outreachGet,
+  'outreach.list': outreachList,
   'outreach.draft': outreachDraft,
   'outreach.to_gmail': outreachToGmail,
   'outreach.send': outreachSend,
@@ -620,7 +866,10 @@ export const OPS = {
   'runs.list': runsList,
   'runs.get': runsGet,
   'runs.start': runsStart,
+  'runs.finish': runsFinish,
+  'vault.read': vaultRead,
   'system.doctor': systemDoctor,
+  'system.backends': systemBackends,
   'config.get': configGet,
   'config.update': configUpdate,
 } as const;

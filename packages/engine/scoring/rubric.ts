@@ -1,10 +1,11 @@
 import {
   BLIND_CRITERIA,
   CRITERIA,
+  CRITERION_OWNER,
   type Criterion,
   type PolicyConfig,
   type ProfileComponent,
-  type ProfileComponentKey,
+  type ScoreScale,
 } from '@perfect-placement/contracts';
 
 /*
@@ -18,10 +19,10 @@ export type Weights = Record<Criterion, number>;
 /**
  * Total formula.
  * - `v1`: total = round(sum(c_i * w_i) / 5). Range 20..100. Same as v1 scorer.py; bands 75/55 were calibrated on it.
- * - `zero_based`: total = round(sum(w_i * (c_i - 1) / 4)). Range 0..100 (the Wave 0 fixtures use it).
+ * - `zero_based`: total = round(sum(w_i * (c_i - 1) / 4)). Range 0..100 (Wave 0 fixtures used it; Wave 2 fixtures are v1).
  */
-export const SCALES = ['v1', 'zero_based'] as const;
-export type Scale = (typeof SCALES)[number];
+export { SCORE_SCALES as SCALES } from '@perfect-placement/contracts';
+export type Scale = ScoreScale;
 
 export interface Rubric {
   version: string;
@@ -40,21 +41,10 @@ export interface Rubric {
 export const V1_WEIGHTS: Weights = { c1: 15, c2: 15, c3: 12, c4: 12, c5: 10, c6: 12, c7: 8, c8: 8, c9: 8 };
 
 /**
- * Which profile component owns which criterion's weight.
- * Lane E stores calibrated weights as `data_json.criterion_weights: { c1: 15, ... }` on the owning component
- * (any component may carry any criterion; this map is the convention, see CONTRACT_CHANGES.md "Lane F requests").
+ * Which profile component owns which criterion's weight: CRITERION_OWNER in contracts (Wave 2).
+ * Lane E stores calibrated weights as `data_json.criterion_weights: { c1: 15, ... }` on the owning component.
  */
-export const CRITERION_OWNER: Record<Criterion, ProfileComponentKey> = {
-  c1: 'team',
-  c2: 'craft',
-  c3: 'craft',
-  c4: 'domain',
-  c5: 'domain',
-  c6: 'terms',
-  c7: 'team',
-  c8: 'growth',
-  c9: 'craft',
-};
+export { CRITERION_OWNER };
 
 /** Scale weights so they sum to exactly 100 (largest-remainder rounding to 0.01). */
 export function normalizeWeights(raw: Partial<Record<Criterion, number>>, fallback: Weights = V1_WEIGHTS): Weights {

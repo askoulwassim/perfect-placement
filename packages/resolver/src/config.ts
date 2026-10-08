@@ -26,7 +26,7 @@ export function backendsFromConfig(
   const llmKey = env.ANTHROPIC_API_KEY;
   if (opts.llmCall) map.llm = createLlmBackend({ call: opts.llmCall });
   else if (llmKey) {
-    const model = config.backends.llm.model;
+    const model = config.backends.llm?.model;
     map.llm = createLlmBackend({ call: anthropicCall({ apiKey: llmKey, ...(model ? { model } : {}) }) });
   }
   return map;

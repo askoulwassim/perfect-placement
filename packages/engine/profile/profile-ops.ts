@@ -260,7 +260,7 @@ export async function applyApproved(
   if (!parsed.success) throw new OpError('invalid_input', 'diff result is invalid', parsed.error.issues);
 
   let weight = comp.weight;
-  const cw = data.criteria_weights as CriteriaWeights | undefined;
+  const cw = data.criterion_weights as CriteriaWeights | undefined;
   if (comp.kind === 'weighted' && cw)
     weight = Math.round(criteriaOwnedBy(diff.component_key).reduce((s, c) => s + (cw[c] ?? 0), 0) * 100) / 10000;
 

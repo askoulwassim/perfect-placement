@@ -21,10 +21,14 @@ import {
 
 const T: Thresholds = DEFAULT_CONFIG.policy; // auto 0.90, second_opinion 0.70, undo 24h
 
-/** The locked grid, written out by hand (decisions.md), so the test does not just echo POLICY_GRID. */
+/**
+ * The wave1-decisions #24 grid, written out by hand, so the test does not just echo POLICY_GRID.
+ * High row: the contract grid says auto_undo when confident, but `decide()` keeps high impact
+ * human until Phase 2 wires the hard exclusions (isHardHuman) with the diff component.
+ */
 const EXPECTED: Record<Impact, { confident: PolicyOutcome; middle: PolicyOutcome; low: PolicyOutcome }> = {
-  low: { confident: 'auto', middle: 'auto_second', low: 'human' },
-  medium: { confident: 'auto_undo', middle: 'human', low: 'human' },
+  low: { confident: 'auto', middle: 'auto', low: 'auto_undo' },
+  medium: { confident: 'auto', middle: 'auto_second', low: 'human' },
   high: { confident: 'human', middle: 'human', low: 'human' },
 };
 
@@ -54,17 +58,17 @@ describe('thresholds and overrides', () => {
   it('per-kind override from config (freshness.closed auto = 0.92)', () => {
     const t = effectiveThresholds(DEFAULT_CONFIG, 'freshness.closed');
     expect(t.auto).toBe(0.92);
-    expect(decide({ p: 0.91 }, 'medium', t)).toBe('human');
-    expect(decide({ p: 0.91 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'inbox.classify'))).toBe('auto_undo');
-    expect(decide({ p: 0.92 }, 'medium', t)).toBe('auto_undo');
+    expect(decide({ p: 0.91 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.91 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'inbox.classify'))).toBe('auto');
+    expect(decide({ p: 0.92 }, 'medium', t)).toBe('auto');
   });
 
   it('per-call override wins over the kind override', () => {
     const t = effectiveThresholds(DEFAULT_CONFIG, 'freshness.closed', { auto: 0.99, second_opinion: 0.5 });
     expect(t).toEqual({ auto: 0.99, second_opinion: 0.5, undo_hours: 24 });
-    expect(decide({ p: 0.95 }, 'low', t)).toBe('auto_second');
-    expect(decide({ p: 0.55 }, 'low', t)).toBe('auto_second');
-    expect(decide({ p: 0.49 }, 'low', t)).toBe('human');
+    expect(decide({ p: 0.95 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.55 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.49 }, 'medium', t)).toBe('human');
   });
 
   it('high impact is human even with thresholds of zero', () => {

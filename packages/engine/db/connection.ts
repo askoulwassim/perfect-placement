@@ -26,24 +26,36 @@ export function appliedVersions(db: Db): number[] {
   return (db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[]).map((r) => r.version);
 }
 
-/** Apply pending migrations, each in its own transaction. Returns the files applied. */
+/**
+ * Apply pending migrations, each in its own transaction. Returns the files applied.
+ * Foreign keys are off while migrating (SQLite's table-rebuild procedure needs it, and the
+ * pragma cannot change inside a transaction); `foreign_key_check` must be clean before commit.
+ */
 export function applyMigrations(db: Db, dir: string = MIGRATIONS_DIR): string[] {
   const done = new Set(appliedVersions(db));
   const applied: string[] = [];
-  for (const file of listMigrations(dir)) {
-    const version = versionOf(file);
-    if (done.has(version)) continue;
-    const sql = readFileSync(join(dir, file), 'utf8');
-    db.transaction(() => {
-      db.exec(sql);
-      // Migrations may record themselves (001 does); record the rest here.
-      db.prepare(`INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`).run(
-        version,
-        file.replace(/\.sql$/, ''),
-        new Date().toISOString(),
-      );
-    })();
-    applied.push(file);
+  const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
+  db.pragma('foreign_keys = OFF');
+  try {
+    for (const file of listMigrations(dir)) {
+      const version = versionOf(file);
+      if (done.has(version)) continue;
+      const sql = readFileSync(join(dir, file), 'utf8');
+      db.transaction(() => {
+        db.exec(sql);
+        const violations = db.pragma('foreign_key_check') as unknown[];
+        if (violations.length) throw new Error(`${file}: foreign_key_check failed (${violations.length} rows)`);
+        // Migrations may record themselves (001 and 002 do); record the rest here.
+        db.prepare(`INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`).run(
+          version,
+          file.replace(/\.sql$/, ''),
+          new Date().toISOString(),
+        );
+      })();
+      applied.push(file);
+    }
+  } finally {
+    db.pragma(`foreign_keys = ${fkWasOn ? 'ON' : 'OFF'}`);
   }
   return applied;
 }

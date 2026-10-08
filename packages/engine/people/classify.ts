@@ -75,7 +75,7 @@ export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps
     updateLink(db, { ...link, tier, is_hiring_team: hiring });
   }
 
-  return { status: 'ok', output: { role: contactRole, tier, p: answer.p, decision_id: decisionId }, eventIds: [] };
+  return { status: 'ok', output: { role: contactRole, tier, p: answer.p, decision_id: decisionId, outcome }, eventIds: [] };
 };
 
 /**

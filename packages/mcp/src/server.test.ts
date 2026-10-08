@@ -5,6 +5,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { OP_NAMES } from '@perfect-placement/contracts';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createPpMcpServer } from './server.js';
@@ -46,7 +47,7 @@ describe('MCP server over the fake runOp', () => {
 
   it('lists one tool per op', async () => {
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(37);
+    expect(tools.length).toBe(OP_NAMES.length);
     expect(tools.map((t) => t.name)).toContain('roles.list');
   });
 

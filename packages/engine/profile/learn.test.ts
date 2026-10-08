@@ -51,13 +51,14 @@ describe('learn loop: synthetic rejection', () => {
   });
   afterEach(() => env.cleanup());
 
-  it('proposes diffs and routes each by policy: filters to a human, confident weights auto + undo', async () => {
+  it('proposes diffs and routes each by policy: filters to a human, confident weights auto', async () => {
     const ask = createFakeResolver(env.db, (q, req) => {
       if (req.decision === 'profile.learn') {
         if (q.id === 'dealbreakers') return { value: true, p: 0.97 };
         if (q.id === 'craft') return { value: true, p: 0.96 };
         if (q.id === 'domain') return { value: true, p: 0.93 };
-        if (q.id === 'story') return { value: true, p: 0.6 }; // unsure -> human
+        // Unsure "no": learn questions are low impact, which the #24 grid never routes to a human.
+        if (q.id === 'story') return { value: false, p: 0.6 };
         return { value: false, p: 0.95 };
       }
       return { value: true, p: 0.95 }; // apply? yes, confident
@@ -69,7 +70,7 @@ describe('learn loop: synthetic rejection', () => {
     expect(res.asked).toHaveLength(11);
     expect(ask.calls[0]?.questions.every((q) => q.type === 'noulli')).toBe(true);
     expect(res.changed.sort()).toEqual(['craft', 'dealbreakers', 'domain']);
-    expect(res.learn_questions_for_human).toHaveLength(1);
+    expect(res.learn_questions_for_human).toHaveLength(0);
 
     // Dealbreakers: high impact, proposed, queued for a human, never applied.
     const dq = res.queued.find((q) => getDiff(env.db, q.diff_id)?.component_key === 'dealbreakers');
@@ -83,7 +84,7 @@ describe('learn loop: synthetic rejection', () => {
     expect(dec.status).toBe('pending');
     expect(JSON.parse(dec.action_json)).toEqual({ op: 'profile.apply_diff', input: { diff_id: ddiff?.id } });
 
-    // Craft: medium, confident -> auto + undo, profile v+1, 'before' taken from data not the model.
+    // Craft: medium, confident -> auto, profile v+1, 'before' taken from data not the model.
     expect(res.applied).toHaveLength(1);
     const ap = res.applied[0];
     expect(ap?.impact).toBe('medium');
@@ -102,7 +103,8 @@ describe('learn loop: synthetic rejection', () => {
       string,
       string
     >;
-    expect(undo.policy_outcome).toBe('auto_undo');
+    // #24 grid: medium + confident = auto (wave1-decisions #14 asked for auto + undo; Phase 2 reconciles).
+    expect(undo.policy_outcome).toBe('auto');
 
     // Domain: the LLM judged no change after all -> nothing proposed.
     expect(res.proposed.map((d) => d.component_key).sort()).toEqual(['craft', 'dealbreakers']);

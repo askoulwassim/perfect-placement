@@ -205,16 +205,15 @@ describe('people.classify', () => {
     expect(count(v, "SELECT COUNT(*) n FROM decision WHERE id = ? AND kind = 'people.classify'", out.decision_id)).toBe(1);
   });
 
-  it('a low-confidence pick goes to Needs you and leaves the provisional tier', async () => {
+  it('a low-confidence pick is applied with a 24h undo (#24 grid: low impact never goes to Needs you)', async () => {
     const deps = testDeps(v, { ask: createFakeAsk(v.db, scriptByName(0.55)), linkedin: linkedin() });
     const found = ok(await findPeople({ role_id: R.airtableOnDeck }, testCtx(), deps)).found;
     const gus = found.find((f) => f.contact.name === 'Gus H.');
     const out = ok(await classifyContact({ contact_id: gus?.contact.id, role_id: R.airtableOnDeck }, testCtx(), deps));
-    expect(out.tier).toBe('cold_hiring');
-    expect(v.db.prepare('SELECT tier FROM contact_link WHERE id = ?').get(gus?.link.id)).toEqual({ tier: 'cold_other' });
-    expect(v.db.prepare('SELECT policy_outcome, status FROM decision WHERE id = ?').get(out.decision_id)).toEqual({
-      policy_outcome: 'human',
-      status: 'pending',
+    expect(out).toMatchObject({ tier: 'cold_hiring', outcome: 'auto_undo' });
+    expect(v.db.prepare('SELECT tier FROM contact_link WHERE id = ?').get(gus?.link.id)).toEqual({ tier: 'cold_hiring' });
+    expect(v.db.prepare('SELECT policy_outcome FROM decision WHERE id = ?').get(out.decision_id)).toEqual({
+      policy_outcome: 'auto_undo',
     });
   });
 

@@ -406,14 +406,14 @@ function convertRubricJson(b: Builder, raw: string) {
       continue;
     }
     w[c] = v;
-    m(`weights.${ck}`, [`${CRITERION_OWNER[c]}.criteria_weights.${c}`, `${CRITERION_OWNER[c]}.weight`]);
+    m(`weights.${ck}`, [`${CRITERION_OWNER[c]}.criterion_weights.${c}`, `${CRITERION_OWNER[c]}.weight`]);
   }
   if (Object.keys(weights).length) {
     const total = Object.values(weights).reduce((s, v) => s + v, 0);
     if (total !== 100) b.questions.push(`rubric.json weights sum to ${total}, normalized to 100.`);
     const byComp = weightsByComponent(normalizeWeights(w));
     for (const key of PROFILE_COMPONENT_KEYS) {
-      if (Object.keys(byComp[key].criteria_weights).length) b.draft[key].criteria_weights = byComp[key].criteria_weights;
+      if (Object.keys(byComp[key].criterion_weights).length) b.draft[key].criterion_weights = byComp[key].criterion_weights;
     }
   }
   const criteria = (j.criteria ?? {}) as Record<string, string>;
@@ -533,7 +533,7 @@ function convertRubricMd(b: Builder, md: string) {
         });
         upsertCriterion(b, c, { label: stripMd(row[1] ?? ''), weight: Number(row[2]), anchors });
         to.push(`${CRITERION_OWNER[c]}.criteria[${c}]`);
-        const jw = (b.draft[CRITERION_OWNER[c]].criteria_weights as Record<string, number> | undefined)?.[c];
+        const jw = (b.draft[CRITERION_OWNER[c]].criterion_weights as Record<string, number> | undefined)?.[c];
         if (jw != null && Number(row[2]) !== jw)
           b.questions.push(`${c.toUpperCase()} weight differs: rubric.md ${row[2]} vs rubric.json (normalized) ${jw}. Using rubric.json.`);
       }
@@ -691,7 +691,7 @@ export function convertV1Profile(inputs: V1Inputs, now: Date = new Date()): V1Co
   if (!inputs.rubric_json) {
     const byComp = weightsByComponent(NEUTRAL_WEIGHTS);
     for (const key of PROFILE_COMPONENT_KEYS)
-      if (Object.keys(byComp[key].criteria_weights).length) b.draft[key].criteria_weights = byComp[key].criteria_weights;
+      if (Object.keys(byComp[key].criterion_weights).length) b.draft[key].criterion_weights = byComp[key].criterion_weights;
   }
   // Every dream company should also be in affinity (rubric.md may list more than rubric.json).
   const dream = (b.draft.company.dream_companies ?? []) as string[];
@@ -709,7 +709,7 @@ export function convertV1Profile(inputs: V1Inputs, now: Date = new Date()): V1Co
       Object.fromEntries(
         CRITERIA.map((c) => [
           c,
-          (b.draft[CRITERION_OWNER[c]].criteria_weights as Record<string, number> | undefined)?.[c] ?? NEUTRAL_WEIGHTS[c],
+          (b.draft[CRITERION_OWNER[c]].criterion_weights as Record<string, number> | undefined)?.[c] ?? NEUTRAL_WEIGHTS[c],
         ]),
       ) as Record<Criterion, number>,
     ),
@@ -717,7 +717,7 @@ export function convertV1Profile(inputs: V1Inputs, now: Date = new Date()): V1Co
   for (const key of PROFILE_COMPONENT_KEYS) {
     const data = parseComponentData(key, b.draft[key]);
     const filled =
-      Object.keys(data).some((k) => !['v1_sections', 'criteria_weights', 'criteria', 'hard_nos'].includes(k)) ||
+      Object.keys(data).some((k) => !['v1_sections', 'criterion_weights', 'criteria', 'hard_nos'].includes(k)) ||
       (key === 'dealbreakers' && (data.hard_nos as string[]).length > 0);
     let confidence = filled ? BASE_CONFIDENCE[key] : 0.1;
     if (Array.isArray(data.open_questions) && data.open_questions.length) confidence -= 0.1;

@@ -19,6 +19,8 @@ import { insert } from './repo.js';
 
 export function shimDecide(answer: Answer, impact: Impact, t: Thresholds): PolicyOutcome {
   const band: ConfidenceBand = answer.p >= t.auto ? 'confident' : answer.p >= t.second_opinion ? 'middle' : 'low';
+  // Like lane I's decide(): high stays human until Phase 2 wires isHardHuman (wave1-decisions #24).
+  if (impact === 'high') return 'human';
   return POLICY_GRID[impact][band];
 }
 

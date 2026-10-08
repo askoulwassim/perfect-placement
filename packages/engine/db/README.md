@@ -4,7 +4,7 @@
 
 Migrations (numbered SQL in `migrations/`), typed repository layer over better-sqlite3, vault helpers (PP_HOME, frontmatter), `pp migrate` importer, `system.doctor`.
 
-001_init.sql was written by Wave 0 and matches `packages/contracts` TABLES (tested in packages/fixtures). New migrations are 002+. Schema changes that alter contracts go through CONTRACT_CHANGES.md.
+001_init.sql was written by Wave 0 and matches `packages/contracts` TABLES (tested in packages/fixtures). New migrations are 002+. 002_wave2.sql (Wave 2 Phase 1) adds `onboard_session`, archive reason `duplicate` and backend `agent`, and narrows the decision CHECK to `kind <> 'apply.submit' OR policy_outcome = 'human'`; it rebuilds `role` and `decision` with SQLite's 12-step procedure, so `applyMigrations` runs with foreign keys off and checks `foreign_key_check` before each commit. Schema changes that alter contracts go through CONTRACT_CHANGES.md.
 
 ## Lane A surface (Wave 1)
 

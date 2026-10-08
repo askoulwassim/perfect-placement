@@ -54,7 +54,7 @@ describe('component schemas + weights', () => {
     const comps = PROFILE_COMPONENT_KEYS.map((key) => ({
       key,
       weight: by[key].weight,
-      data_json: { criteria_weights: by[key].criteria_weights },
+      data_json: { criterion_weights: by[key].criterion_weights },
     }));
     expect(rubricWeights(comps)).toEqual(w);
     // Fixture components carry only the weight column: still a valid rubric.
@@ -171,8 +171,9 @@ describe('profile ops on fixtures', () => {
     const row = env.db
       .prepare('SELECT policy_outcome, undo_until, action_json FROM decision WHERE subject_id = ?')
       .get('pd_0002') as Record<string, string>;
-    expect(row.policy_outcome).toBe('auto_undo');
-    expect(row.undo_until).toBeTruthy();
+    // #24 grid: medium + confident = auto (no undo window). undoDiff still restores on request.
+    expect(row.policy_outcome).toBe('auto');
+    expect(row.undo_until).toBeNull();
     expect(JSON.parse(row.action_json)).toEqual({ op: 'profile.apply_diff', input: { diff_id: 'pd_0002' } });
 
     // Undo inside the window restores the before values.
@@ -182,8 +183,8 @@ describe('profile ops on fixtures', () => {
     expect(getDiff(env.db, 'pd_0002')?.status).toBe('undone');
   });
 
-  it('agent apply of a medium diff at middle confidence goes to a human', async () => {
-    const unsure = createFakeResolver(env.db, () => ({ value: true, p: 0.8 }));
+  it('agent apply of a medium diff at low confidence goes to a human', async () => {
+    const unsure = createFakeResolver(env.db, () => ({ value: true, p: 0.6 }));
     const r = await createProfileHandlers({ ...deps, ask: unsure })['profile.apply_diff']({ diff_id: 'pd_0002' }, ctx('agent'));
     expect(r.status).toBe('requires_human');
     expect(getDiff(env.db, 'pd_0002')?.status).toBe('pending');

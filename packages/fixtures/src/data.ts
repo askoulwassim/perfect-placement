@@ -11,10 +11,14 @@ import {
   type Contact,
   type ContactLink,
   CRITERIA,
+  CRITERION_OWNER,
+  type Criterion,
   DEFAULT_CONFIG,
   type Decision,
+  DREAM_AFFINITY,
   type EventRow,
   type Interview,
+  type OnboardSession,
   type Outreach,
   PROFILE_COMPONENT_KEYS,
   PROFILE_COMPONENT_KIND,
@@ -24,6 +28,7 @@ import {
   type ProfileVersion,
   type Role,
   type RoleStatus,
+  type RubricSnapshot,
   type Run,
   type Score,
   type ScoreDecision,
@@ -38,12 +43,27 @@ const pad = (n: number) => String(n).padStart(4, '0');
 
 // ------------------------------------------------------------------ profile
 
+const WEIGHTS: Record<Criterion, number> = { c1: 15, c2: 12, c3: 10, c4: 12, c5: 12, c6: 10, c7: 10, c8: 9, c9: 10 };
+
+/** The fixture rubric (RubricSnapshot, v1 scale: wave1-decisions #11). Score rows carry their own profile_version_id. */
 export const RUBRIC = {
-  version: 'fixture-1',
-  weights: { c1: 15, c2: 12, c3: 10, c4: 12, c5: 12, c6: 10, c7: 10, c8: 9, c9: 10 },
+  version: 'fixture-2',
+  scale: 'v1',
+  weights: WEIGHTS,
   bands: { green_min: DEFAULT_CONFIG.scoring.green_min, yellow_min: DEFAULT_CONFIG.scoring.yellow_min },
-  formula: 'total = sum(w_i * (c_i - 1) / 4) + affinity_mod, clamped 0..100',
-} as const;
+  affinity_cap: DEFAULT_CONFIG.scoring.affinity_cap,
+  company_active_cap: DEFAULT_CONFIG.scoring.company_active_cap,
+  profile_version_id: 'pv_0002',
+  weights_source: 'profile',
+  formula: 'total = clamp(round(sum(c_i * w_i) / 5) + affinity_mod, 0, 100)',
+} as const satisfies RubricSnapshot;
+
+/** Owned criterion weights per component (CRITERION_OWNER), points of 100. */
+const ownedWeights = (key: ProfileComponentKey): Partial<Record<Criterion, number>> =>
+  Object.fromEntries(CRITERIA.filter((c) => CRITERION_OWNER[c] === key).map((c) => [c, WEIGHTS[c]]));
+
+/** Dream companies get DREAM_AFFINITY (wave1-decisions #10), capped, never a dealbreaker bypass. */
+const DREAM = ['linear', 'figma'] as const;
 
 const COMPONENT_DATA: Record<ProfileComponentKey, { confidence: number; data: Record<string, unknown> }> = {
   story: {
@@ -58,7 +78,16 @@ const COMPONENT_DATA: Record<ProfileComponentKey, { confidence: number; data: Re
   domain: { confidence: 0.7, data: { ranked: ['data infrastructure', 'AI tooling', 'developer platforms', 'fintech'] } },
   work_mode: { confidence: 0.95, data: { modes: ['remote'], locations: ['US'], travel_max_pct: 15 } },
   terms: { confidence: 0.8, data: { comp_floor: 200000, comp_target: 240000, currency: 'USD', equity: 'medium' } },
-  company: { confidence: 0.6, data: { stages: ['series-b', 'series-c', 'public'], size: '200-5000', affinity: { linear: 3, figma: 2 } } },
+  company: {
+    confidence: 0.6,
+    data: {
+      stages: ['series-b', 'series-c', 'public'],
+      size: '200-5000',
+      dream_companies: [...DREAM],
+      affinity: Object.fromEntries(DREAM.map((d) => [d, DREAM_AFFINITY])),
+      watchlist: ['linear', 'figma', 'stripe'],
+    },
+  },
   team: { confidence: 0.5, data: { proximity: 'reports to VP or above', prefers_small_teams: true } },
   growth: { confidence: 0.55, data: { scope_ceiling: 'head of product', trajectory: 'up' } },
   dealbreakers: { confidence: 1, data: { hard_nos: ['onsite only', 'ad tech', 'below comp floor'] } },
@@ -71,26 +100,26 @@ export const profileVersions: ProfileVersion[] = [
   { id: 'pv_0002', created_at: at(10), parent_id: 'pv_0001', reason: 'calibration: domain reweighted', event_id: null },
 ];
 
-const WEIGHTED_SHARE: Partial<Record<ProfileComponentKey, number>> = {
-  craft: 0.25,
-  domain: 0.2,
-  company: 0.15,
-  team: 0.2,
-  growth: 0.2,
-};
+/** `weight` column of a weighted component = owned criterion points / 100 (null for filters and assets). */
+const weightOf = (key: ProfileComponentKey): number | null =>
+  PROFILE_COMPONENT_KIND[key] === 'weighted' ? Object.values(ownedWeights(key)).reduce((a, b) => a + b, 0) / 100 : null;
 
 export const profileComponents: ProfileComponent[] = profileVersions.flatMap((v, vi) =>
   PROFILE_COMPONENT_KEYS.map((key, ki) => {
     const kind = PROFILE_COMPONENT_KIND[key];
     const base = COMPONENT_DATA[key];
-    const data = key === 'domain' && vi === 0 ? { ranked: ['developer platforms', 'data infrastructure', 'fintech'] } : base.data;
+    const owned = ownedWeights(key);
+    const data = {
+      ...(key === 'domain' && vi === 0 ? { ranked: ['developer platforms', 'data infrastructure', 'fintech'] } : base.data),
+      ...(Object.keys(owned).length ? { criterion_weights: owned } : {}),
+    };
     return {
       id: `pc_${pad(vi * 100 + ki + 1)}`,
       version_id: v.id,
       key,
       kind,
       confidence: vi === 0 ? Math.max(0.3, base.confidence - 0.1) : base.confidence,
-      weight: kind === 'weighted' ? (WEIGHTED_SHARE[key] ?? null) : null,
+      weight: weightOf(key),
       data_json: data,
       md_path: key === 'story' || key === 'voice' ? vaultPath.profileComponent(key) : null,
     };
@@ -131,9 +160,9 @@ export const profileDiffs: ProfileDiff[] = [
 const COMPANIES: Array<[slug: string, name: string, domain: string, ats: Company['ats_type'], affinity: number]> = [
   ['stripe', 'Stripe', 'stripe.com', 'greenhouse', 1],
   ['datadog', 'Datadog', 'datadoghq.com', 'greenhouse', 0],
-  ['figma', 'Figma', 'figma.com', 'greenhouse', 2],
+  ['figma', 'Figma', 'figma.com', 'greenhouse', DREAM_AFFINITY],
   ['notion', 'Notion', 'notion.so', 'ashby', 0],
-  ['linear', 'Linear', 'linear.app', 'ashby', 3],
+  ['linear', 'Linear', 'linear.app', 'ashby', DREAM_AFFINITY],
   ['vercel', 'Vercel', 'vercel.com', 'greenhouse', 1],
   ['snowflake', 'Snowflake', 'snowflake.com', 'workday', 0],
   ['databricks', 'Databricks', 'databricks.com', 'greenhouse', 0],
@@ -294,7 +323,7 @@ const ROLE_SEEDS: RoleSeed[] = [
     title: 'Senior PM, Marketplace',
     status: 'archived',
     reason: 'below_threshold',
-    c: '323323232',
+    c: '334333433',
     wp: 'hybrid',
     found: 18,
   },
@@ -365,10 +394,10 @@ export const roles: Role[] = ROLE_SEEDS.map((r, i) => {
 
 // ------------------------------------------------------------------- scores
 
+/** v1 scale: clamp(round(sum(c_i * w_i) / 5) + affinity, 0, 100). */
 export function fixtureTotal(c: number[], affinity: number): number {
-  const w = Object.values(RUBRIC.weights);
-  const raw = c.reduce((sum, v, i) => sum + (w[i] ?? 0) * ((v - 1) / 4), 0) + affinity;
-  return Math.round(Math.min(100, Math.max(0, raw)) * 10) / 10;
+  const base = Math.round(CRITERIA.reduce((sum, k, i) => sum + (c[i] ?? 0) * RUBRIC.weights[k], 0) / 5);
+  return Math.min(100, Math.max(0, base + affinity));
 }
 
 export function fixtureBand(total: number): Band {
@@ -399,7 +428,7 @@ export const scores: Score[] = ROLE_SEEDS.flatMap((r, i) => {
       id: `sc_${pad(++scoreN)}`,
       role_id: role.id,
       profile_version_id: versionId,
-      rubric_json: { ...RUBRIC },
+      rubric_json: { ...RUBRIC, profile_version_id: versionId },
       c1: crit.c1,
       c2: crit.c2,
       c3: crit.c3,
@@ -682,7 +711,7 @@ const dec = (
     >,
 ): Decision => ({
   ts: at(0, 6),
-  backend: 'jev',
+  backend: 'kev',
   human_choice: null,
   overridden: false,
   undo_until: null,
@@ -705,7 +734,13 @@ export const decisions: Decision[] = [
     impact: 'medium',
     policy_outcome: 'human',
     status: 'pending',
-    action_json: { op: 'roles.archive', input: { role_id: R.datadogActive, reason: 'closed' } },
+    // Archive only when the final answer is "not open"; undo restores the previous status.
+    action_json: {
+      op: 'roles.archive',
+      input: { role_id: R.datadogActive, reason: 'closed' },
+      when: false,
+      undo: { op: 'roles.move', input: { role_id: R.datadogActive, to: 'active' } },
+    },
   }),
   dec({
     id: 'dc_0002',
@@ -741,7 +776,7 @@ export const decisions: Decision[] = [
     impact: 'high',
     policy_outcome: 'human',
     status: 'pending',
-    backend: 'llm',
+    backend: 'agent',
     action_json: { op: 'profile.apply_diff', input: { diff_id: 'pd_0001' } },
   }),
   dec({
@@ -783,10 +818,10 @@ export const decisions: Decision[] = [
     },
     answer_json: { id: 'who', value: 'peer', p: 0.55 },
     p: 0.55,
-    impact: 'low',
+    // Medium: under the Wave 2 grid low impact never routes to a human.
+    impact: 'medium',
     policy_outcome: 'human',
     status: 'pending',
-    backend: 'kev',
   }),
   dec({
     id: 'dc_0007',
@@ -797,8 +832,10 @@ export const decisions: Decision[] = [
     answer_json: { id: 'same', value: false, p: 0.64 },
     p: 0.64,
     impact: 'low',
+    // Near matches are always queued for a human (lane B: forceHuman).
     policy_outcome: 'human',
     status: 'pending',
+    backend: 'rule',
   }),
   // Auto stream (last 24h)
   dec({
@@ -811,11 +848,17 @@ export const decisions: Decision[] = [
     answer_json: { id: 'open', value: false, p: 0.97 },
     p: 0.97,
     impact: 'medium',
+    // Pre-#24 grid row kept as the undoable auto example (the #24 grid gives medium + confident plain auto).
     policy_outcome: 'auto_undo',
     status: 'applied',
     undo_until: at(-1, 6),
     resolved_at: at(0, 6),
-    action_json: { op: 'roles.archive', input: { role_id: R.vercelClosed, reason: 'closed' } },
+    action_json: {
+      op: 'roles.archive',
+      input: { role_id: R.vercelClosed, reason: 'closed' },
+      when: false,
+      undo: { op: 'roles.move', input: { role_id: R.vercelClosed, to: 'active' } },
+    },
   }),
   dec({
     id: 'dc_0102',
@@ -843,9 +886,9 @@ export const decisions: Decision[] = [
       instructions: 'Who is this person for the role?',
       options: ['hiring_manager', 'hiring_team', 'recruiter', 'peer', 'unrelated', 'other'],
     },
-    answer_json: { id: 'who', value: 'hiring_manager', p: 0.81, second: { backend: 'kev', value: 'hiring_manager', p: 0.77 } },
+    answer_json: { id: 'who', value: 'hiring_manager', p: 0.81, second: { backend: 'agent', value: 'hiring_manager', p: 0.77 } },
     p: 0.81,
-    impact: 'low',
+    impact: 'medium',
     policy_outcome: 'auto_second',
     status: 'applied',
     resolved_at: at(0, 4),
@@ -1006,6 +1049,27 @@ export const runs: Run[] = [
   { id: 'rn_0003', op: 'inbox', started_at: at(0, 7), finished_at: null, status: 'running', summary_json: {}, log_path: null },
 ];
 
+// ---------------------------------------------------------- onboarding
+
+/** A re-interview of two components, paused at calibration. */
+export const onboardSessions: OnboardSession[] = [
+  {
+    id: 'ob_0001',
+    started_at: at(1, 20),
+    updated_at: at(1, 21),
+    step: 'calibrate',
+    scope_json: ['domain', 'growth'],
+    draft_json: {
+      domain: { ranked: ['AI tooling', 'data infrastructure', 'developer platforms'] },
+      growth: { scope_ceiling: 'VP product', trajectory: 'up' },
+    },
+    sources_json: { domain: ['profile', 'interview'], growth: ['profile', 'interview'] },
+    answered_json: ['domain.ranked', 'growth.scope_ceiling'],
+    calibration_json: { sample_ids: ['cal_01', 'cal_02', 'cal_03'], choices: { cal_01: 'yes' } },
+    version_id: null,
+  },
+];
+
 /** Insert order respects foreign keys. */
 export const FIXTURE_TABLES = {
   profile_version: profileVersions,
@@ -1022,6 +1086,7 @@ export const FIXTURE_TABLES = {
   interview: interviews,
   decision: decisions,
   run: runs,
+  onboard_session: onboardSessions,
 } as const;
 
 export const FIXTURE_CONFIG = DEFAULT_CONFIG;

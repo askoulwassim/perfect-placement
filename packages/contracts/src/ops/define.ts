@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Actor, Impact } from '../enums.js';
+import type { Actor, Backend, Impact } from '../enums.js';
 import type { EventType } from '../events.js';
 
 /** Lanes that implement ops (docs/v2/lanes). */
@@ -43,6 +43,11 @@ export interface OpContext {
   decisionId?: string;
   /** Validate, compute policy, write nothing. */
   dryRun?: boolean;
+  /**
+   * An automated caller's confidence in this call (Wave 2, lane B request). Medium-impact ops
+   * put it through the policy grid (auto / auto + undo); absent = Needs you (wave1-decisions #17).
+   */
+  confidence?: { p: number; backend: Backend };
 }
 
 /** Result of `runOp(name, input, ctx)`. Surfaces (UI, MCP, CLI) render all three. */

@@ -68,7 +68,8 @@ export function createFakeAsk(
       const a = script(req);
       const band = a.p >= t.auto ? 'confident' : a.p >= t.second_opinion ? 'middle' : 'low';
       // Fake second backend never agrees, so auto_second falls to human (the conservative path).
-      let outcome = POLICY_GRID[req.impact][band];
+      // High stays human, as in lane I's decide() until Phase 2 wires isHardHuman.
+      let outcome = req.impact === 'high' ? 'human' : POLICY_GRID[req.impact][band];
       if (outcome === 'auto_second') outcome = 'human';
       const id = defaultNewId('dc');
       db.prepare(

@@ -9,6 +9,7 @@ import {
   ContactDegree,
   ContactSource,
   ContactTier,
+  CRITERIA,
   DecisionKind,
   DecisionStatus,
   Freshness,
@@ -29,7 +30,7 @@ import { EventType } from './events.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, Slug, VaultPath } from './primitives.js';
 
 /*
- * Row schemas. One per table in migration 001.
+ * Row schemas. One per table in migrations 001 + 002.
  * Rules:
  * - Keys equal column names exactly (tested against PRAGMA table_info).
  * - Columns ending in `_json` hold JSON TEXT in SQLite; here they are the parsed value.
@@ -74,6 +75,7 @@ export const ProfileDiff = z.object({
   impact: Impact,
   status: ProfileDiffStatus,
   decision_id: Id.nullable(),
+  /** The event that caused the diff; the proposal event when there is no cause. Applied versions copy it to `profile_version.event_id`. */
   event_id: Id.nullable(),
   applied_version_id: Id.nullable(),
 });
@@ -114,7 +116,7 @@ export const Role = z.object({
   held_reason: HeldReason.nullable(),
   last_checked_at: IsoTimestamp.nullable(),
   freshness: Freshness,
-  /** Free-form flags (v1 carried flags like `closed`, `dream_company`). */
+  /** Free-form flags (v1 carried flags like `closed`, `dream_company`). Known keys: ROLE_FLAG_KEYS (e.g. `verify_remote: true`). */
   flags_json: Json,
   md_path: VaultPath.nullable(),
   created_at: IsoTimestamp,
@@ -122,13 +124,39 @@ export const Role = z.object({
 });
 export type Role = z.infer<typeof Role>;
 
+export const SCORE_SCALES = ['v1', 'zero_based'] as const;
+export const ScoreScale = z.enum(SCORE_SCALES);
+export type ScoreScale = z.infer<typeof ScoreScale>;
+
+/**
+ * What the scorer writes to `score.rubric_json` (Wave 2, lane F request).
+ * - `scale: 'v1'` (default, wave1-decisions #11): total = round(sum(c_i * w_i) / 5), range 20..100;
+ *   bands 75 / 55 were calibrated on it.
+ * - `scale: 'zero_based'`: total = round(sum(w_i * (c_i - 1) / 4)), range 0..100. Not comparable with v1.
+ * Then total = clamp(base + affinity_mod, 0, 100). Weights are c1..c9, summing to 100.
+ * Loose: the scorer may add `formula`, `blind`, etc. v1 legacy rows (migration) carry `source: 'v1'` and may not match.
+ */
+export const RubricSnapshot = z.looseObject({
+  version: z.string(),
+  scale: ScoreScale.default('v1'),
+  weights: z
+    .record(z.enum(CRITERIA), z.number().min(0).max(100))
+    .refine((w) => Math.abs(Object.values(w).reduce((s, v) => s + v, 0) - 100) < 0.05, 'weights must sum to 100'),
+  bands: z.object({ green_min: z.number(), yellow_min: z.number() }),
+  affinity_cap: z.number().int().min(0),
+  company_active_cap: z.number().int().min(1),
+  profile_version_id: Id.nullable(),
+  weights_source: z.enum(['profile', 'default']),
+});
+export type RubricSnapshot = z.infer<typeof RubricSnapshot>;
+
 /** Append-only. A rescore adds a row. */
 export const Score = z.object({
   id: Id,
   role_id: Id,
   /** Null only for v1 legacy scores imported by migration. */
   profile_version_id: Id.nullable(),
-  /** Snapshot of the rubric used: `{ version, weights, bands, ... }`. */
+  /** Snapshot of the rubric used. New rows match RubricSnapshot; v1 legacy rows are free-form. */
   rubric_json: Json,
   c1: CriterionScore,
   c2: CriterionScore,
@@ -219,6 +247,23 @@ export const Interview = z.object({
 });
 export type Interview = z.infer<typeof Interview>;
 
+const OpCall = z.object({ op: z.string(), input: z.unknown() });
+
+/**
+ * What a decision runs when applied (Wave 2, lane I request): `decision.action_json`.
+ * - `input` may contain the string `"$value"` anywhere; it is replaced by the final value
+ *   (the model's pick, or the human's change).
+ * - `when`: run only if the final value equals it (e.g. archive only when "open?" is false). Absent = always.
+ * - `undo`: the inverse op `decisions.undo` runs for an auto + undo decision.
+ */
+export const DecisionAction = z.object({
+  op: z.string(),
+  input: z.unknown(),
+  when: z.union([z.string(), z.boolean(), z.number()]).optional(),
+  undo: OpCall.optional(),
+});
+export type DecisionAction = z.infer<typeof DecisionAction>;
+
 /** One row per resolver question. The Needs-you queue = status 'pending' and policy_outcome 'human'. */
 export const Decision = z.object({
   id: Id,
@@ -240,8 +285,8 @@ export const Decision = z.object({
   undo_until: IsoTimestamp.nullable(),
   resolved_at: IsoTimestamp.nullable(),
   latency_ms: z.number().int().nonnegative(),
-  /** The op to run when this decision is applied: `{ op, input }`. */
-  action_json: Json.nullable(),
+  /** The op to run when this decision is applied. */
+  action_json: DecisionAction.nullable(),
 });
 export type Decision = z.infer<typeof Decision>;
 
@@ -256,7 +301,35 @@ export const Run = z.object({
 });
 export type Run = z.infer<typeof Run>;
 
-/** Table name -> row schema. Migration 001 must match this exactly. */
+export const ONBOARD_STEPS = ['resume', 'interview', 'calibrate', 'confirm', 'done'] as const;
+export const OnboardStep = z.enum(ONBOARD_STEPS);
+export type OnboardStep = z.infer<typeof OnboardStep>;
+
+/**
+ * In-progress onboarding (Wave 2, migration 002; lane E request). One row per session;
+ * the latest unfinished one is resumed by `onboard.state`.
+ */
+export const OnboardSession = z.object({
+  id: Id,
+  started_at: IsoTimestamp,
+  updated_at: IsoTimestamp,
+  step: OnboardStep,
+  /** Components being (re-)interviewed; null = full onboarding. */
+  scope_json: z.array(ProfileComponentKey).nullable(),
+  /** Draft data per component key. */
+  draft_json: Json,
+  /** Where each component's data came from: key -> ['resume' | 'interview' | 'profile']. */
+  sources_json: Json,
+  /** Answered question ids. */
+  answered_json: z.array(z.string()),
+  /** `{ sample_ids, choices }`. */
+  calibration_json: Json,
+  /** Profile version written by `onboard.confirm`; null until then. */
+  version_id: Id.nullable(),
+});
+export type OnboardSession = z.infer<typeof OnboardSession>;
+
+/** Table name -> row schema. Migrations 001 + 002 must match this exactly. */
 export const TABLES = {
   profile_version: ProfileVersion,
   profile_component: ProfileComponent,
@@ -272,6 +345,7 @@ export const TABLES = {
   interview: Interview,
   decision: Decision,
   run: Run,
+  onboard_session: OnboardSession,
 } as const;
 export type TableName = keyof typeof TABLES;
 

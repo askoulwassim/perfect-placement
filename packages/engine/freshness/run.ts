@@ -223,6 +223,7 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
 
   const output: CheckFreshnessOutput = {
     results: rows.map(({ role_id, freshness, method, stale, decision_id }) => ({ role_id, freshness, method, stale, decision_id })),
+    skipped,
   };
   return { output, rows, skipped, summary, runId };
 }

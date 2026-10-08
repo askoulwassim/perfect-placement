@@ -38,7 +38,7 @@ describe('roles.add', () => {
       ctxAt(),
     );
     const out = okOut(o);
-    expect(out).toEqual({ added: ['acme-robotics_principal-pm-data'], duplicates: [] });
+    expect(out).toEqual({ added: ['acme-robotics_principal-pm-data'], duplicates: [], possible_duplicates: [] });
     const role = e.db.prepare('SELECT * FROM role WHERE id = ?').get('acme-robotics_principal-pm-data') as Record<string, unknown>;
     expect(role).toMatchObject({ status: 'inbox', ats_job_id: '9900001', remote_ok: 1, company_id: 'acme-robotics' });
     expect(e.db.prepare(`SELECT * FROM company WHERE id = 'acme-robotics'`).get()).toMatchObject({

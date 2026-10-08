@@ -19,7 +19,7 @@ let db: Database.Database;
 let store: ScoringStore;
 const ctx: OpContext = { actor: 'agent', now: () => new Date('2026-10-08T12:00:00.000Z') };
 // Fixture scores use the zero-based formula; keep the pool comparable.
-const deps = (config: PolicyConfig = DEFAULT_CONFIG) => ({ store, config, scale: 'zero_based' as const });
+const deps = (config: PolicyConfig = DEFAULT_CONFIG) => ({ store, config, scale: 'v1' as const });
 
 const crit = (s: string) => Object.fromEntries([...s].map((v, i) => [`c${i + 1}`, Number(v)]));
 const status = (id: string) =>
@@ -57,7 +57,7 @@ describe('roles.score', () => {
     );
     expect(r.output.status).toBe('active');
     expect(r.output.score.profile_version_id).toBe('pv_0002');
-    expect(r.output.score.rubric_json).toMatchObject({ version: 'profile:pv_0002', affinity_cap: 5, scale: 'zero_based' });
+    expect(r.output.score.rubric_json).toMatchObject({ version: 'profile:pv_0002', affinity_cap: 5, scale: 'v1' });
     const row = db.prepare('SELECT * FROM score WHERE id = ?').get(r.output.score.id) as Record<string, unknown>;
     expect(row.total).toBe(100);
     expect(JSON.parse(row.rubric_json as string).weights.c1).toBe(15);
@@ -79,7 +79,7 @@ describe('roles.score', () => {
     addRole('linear_pm-x', 'linear');
     const r = rolesScoreHandler({ role_id: 'linear_pm-x', criteria: crit('444444444'), facts: { workplace: 'remote' } }, ctx, deps(config));
     expect(r.output.score.affinity_mod).toBe(2);
-    expect(r.output.score.total).toBe(77);
+    expect(r.output.score.total).toBe(82); // v1 scale: all 4s = 80, + 2
   });
 
   it('holds a fourth datadog role below the top three', () => {

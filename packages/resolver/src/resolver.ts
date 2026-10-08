@@ -11,6 +11,8 @@ import {
   type PolicyConfig,
   type PolicyOutcome,
   type Question,
+  RecordRequest,
+  type RecordResult,
   type Resolver,
   type RunOp,
   SUBJECT_TYPES,
@@ -72,6 +74,7 @@ function subjectOf(req: AskRequest): { type: SubjectType; id: string } {
 
 export interface ResolverInstance extends Resolver {
   ask(req: AskRequest, opts?: AskOptions): Promise<AskResult>;
+  record(req: RecordRequest, opts?: AskOptions): Promise<RecordResult>;
   /** Backend order this request would try (for Settings + tests). */
   route(req: AskRequest): Backend[];
 }
@@ -182,7 +185,7 @@ export function createResolver(deps: ResolverDeps): ResolverInstance {
       const secondAnswer = second?.answers.find((x) => x.id === q.id);
       const agrees = decided[i] === 'auto_second' && secondOpinionAgrees(q, a, secondAnswer);
       const outcome = finalOutcome(decided[i] as PolicyOutcome, agrees);
-      const action = opts.actions?.[q.id];
+      const action = opts.actions?.[q.id] ?? req.actions?.[q.id] ?? req.action;
       const answerJson: Record<string, unknown> = { id: a.id, value: a.value, p: a.p };
       if (a.raw !== undefined) answerJson.raw = a.raw;
       if (secondAnswer && second) answerJson.second = { backend: second.backend, value: secondAnswer.value, p: secondAnswer.p };
@@ -228,8 +231,58 @@ export function createResolver(deps: ResolverDeps): ResolverInstance {
     return { answers: result.answers.map(({ id, value, p }) => ({ id, value, p })), backend, latencyMs, decisionIds, outcomes };
   }
 
+  /**
+   * Log an externally judged answer through the policy (contracts `Resolver.record`). No backend
+   * call and no second opinion: `auto_second` falls to `human`. Runs the action when auto.
+   */
+  async function record(input: RecordRequest, opts: AskOptions = {}): Promise<RecordResult> {
+    const req = RecordRequest.parse(input);
+    const impact: Impact = effectiveImpact(req.decision, req.impact);
+    const thresholds = effectiveThresholds(deps.config, req.decision, opts.thresholds);
+    const outcome = req.backend === 'human' ? 'human' : finalOutcome(decidePolicy(req.answer, impact, thresholds), false);
+    const ts = now();
+    const subject = subjectOf(req as unknown as AskRequest);
+    const auto = outcome !== 'human';
+    let d: Decision = {
+      id: newId(),
+      ts: ts.toISOString(),
+      kind: req.decision,
+      subject_type: subject.type,
+      subject_id: subject.id,
+      question_json: req.question,
+      backend: req.backend,
+      answer_json: { id: req.answer.id, value: req.answer.value, p: req.answer.p },
+      p: req.answer.p,
+      impact,
+      policy_outcome: outcome,
+      status: auto ? 'applied' : 'pending',
+      human_choice: null,
+      overridden: false,
+      undo_until: outcome === 'auto_undo' ? undoUntil(ts, thresholds) : null,
+      resolved_at: auto ? ts.toISOString() : null,
+      latency_ms: 0,
+      action_json: req.action ? { ...req.action } : null,
+    };
+    deps.store.insert(d);
+    if (auto && req.action) d = await runAction(d, req.action as DecisionAction, req.answer.value, opts);
+    if (d.status === 'applied') {
+      deps.store.appendEvent({
+        id: newEventId(ts.getTime()),
+        ts: ts.toISOString(),
+        type: 'decision_made',
+        subject_type: 'decision',
+        subject_id: d.id,
+        payload_json: { kind: d.kind, value: req.answer.value, p: req.answer.p, outcome: d.policy_outcome, backend: req.backend },
+        actor: opts.actor ?? 'agent',
+        decision_id: d.id,
+      });
+    }
+    return { decisionId: d.id, outcome: d.policy_outcome };
+  }
+
   return {
     ask,
+    record,
     route,
     decide: (answer: Answer, impact: Impact, thresholds: Thresholds) => decidePolicy(answer, impact, thresholds),
   };

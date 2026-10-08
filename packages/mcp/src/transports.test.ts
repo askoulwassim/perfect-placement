@@ -1,6 +1,7 @@
 import { request } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { OP_NAMES } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFakeRunOp } from './testing/fake-run-op.js';
@@ -17,7 +18,7 @@ describe('Streamable HTTP transport', () => {
     const client = new Client({ name: 'http-test', version: '0.0.0' });
     await client.connect(new StreamableHTTPClientTransport(http.url));
     const { tools } = await client.listTools();
-    expect(tools.length).toBe(37);
+    expect(tools.length).toBe(OP_NAMES.length);
     const res = await client.callTool({ name: 'roles.get', arguments: { role_id: FIXTURE_ROLE_IDS.rampIv } });
     expect((res.structuredContent as { status: string }).status).toBe('ok');
     await client.close();

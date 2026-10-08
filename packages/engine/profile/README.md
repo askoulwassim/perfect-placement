@@ -23,7 +23,7 @@
 ## Component data
 
 `profile_component.data_json` is validated per key by `COMPONENT_DATA_SCHEMAS`. Every component may also carry
-`criteria_weights`, `criteria` (rubric anchors), `notes`, `open_questions`, `v1_sections` (verbatim v1 text).
+`criterion_weights`, `criteria` (rubric anchors), `notes`, `open_questions`, `v1_sections` (verbatim v1 text).
 
 **Criterion ownership** (each C1..C9 weight lives on exactly one component):
 

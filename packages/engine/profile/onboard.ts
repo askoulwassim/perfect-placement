@@ -254,7 +254,7 @@ export function onboardConfirm(
     const prev = prevComps.find((c) => c.key === key);
     const data: Record<string, unknown> = { ...(s.draft[key] ?? {}) };
     const own = byComp[key];
-    if (Object.keys(own.criteria_weights).length) data.criteria_weights = own.criteria_weights;
+    if (Object.keys(own.criterion_weights).length) data.criterion_weights = own.criterion_weights;
     let parsed: Record<string, unknown>;
     try {
       parsed = parseComponentData(key, data);
