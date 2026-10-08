@@ -1,2 +1,19 @@
-// Lane E owns this folder. Wave 0 stub.
+// Lane E: profile components, versions + diffs, onboarding, learn loop, v1 converter.
 export const OWNER_LANE = 'E' as const;
+
+export * from './calibration.js';
+export * from './components.js';
+export * from './convert-v1.js';
+export * from './deps.js';
+export * from './errors.js';
+export * from './handlers.js';
+export * from './learn.js';
+export * from './markdown.js';
+export * from './onboard.js';
+export * from './onboard-store.js';
+export * from './profile-ops.js';
+export * from './questions.js';
+export * from './resume.js';
+export * from './store.js';
+/** WAVE 2 SHIMS + test helpers (temp db, fake resolver). Not for production use. */
+export * as testing from './testing.js';

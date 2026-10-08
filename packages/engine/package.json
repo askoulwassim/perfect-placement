@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@perfect-placement/contracts": "workspace:*",
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@perfect-placement/fixtures": "workspace:*",
