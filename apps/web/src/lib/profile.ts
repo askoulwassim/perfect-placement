@@ -32,3 +32,9 @@ export function chipsOf(data: Record<string, unknown>): Array<{ label: string; v
 /** Numeric fields become sliders in the side panel. */
 export const numericFields = (data: Record<string, unknown>) =>
   Object.entries(data).filter((e): e is [string, number] => typeof e[1] === 'number');
+
+/** Diff and component chips as short "Label value" strings (DiffBlock lines). */
+export const chipText = (data: Record<string, unknown>) =>
+  chipsOf(Object.fromEntries(Object.entries(data).filter(([, v]) => typeof v !== 'number' || v >= 1000))).map((c) =>
+    c.value ? `${c.label} ${c.value}` : c.label,
+  );

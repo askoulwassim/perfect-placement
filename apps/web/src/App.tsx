@@ -19,9 +19,9 @@ import { RoleScreen } from './screens/Role';
 import { Settings } from './screens/Settings';
 import { You } from './screens/You';
 
-export function App({ client, now }: { client: OpClient; now?: () => Date }) {
+export function App({ client, now, pollMs }: { client: OpClient; now?: () => Date; pollMs?: number }) {
   return (
-    <ClientProvider client={client} now={now}>
+    <ClientProvider client={client} now={now} pollMs={pollMs}>
       <Shell />
     </ClientProvider>
   );

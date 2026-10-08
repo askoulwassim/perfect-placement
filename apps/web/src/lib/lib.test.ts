@@ -19,6 +19,8 @@ describe('stageOf', () => {
   it('prefers the application stage', () => {
     expect(stageOf({ status: 'draft-ready' }, { stage: 'fill' })).toBe(3);
     expect(stageOf({ status: 'draft-ready' }, { stage: 'submit' })).toBe(4);
+    expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'drafted' })).toBe(2);
+    expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'in_gmail' })).toBe(3);
   });
 });
 

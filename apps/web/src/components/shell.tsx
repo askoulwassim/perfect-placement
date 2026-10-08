@@ -58,7 +58,12 @@ function RailItem({
         }}
       >
         <NavIcon name={icon} />
-        {badge && <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 2, background: C.gold }} />}
+        {badge && (
+          <span
+            className="rail__badge"
+            style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 2, background: C.gold }}
+          />
+        )}
       </Btn>
       {tip && (
         <div
@@ -644,6 +649,68 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
         );
       })}
     </>
+  );
+}
+
+/**
+ * Hard exclusions (wave1-decisions #24): always "you", whatever the grid says. Locked: not tunable.
+ * Rendered under the PolicyGrid in the grid's own row style.
+ */
+export function HardExclusions({ items }: { items: readonly string[] }) {
+  const c = C.coral;
+  return (
+    <div
+      className="policy__locked"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '150px minmax(0,1fr)',
+        background: C.panel,
+        border: `1px solid ${C.line}`,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginTop: 16,
+      }}
+    >
+      <div style={{ minHeight: 68, display: 'flex', alignItems: 'center', padding: '0 20px' }}>
+        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>always</span>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '14px 20px',
+          borderLeft: `1px solid ${C.line}`,
+          background: CELL_BG.you,
+        }}
+      >
+        {items.map((label) => (
+          <span
+            key={label}
+            className="policy__lock"
+            data-locked="you"
+            aria-disabled="true"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              border: `1px solid ${C['line-2']}`,
+              borderRadius: 999,
+              padding: '6px 12px 6px 10px',
+              fontSize: 13,
+            }}
+          >
+            <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={C.muted} strokeWidth="1.4">
+              <rect x="2" y="5.5" width="8" height="5.5" rx="1.2" />
+              <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" />
+            </svg>
+            {label}
+            <WhoDecidesGlyph kind="you" size={14} />
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -15,6 +15,7 @@ import { ProgressDots } from '../components/meters';
 import { KIND_HEX, MiniConstellation, type NodeData } from '../components/profile';
 import { PPMark } from '../components/shell';
 import { C, display, eyebrow, mono, tab, X } from '../components/theme';
+import { humanize, k } from '../lib/format';
 import { COMPONENT_NAME, chipsOf } from '../lib/profile';
 import { go } from '../router';
 
@@ -34,7 +35,22 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const [ci, setCi] = useState(0);
   const samples = useOp('onboard.samples', step >= 2 ? {} : null);
   const profile = useOp('profile.get', step === 3 ? {} : null);
+  const saved = useOp('onboard.state', {});
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Resume mid-flow once, from the engine's onboarding session.
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || !saved.data) return;
+    resumed.current = true;
+    if (startAtCalibrate) return;
+    const at = { resume: 0, interview: 1, calibrate: 2, confirm: 3, done: 0 }[saved.data.step];
+    if (at === 1 && !saved.data.next_question) return;
+    if (at > 0) {
+      setState(saved.data);
+      setStep(at);
+    }
+  }, [saved.data, startAtCalibrate]);
 
   // Parse animation: nodes light one by one after the drop.
   useEffect(() => {
@@ -53,7 +69,12 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
 
   const q = state?.next_question ?? null;
   const val = q ? answers[q.id] : undefined;
-  const qVal = q ? (val ?? (q.answer_type === 'slider' ? 200 : q.answer_type === 'multi_chips' ? ['Any'] : undefined)) : undefined;
+  const sliderMid = q ? Math.round(((q.min ?? 150) + (q.max ?? 300)) / 2) : 200;
+  const qVal = q
+    ? (val ??
+      (q.answer_type === 'slider' ? sliderMid : q.answer_type === 'multi_chips' && q.options?.includes('Any') ? ['Any'] : undefined))
+    : undefined;
+  const answered = qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
 
   const calibrate = useCallback(
     async (choice: 'yes' | 'no' | 'maybe') => {
@@ -84,7 +105,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       if (state && parsed >= NODE_COUNT) setStep(1);
       return;
     }
-    if (step === 1 && q && qVal !== undefined) {
+    if (step === 1 && q && answered && qVal !== undefined) {
       const o = await act('onboard.answer', { question_id: q.id, value: qVal });
       if (o.status !== 'ok') return;
       setState(o.output);
@@ -133,15 +154,20 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       <PrimaryButton
         label="Next"
         op={step === 1 ? 'onboard.answer' : null}
-        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && qVal === undefined)}
-        disabled={(step === 0 && !state) || (step === 1 && qVal === undefined)}
+        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && !answered)}
+        disabled={(step === 0 && !state) || (step === 1 && !answered)}
         onClick={() => void next()}
       />
     );
 
-  const modeTxt = String(answers.q_work_mode ?? 'Remote');
-  const floorTxt = `$${answers.q_terms ?? 200}K`;
-  const stagesTxt = ((answers.q_company as string[] | undefined) ?? ['Any']).join(' · ');
+  const comp = (key: string) => profile.data?.components.find((c) => c.key === key)?.data_json ?? {};
+  const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => humanize(String(x))).join(' · ') : '');
+  const floor = comp('terms').comp_floor;
+  const filters = [
+    list(comp('work_mode').modes),
+    typeof floor === 'number' ? `Base ≥ $${k(floor)}` : '',
+    list(comp('company').stages),
+  ].filter(Boolean);
   const deal = profile.data?.components.find((c) => c.key === 'dealbreakers');
   const story = profile.data?.components.find((c) => c.key === 'story');
 
@@ -242,7 +268,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       {step === 1 && q && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 240px', gap: 48, marginTop: 90, alignItems: 'start' }}>
           <div>
-            <div style={eyebrow()}>Q {qn + 1} / 3</div>
+            <div style={eyebrow()}>Q {qn + 1}</div>
             <div className="onboard-q__text" style={{ ...display(72, 800, '-0.04em'), lineHeight: 1, margin: '14px 0 44px' }}>
               {q.label}
             </div>
@@ -256,7 +282,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                     const arr = Array.isArray(cur) ? cur : [];
                     let a = arr.includes(o) ? arr.filter((x) => x !== o) : [...arr.filter((x) => x !== 'Any'), o];
                     if (o === 'Any') a = ['Any'];
-                    setAnswers({ ...answers, [q.id]: a.length ? a : ['Any'] });
+                    setAnswers({ ...answers, [q.id]: a.length || !q.options?.includes('Any') ? a : ['Any'] });
                   };
                   return (
                     <Btn
@@ -291,8 +317,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                   aria-label={q.label}
                   min={q.min ?? 150}
                   max={q.max ?? 300}
-                  step={5}
-                  value={typeof qVal === 'number' ? qVal : 200}
+                  step={q.step ?? 5}
+                  value={typeof qVal === 'number' ? qVal : sliderMid}
                   onChange={(e) => setAnswers({ ...answers, [q.id]: Number(e.target.value) })}
                   style={{ width: '100%', marginTop: 18 }}
                 />
@@ -302,13 +328,35 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 </div>
               </div>
             )}
+            {q.answer_type === 'text' && (
+              <div className="onboard-q" style={{ maxWidth: 620 }}>
+                <textarea
+                  aria-label={q.label}
+                  value={typeof qVal === 'string' ? qVal : ''}
+                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    background: 'transparent',
+                    border: `1.5px solid ${C['line-2']}`,
+                    borderRadius: 12,
+                    color: C.fg,
+                    fontSize: 18,
+                    padding: '16px 20px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                  }}
+                />
+              </div>
+            )}
           </div>
           <QuestionNode
             name={COMPONENT_NAME[q.component]}
             color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
             conf={
               q.answer_type === 'slider'
-                ? Math.round(60 + ((typeof qVal === 'number' ? qVal : 200) - 150) / 5)
+                ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
                 : Array.isArray(qVal)
                   ? qVal.includes('Any')
                     ? 55
@@ -496,7 +544,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             </div>
             <div style={{ ...eyebrow(C.gold), margin: '28px 0 10px' }}>Filters</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {[modeTxt, `Base ≥ ${floorTxt}`, stagesTxt].map((x) => (
+              {filters.map((x) => (
                 <span key={x} style={{ border: `1px solid ${X.gold50}`, borderRadius: 999, padding: '6px 12px', fontSize: 13 }}>
                   {x}
                 </span>

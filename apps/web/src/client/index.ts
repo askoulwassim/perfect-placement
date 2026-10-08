@@ -1,3 +1,2 @@
-export { createHttpClient } from './http';
-export { createMockClient } from './mock';
+export { createHttpClient, DEFAULT_API_BASE } from './http';
 export * from './types';

@@ -1,12 +1,11 @@
 import type { OpName } from '@perfect-placement/contracts';
 import { type ButtonHTMLAttributes, type CSSProperties, useState } from 'react';
-import type { ShimName } from '../client/types';
 
 /**
  * The one op a button calls. `null` = navigation, `'local'` = view state only
  * (selection, filter, tone, expand). Rendered as data-op; tests assert it.
  */
-export type ButtonOp = OpName | ShimName | null | 'local';
+export type ButtonOp = OpName | null | 'local';
 
 /** Hover state, the runtime equivalent of the prototype's `style-hover`. */
 export function useHover() {
