@@ -5,8 +5,8 @@ import { defineConfig } from 'vite';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-/** `pp up` listens on 127.0.0.1:4317 by default; `PP_API_PORT` points the dev proxy elsewhere. */
-const apiTarget = `http://127.0.0.1:${process.env.PP_API_PORT ?? '4317'}`;
+/** `pp up` listens on 127.0.0.1:5177 by default; `PP_API_PORT` points the dev proxy elsewhere. */
+const apiTarget = `http://127.0.0.1:${process.env.PP_API_PORT ?? '5177'}`;
 
 export default defineConfig(({ mode }) => {
   const test = mode === 'test' || !!process.env.VITEST;

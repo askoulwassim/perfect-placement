@@ -23,11 +23,11 @@ function fakeFetch(handler: Handler) {
 describe('createHttpClient', () => {
   it('POSTs the op input as JSON to {base}/ops/{name} and returns the OpOutcome', async () => {
     const f = fakeFetch(() => ({ status: 200, body: { status: 'ok', output: { ok: true }, eventIds: ['ev_1'] } }));
-    const c = createHttpClient('http://127.0.0.1:4317/api/', f.fetch);
+    const c = createHttpClient('http://127.0.0.1:5177/api/', f.fetch);
     const o = await c.run('profile.reject_diff', { diff_id: 'pd_0001' });
     expect(o).toEqual({ status: 'ok', output: { ok: true }, eventIds: ['ev_1'] });
     expect(f.calls[0]).toMatchObject({
-      url: 'http://127.0.0.1:4317/api/ops/profile.reject_diff',
+      url: 'http://127.0.0.1:5177/api/ops/profile.reject_diff',
       method: 'POST',
       body: { diff_id: 'pd_0001' },
     });

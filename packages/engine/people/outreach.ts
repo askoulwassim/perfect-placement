@@ -9,6 +9,7 @@ import {
   vaultPath,
 } from '@perfect-placement/contracts';
 import {
+  advanceConnectToFill,
   emitEvent,
   getCompany,
   getComponent,
@@ -155,6 +156,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   }
   const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail' };
   upsertOutreach(db, next, true);
+  advanceConnectToFill(db, o.role_id);
   return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId }, eventIds: [] };
 };
 

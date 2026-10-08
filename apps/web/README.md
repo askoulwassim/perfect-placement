@@ -9,14 +9,14 @@ The UI is a client of the ops registry: every read and every button is `POST /ap
 ```sh
 export OPENUI_TELEMETRY_DISABLED=1   # OpenUI install telemetry opt-out (also in ~/.zshrc)
 pnpm i && pnpm build                 # builds apps/web/dist
-pp up                                # serves the API at /api and the built UI at / (127.0.0.1:4317)
+pp up                                # serves the API at /api and the built UI at / (127.0.0.1:5177)
 ```
 
 Dev server with hot reload against a running `pp up`:
 
 ```sh
 pp up                                                # terminal 1
-pnpm --filter @perfect-placement/web dev             # terminal 2: http://localhost:5178, /api proxied to 127.0.0.1:4317
+pnpm --filter @perfect-placement/web dev             # terminal 2: http://localhost:5178, /api proxied to 127.0.0.1:5177
 PP_API_PORT=4400 pnpm --filter @perfect-placement/web dev     # pp up on another port
 VITE_PP_API=http://127.0.0.1:4400/api pnpm --filter @perfect-placement/web dev   # or call another base directly (CORS: localhost only)
 ```
