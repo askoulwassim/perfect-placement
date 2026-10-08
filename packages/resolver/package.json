@@ -14,12 +14,20 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "eval": "node dist/eval/cli.js"
   },
   "dependencies": {
-    "@perfect-placement/contracts": "workspace:*"
+    "@anthropic-ai/sdk": "^0.132.1",
+    "@perfect-placement/contracts": "workspace:*",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@perfect-placement/fixtures": "workspace:*"
+    "@perfect-placement/fixtures": "workspace:*",
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^13.0.3"
+  },
+  "bin": {
+    "pp-resolver-eval": "./dist/eval/cli.js"
   }
 }
