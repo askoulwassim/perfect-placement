@@ -3,17 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "MCP server generated from the ops registry (stdio + Streamable HTTP).",
+  "description": "MCP server generated from the ops registry (stdio + Streamable HTTP), on the real engine.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./testing": {
-      "types": "./dist/testing/fake-run-op.d.ts",
-      "default": "./dist/testing/fake-run-op.js"
     }
   },
   "scripts": {
@@ -23,8 +19,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@perfect-placement/contracts": "workspace:*",
-    "zod": "^4.6.5",
-    "@perfect-placement/fixtures": "workspace:*"
+    "@perfect-placement/engine": "workspace:*",
+    "@perfect-placement/fixtures": "workspace:*",
+    "zod": "^4.6.5"
   },
   "bin": {
     "pp-mcp": "./dist/bin.js"

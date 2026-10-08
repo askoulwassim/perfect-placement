@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "`pp` CLI: up, migrate, doctor, scout, score, fresh, inbox.",
+  "description": "`pp` CLI: up, init, migrate, doctor, scout, score, fresh, inbox, op.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -18,10 +18,12 @@
   },
   "dependencies": {
     "@perfect-placement/contracts": "workspace:*",
-    "@perfect-placement/engine": "workspace:*"
+    "@perfect-placement/engine": "workspace:*",
+    "@perfect-placement/mcp": "workspace:*"
   },
   "devDependencies": {
-    "@perfect-placement/fixtures": "workspace:*"
+    "@perfect-placement/fixtures": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.1"
   },
   "bin": {
     "pp": "./dist/index.js"

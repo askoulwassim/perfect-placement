@@ -9,11 +9,25 @@ import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { OP_NAMES, OPS, type OpDef, type OpName, type OpOutcome, opInputJsonSchema } from '@perfect-placement/contracts';
 
 /**
- * `dotted` keeps the op name as the tool name (`roles.list`), which is valid per the
- * MCP spec and what the lane brief asks for. `underscore` (`roles_list`) is for clients
- * whose model API rejects dots in tool names and that do not normalize them.
+ * `underscore` (default) exposes `roles.list` as `roles_list`. Dots are valid per the MCP
+ * spec, but the model APIs behind Claude Code, Codex and Cursor only accept
+ * `[a-zA-Z0-9_-]`: Claude Code and Codex rewrite dots to `_` and Cursor warns that dotted
+ * names will be filtered. Underscore names are what every client shows the model anyway,
+ * so they are the default. `dotted` keeps the raw op name (spec-valid, opt-in). Op names
+ * stay dotted everywhere else (registry, runOp, `title`, `_meta`).
  */
 export type ToolNameStyle = 'dotted' | 'underscore';
+export const DEFAULT_TOOL_NAME_STYLE: ToolNameStyle = 'underscore';
+
+/** Optional argument on every writing tool: the agent's confidence, mapped to `ctx.confidence` (wave1-decisions #17). */
+export const CONFIDENCE_ARG = 'confidence';
+const CONFIDENCE_SCHEMA = {
+  type: 'number',
+  minimum: 0,
+  maximum: 1,
+  description:
+    'Your confidence (0 to 1) that this call is right. Medium-impact calls go through the policy grid with it; omit it and the call waits for a human.',
+} as const;
 
 export const META_KEY = 'perfect-placement/op';
 
@@ -28,12 +42,12 @@ export interface OpToolMeta {
   owner: OpDef['owner'];
 }
 
-export function toolNameFor(op: OpName, style: ToolNameStyle = 'dotted'): string {
+export function toolNameFor(op: OpName, style: ToolNameStyle = DEFAULT_TOOL_NAME_STYLE): string {
   return style === 'dotted' ? op : op.replaceAll('.', '_');
 }
 
 /** Tool name -> op name, built from the registry. Throws if a style would collide. */
-export function toolNameMap(style: ToolNameStyle = 'dotted'): Map<string, OpName> {
+export function toolNameMap(style: ToolNameStyle = DEFAULT_TOOL_NAME_STYLE): Map<string, OpName> {
   const map = new Map<string, OpName>();
   for (const op of OP_NAMES) {
     const name = toolNameFor(op, style);
@@ -68,14 +82,20 @@ export function toolMeta(op: OpName): OpToolMeta {
   };
 }
 
-/** The JSON Schema MCP clients see: `opInputJsonSchema` minus the `$schema` key some clients reject. */
+/**
+ * The JSON Schema MCP clients see: `opInputJsonSchema` minus the `$schema` key some clients
+ * reject, plus the optional `confidence` argument on ops that write.
+ */
 export function toolInputSchema(op: OpName): Tool['inputSchema'] {
   const { $schema: _ignored, ...schema } = opInputJsonSchema(op);
   if (schema.type !== 'object') throw new Error(`op ${op} input is not an object schema`);
-  return schema as Tool['inputSchema'];
+  if (OPS[op].readOnly === true) return schema as Tool['inputSchema'];
+  const properties = (schema.properties ?? {}) as Record<string, unknown>;
+  if (CONFIDENCE_ARG in properties) throw new Error(`op ${op} already has a ${CONFIDENCE_ARG} input`);
+  return { ...schema, properties: { ...properties, [CONFIDENCE_ARG]: CONFIDENCE_SCHEMA } } as unknown as Tool['inputSchema'];
 }
 
-export function buildTool(op: OpName, style: ToolNameStyle = 'dotted'): Tool {
+export function buildTool(op: OpName, style: ToolNameStyle = DEFAULT_TOOL_NAME_STYLE): Tool {
   const def: OpDef = OPS[op];
   return {
     name: toolNameFor(op, style),
@@ -93,7 +113,7 @@ export function buildTool(op: OpName, style: ToolNameStyle = 'dotted'): Tool {
 }
 
 /** One tool per op, in registry order. */
-export function buildTools(style: ToolNameStyle = 'dotted'): Tool[] {
+export function buildTools(style: ToolNameStyle = DEFAULT_TOOL_NAME_STYLE): Tool[] {
   return OP_NAMES.map((op) => buildTool(op, style));
 }
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { runCli } from './cli.js';
 
 export { COMMANDS, runCli } from './cli.js';
-export { up } from './commands/up.js';
+export { checkKev, DEFAULT_PORT, httpStatusOf, type Running, type UpOptions, up } from './commands/up.js';
 
 const isMain = (() => {
   try {
