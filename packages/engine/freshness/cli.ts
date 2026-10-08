@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+/*
+ * Freshness backfill dry run (lane G). Read-only: never writes to the source, never calls the resolver.
+ *
+ *   node packages/engine/dist/freshness/cli.js dry-run --db <pp.db> --out <dir> [--limit N] [--delay-ms 1500]
+ *   node packages/engine/dist/freshness/cli.js dry-run --v1 <pipeline.json> --out <dir> [--limit N]
+ *
+ * Reports name real roles, so --out must be outside this repo (enforced). Wave 2 folds this into `pp fresh --dry-run`.
+ */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { defaultFetch } from '../integrations/ats/index.js';
+import { backfillDryRun, memoryStore, rolesFromV1Pipeline } from './backfill.js';
+import { sqliteStore } from './sqlite-store.js';
+
+const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), import.meta.url.includes('/dist/') ? '../../../..' : '../../..');
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > 0 ? process.argv[i + 1] : undefined;
+}
+
+async function main() {
+  if (process.argv[2] !== 'dry-run') {
+    console.error('usage: cli.js dry-run (--db <pp.db> | --v1 <pipeline.json>) --out <dir> [--limit N] [--delay-ms N]');
+    process.exit(2);
+  }
+  const out = arg('out');
+  if (!out) throw new Error('--out <dir> is required');
+  const outAbs = resolve(out);
+  if (!relative(REPO_ROOT, outAbs).startsWith('..'))
+    throw new Error(`--out must be outside the repo (${REPO_ROOT}): reports name real roles`);
+  const limit = arg('limit') ? Number(arg('limit')) : undefined;
+  const delayMs = arg('delay-ms') ? Number(arg('delay-ms')) : 1500;
+
+  let store: ReturnType<typeof memoryStore>;
+  let source: string;
+  let db: Database.Database | undefined;
+  const v1 = arg('v1');
+  const dbPath = arg('db');
+  if (v1) {
+    store = memoryStore(rolesFromV1Pipeline(JSON.parse(readFileSync(v1, 'utf8'))));
+    source = 'v1 pipeline.json';
+  } else if (dbPath) {
+    db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    store = sqliteStore(db);
+    source = 'pp.db (read-only)';
+  } else {
+    throw new Error('one of --db or --v1 is required');
+  }
+
+  const run = await backfillDryRun(store, source, { fetch: defaultFetch(), delayMs, limit });
+  db?.close();
+  mkdirSync(outAbs, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 10);
+  writeFileSync(join(outAbs, `${stamp}_freshness_dry_run.md`), run.report);
+  writeFileSync(join(outAbs, `${stamp}_freshness_dry_run.json`), `${JSON.stringify({ summary: run.summary, rows: run.rows }, null, 2)}\n`);
+  const s = run.summary;
+  console.log(`checked ${s.checked}: open ${s.open}, closed ${s.closed}, unsure ${s.unsure}, stale ${s.stale}, errors ${s.errors}`);
+  console.log(`via ats_api ${s.by_method.ats_api}, page ${s.by_method.page}, resolver ${s.by_method.resolver}`);
+}
+
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});

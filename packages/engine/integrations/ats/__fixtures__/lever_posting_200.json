@@ -1,0 +1,36 @@
+{
+  "additional": "",
+  "additionalPlain": "",
+  "categories": {
+    "commitment": "Regular Full Time (Salary)",
+    "department": "Customer Success",
+    "location": "Atlanta, Georgia",
+    "team": "Customer Success Team",
+    "allLocations": ["Atlanta, Georgia"]
+  },
+  "createdAt": 1788199939703,
+  "descriptionPlain": "Join a scaling, tight-knit team working directly with customers.\n",
+  "description": "<div>Join a scaling, tight-knit team working directly with customers.</div>",
+  "id": "ad208490-4052-4f91-a57e-433f2d1e484b",
+  "lists": [
+    {
+      "text": "Skill Set:",
+      "content": "<li>3+ years of account management in SaaS</li>"
+    }
+  ],
+  "salaryRange": {
+    "min": 85000,
+    "max": 175000,
+    "currency": "USD",
+    "interval": "per-year-salary"
+  },
+  "text": "Customer Success Manager",
+  "country": "US",
+  "workplaceType": "hybrid",
+  "opening": "",
+  "openingPlain": "",
+  "descriptionBody": "<div>Join a scaling, tight-knit team working directly with customers.</div>",
+  "descriptionBodyPlain": "Join a scaling, tight-knit team working directly with customers.\n",
+  "hostedUrl": "https://jobs.lever.co/leverdemo/ad208490-4052-4f91-a57e-433f2d1e484b",
+  "applyUrl": "https://jobs.lever.co/leverdemo/ad208490-4052-4f91-a57e-433f2d1e484b/apply"
+}
