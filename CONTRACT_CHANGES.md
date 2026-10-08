@@ -240,4 +240,22 @@ _None yet._
 - Change: export `RESCORE_MOVABLE = ['inbox','active','held']` and `RESCORE_REVIVABLE_ARCHIVE = ['below_threshold','dealbreaker']`. `on-deck` is not in `PROTECTED_STATUSES`, but a rescore moving a human pick back to active/archived is a downgrade, so scoring keeps on-deck too.
 - Why: lanes B (roles.move), E (learn rescore) and F must agree on what an automated rescore may touch.
 - Shim: `isMovable()` in `scoring/handler.ts`.
+## Lane G requests
+
+### AskRequest carries the action a human accept runs
+- Lane: G
+- Date: 2026-10-08
+- Contract: `packages/contracts/src/resolver.ts` `AskRequest`
+- Change: add `action: z.object({ op: z.string(), input: z.record(z.string(), z.unknown()) }).optional()`; the resolver copies it into `decision.action_json` when it writes the decision row.
+- Why: `decision.action_json` ("the op to run when this decision is applied") is written by the resolver, but `AskRequest` has no way to pass it. Freshness needs `{ op: 'roles.archive', input: { role_id, reason: 'closed' } }` on every `freshness.closed` decision so Needs-you accept works; inbox and others will need the same.
+- Shim: `FreshnessStore.attachDecisionAction(decisionId, action)` (`sqlite-store.ts`) sets `action_json` right after `ask()` returns, only when it is still null.
+- Status: open
+
+### roles.check_freshness output lists skipped ids
+- Lane: G
+- Date: 2026-10-08
+- Contract: `packages/contracts/src/ops/registry.ts` `rolesCheckFreshness.output`
+- Change: add `skipped: z.array(Id).default([])`: requested `role_ids` that were not checked because they are outside `FRESHNESS_SCOPE` (applied or later, archived, inbox) or unknown.
+- Why: a caller passing an applied role id today gets silently fewer results; the UI and agents should see "skipped, out of scope" rather than infer it.
+- Shim: `checkFreshness()` returns `skipped` next to `output`; the handler drops it to match the frozen schema.
 - Status: open
