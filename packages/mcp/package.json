@@ -10,16 +10,23 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/fake-run-op.d.ts",
+      "default": "./dist/testing/fake-run-op.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@perfect-placement/contracts": "workspace:*"
-  },
-  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@perfect-placement/contracts": "workspace:*",
+    "zod": "^4.6.5",
     "@perfect-placement/fixtures": "workspace:*"
+  },
+  "bin": {
+    "pp-mcp": "./dist/bin.js"
   }
 }
