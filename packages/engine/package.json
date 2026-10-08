@@ -1,0 +1,27 @@
+{
+  "name": "@perfect-placement/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mechanics: db, ops registry handlers, status machine, profile, scoring, freshness, people, integrations.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@perfect-placement/contracts": "workspace:*",
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@perfect-placement/fixtures": "workspace:*",
+    "@types/better-sqlite3": "^9.6.0"
+  }
+}

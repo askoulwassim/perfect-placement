@@ -1,0 +1,25 @@
+{
+  "name": "@perfect-placement/resolver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Decision layer: ask() over rule / Jev / Kev / LLM / human backends + the confidence x impact policy.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@perfect-placement/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@perfect-placement/fixtures": "workspace:*"
+  }
+}

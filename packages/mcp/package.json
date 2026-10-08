@@ -1,0 +1,25 @@
+{
+  "name": "@perfect-placement/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server generated from the ops registry (stdio + Streamable HTTP).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@perfect-placement/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@perfect-placement/fixtures": "workspace:*"
+  }
+}

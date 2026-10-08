@@ -1,0 +1,34 @@
+{
+  "name": "@perfect-placement/fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Synthetic vault + db seed every lane develops against. Wave 0 owns. Never real data.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./seed.sql": "./seed/seed.sql",
+    "./vault/*": "./vault/*"
+  },
+  "files": [
+    "dist",
+    "seed",
+    "vault"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "gen": "tsc -p tsconfig.build.json && node dist/generate.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@perfect-placement/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^13.0.3",
+    "@types/better-sqlite3": "^9.6.0"
+  }
+}

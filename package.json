@@ -1,0 +1,22 @@
+{
+  "name": "perfect-placement",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test && node scripts/check-repo.mjs",
+    "lint": "biome check .",
+    "format": "biome format --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2",
+    "@types/node": "^22",
+    "typescript": "^7",
+    "vitest": "^5"
+  }
+}

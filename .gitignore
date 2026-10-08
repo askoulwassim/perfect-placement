@@ -1,0 +1,43 @@
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# env + secrets
+.env
+.env.*
+!.env.example
+
+# personal data: never in this repo
+.perfect-placement/
+vault/
+!packages/fixtures/vault/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+!packages/fixtures/seed/*.sql
+*.pdf
+*.docx
+*.doc
+resume_master.md
+/*[Rr]esume*
+01_Profile/
+02_Pipeline/
+03_Applications/
+04_Interviews/
+
+# agent instructions: AGENTS.md only (decisions.md #8)
+CLAUDE.md
+**/CLAUDE.md
+
+# os / editor
+.DS_Store
+.obsidian/
+.idea/
+.vscode/*
+!.vscode/extensions.json

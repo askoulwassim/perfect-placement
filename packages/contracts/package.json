@@ -1,0 +1,26 @@
+{
+  "name": "@perfect-placement/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wave 0 contracts: statuses, events, entities, ops, resolver + policy types, design tokens. Change only via CONTRACT_CHANGES.md.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tokens.css": "./dist/tokens.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/gen-tokens-css.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}
