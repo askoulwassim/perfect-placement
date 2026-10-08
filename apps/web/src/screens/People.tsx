@@ -1,80 +1,77 @@
-import { useState } from 'react';
 import { useAct, useOp } from '../client/context';
-import { DraftStatusChip, PrimaryButton } from '../components/controls';
-import { BestPathPill, ContactAvatar, graphOf, PeopleGraph } from '../components/people';
-import { ScreenHeader } from '../components/shell';
-import { bestPath, initials, sortPeople } from '../lib/people';
-import { useMobile } from '../lib/useMobile';
+import { PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
+import { eyebrow } from '../components/theme';
+import { Screen, useLayout } from '../layout';
+import { bestPath, initials } from '../lib/people';
+import { graphLayout } from '../lib/view';
 import { go } from '../router';
 
 export function PeopleScreen({ roleId }: { roleId: string }) {
+  const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
   const drafts = useOp('outreach.list', { role_id: roleId });
-  const [selected, setSelected] = useState<string | null>(null);
-  const mobile = useMobile();
 
-  if (!res.data) return <div className="screen" aria-busy={!res.error} />;
+  if (!res.data) return <div data-screen-label="People" aria-busy={!res.error} />;
   const { role, company, contacts } = res.data;
-  const people = sortPeople(contacts);
+  const people = [...contacts].sort((a, b) => TIER_ORDER.indexOf(a.link.tier) - TIER_ORDER.indexOf(b.link.tier));
   const best = bestPath(people);
-  const { nodes, edges } = graphOf(people);
-  const draftOf = (contactId: string) => drafts.data?.items.find((o) => o.contact_id === contactId);
-
-  const openPerson = (id: string) => {
-    setSelected(id);
-    const o = draftOf(id);
+  const draftOf = (cid: string) => drafts.data?.items.find((o) => o.contact_id === cid);
+  const open = (cid: string) => {
+    if (cid === 'co') return go({ screen: 'role', roleId: role.id });
+    const o = draftOf(cid);
     if (o) go({ screen: 'outreach-draft', outreachId: o.id });
   };
-
   const draft = async () => {
     const o = await act('runs.start', { skill: 'connect', role_id: role.id });
     if (o.status !== 'ok') return;
     const id = (o.output.run.summary_json as { outreach_id?: string | null }).outreach_id;
     if (id) go({ screen: 'outreach-draft', outreachId: id });
   };
+  const primary = best
+    ? { label: `Draft for ${best.target.contact.name.split(' ')[0]}`, op: 'runs.start' as const, onClick: () => void draft() }
+    : null;
+  const header = {
+    eyebrow: `${company.name} · ${people.length} people`,
+    title: 'People',
+    back: () => go({ screen: 'role', roleId: role.id }),
+  };
+  const rows = people.map((p) => (
+    <PersonRow
+      key={p.contact.id}
+      mobile={mobile}
+      id={p.contact.id}
+      ini={initials(p.contact.name)}
+      name={p.contact.name}
+      role={p.contact.headline ?? ''}
+      tier={p.link.tier}
+      status={draftOf(p.contact.id)?.status ?? 'none'}
+      best={best?.target.contact.id === p.contact.id}
+      onOpen={() => open(p.contact.id)}
+    />
+  ));
 
+  if (mobile)
+    return (
+      <Screen label="People · mobile" {...header} primary={primary}>
+        <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {rows}
+        </div>
+      </Screen>
+    );
+
+  const g = graphLayout(people, { letter: company.name.slice(0, 1), name: company.name });
   return (
-    <div className="screen screen--people">
-      <ScreenHeader
-        eyebrow={role.title}
-        title={company.name}
-        onBack={() => go({ screen: 'role', roleId: role.id })}
-        primary={best && <PrimaryButton label={`Draft for ${best.target.contact.name}`} op="runs.start" onClick={() => void draft()} />}
-      >
-        {best && <BestPathPill path={best.path} />}
-      </ScreenHeader>
-      <div className="people-layout">
-        <section className="panel people-layout__graph">
-          <PeopleGraph
-            nodes={nodes}
-            edges={edges}
-            selected={selected}
-            best={best ? [best.target.contact.id, ...(best.target.link.via_contact_id ? [best.target.link.via_contact_id] : [])] : []}
-            onSelect={openPerson}
-            height={mobile ? 320 : 420}
-          />
-        </section>
-        <aside className="people-list">
-          {people.map((p) => (
-            <button
-              key={p.contact.id}
-              type="button"
-              className={`person ${selected === p.contact.id ? 'is-selected' : ''} ${best?.target.contact.id === p.contact.id ? 'is-best' : ''}`}
-              data-op="nav"
-              data-contact={p.contact.id}
-              onClick={() => openPerson(p.contact.id)}
-            >
-              <ContactAvatar initials={initials(p.contact.name)} tier={p.link.tier} size={40} />
-              <span className="person__text">
-                <span className="person__name">{p.contact.name}</span>
-                <span className="person__role">{p.contact.headline}</span>
-              </span>
-              <DraftStatusChip status={draftOf(p.contact.id)?.status ?? 'none'} />
-            </button>
-          ))}
-        </aside>
+    <Screen label="People" {...header} primary={primary}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, marginTop: 28 }}>
+        <PeopleGraph nodes={g.nodes} edges={g.edges} bestTarget={g.best} onOpen={open} />
+        <div style={{ flex: '0 1 340px', minWidth: 300 }}>
+          <div style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>List</div>
+          <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {rows}
+          </div>
+        </div>
       </div>
-    </div>
+    </Screen>
   );
 }

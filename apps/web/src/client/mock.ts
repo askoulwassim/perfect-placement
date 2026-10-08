@@ -48,21 +48,14 @@ interface OutreachBody {
 }
 
 const ONBOARD_QUESTIONS = [
-  { id: 'q_work_mode', component: 'work_mode', label: 'Work mode', answer_type: 'chips', options: ['Remote', 'Hybrid', 'Onsite'] },
-  { id: 'q_terms', component: 'terms', label: 'Comp floor', answer_type: 'slider', min: 100, max: 400 },
+  { id: 'q_work_mode', component: 'work_mode', label: 'Work mode?', answer_type: 'chips', options: ['Remote', 'Hybrid', 'Onsite'] },
+  { id: 'q_terms', component: 'terms', label: 'Comp floor?', answer_type: 'slider', min: 150, max: 300 },
   {
     id: 'q_company',
     component: 'company',
-    label: 'Company stage',
+    label: 'Company stage?',
     answer_type: 'multi_chips',
-    options: ['Seed', 'Series A', 'Series B', 'Series C', 'Public'],
-  },
-  {
-    id: 'q_dealbreakers',
-    component: 'dealbreakers',
-    label: 'Hard nos',
-    answer_type: 'multi_chips',
-    options: ['Onsite only', 'Ad tech', 'Below floor', 'Crypto', 'Agency'],
+    options: ['Seed–A', 'B–C', 'Late', 'Public', 'Any'],
   },
 ] as const satisfies ReadonlyArray<{
   id: string;
@@ -334,7 +327,7 @@ function runOp(s: MockState, name: OpName, input: never, clock: () => Date): OpO
 
     case 'onboard.ingest_resume':
       s.onboard.step = 'interview';
-      s.onboard.filled = ['story', 'craft'];
+      s.onboard.filled = ['story', 'craft', 'domain', 'growth', 'voice'];
       return ok(onboardState(s));
     case 'onboard.answer': {
       const q = ONBOARD_QUESTIONS[s.onboard.q];
@@ -347,8 +340,11 @@ function runOp(s: MockState, name: OpName, input: never, clock: () => Date): OpO
     case 'onboard.calibrate': {
       const sample = calibrationSamples(s).find((x) => x.id === i.sample_id);
       if (!sample) return err('not_found', 'sample');
-      const sign = i.choice === 'yes' ? 1 : i.choice === 'no' ? -1 : 0;
-      for (const c of CRITERIA) s.onboard.weights[c] = Math.max(1, s.onboard.weights[c] + sign * (sample.criteria[c] - 3) * 0.6);
+      // Same shape as the prototype: nudge toward liked criteria, renormalize to 100.
+      const v = i.choice === 'yes' ? 1 : i.choice === 'no' ? -1 : 0.3;
+      for (const c of CRITERIA) s.onboard.weights[c] = Math.max(2, s.onboard.weights[c] + v * (sample.criteria[c] - 3) * 1.3);
+      const sum = CRITERIA.reduce((a, c) => a + s.onboard.weights[c], 0);
+      for (const c of CRITERIA) s.onboard.weights[c] = (s.onboard.weights[c] * 100) / sum;
       s.onboard.calibrated.add(sample.id);
       for (const k of ['domain', 'team', 'growth'] as const) if (!s.onboard.filled.includes(k)) s.onboard.filled.push(k);
       const remaining = calibrationSamples(s).length - s.onboard.calibrated.size;
@@ -605,13 +601,45 @@ function calibrationSamples(s: MockState): CalibrationSample[] {
       return {
         id: `cal_${r.id}`,
         company: co?.name ?? r.company_id,
+        letter: (co?.name ?? r.company_id).slice(0, 1),
         title: r.title,
+        comp: r.comp_min && r.comp_max ? `$${Math.round(r.comp_min / 1000)}–${Math.round(r.comp_max / 1000)}K` : '—',
+        mode: r.workplace,
         criteria: Object.fromEntries(CRITERIA.map((c) => [c, sc ? sc[c] : 3])) as Record<Criterion, number>,
       };
     });
 }
 
 // -------------------------------------------------------------------- shims
+
+/** Tone index per tier (Ask for the conversation, Coffee or intro, Forwardable blurb, Positioning note). */
+const TONE_OF: Record<Outreach['tier'], number> = { warm_hiring: 0, warm_other: 1, bridge: 2, cold_hiring: 3, cold_other: 3 };
+
+/** Synthetic tone variants. The tier's own tone shows the vault draft. Fixture facts only. */
+function toneVariants(first: string, co: string, title: string): OutreachBody[] {
+  const proof = 'I launched a self-serve analytics product 400 teams use and cut pipeline cost 38%.';
+  return [
+    {
+      subject: null,
+      hook: `${first}, the ${title} opening on your team is the problem I keep building around.`,
+      proof,
+      ask: '20 minutes next week on what the role needs in year one?',
+    },
+    {
+      subject: null,
+      hook: `${first}, I have been following what ${co} is shipping.`,
+      proof,
+      ask: `Coffee, or an intro to whoever owns the ${title} search?`,
+    },
+    {
+      subject: null,
+      hook: 'A short note you can forward as is:',
+      proof: `Data platform product lead. ${proof}`,
+      ask: `Interested in ${co}'s ${title} role. Thanks for passing it on.`,
+    },
+    { subject: null, hook: `${first}, one line on why I fit ${title}.`, proof, ask: 'Happy to share how I would run the first 90 days.' },
+  ];
+}
 
 function runShim<N extends ShimName>(s: MockState, name: N, input: ShimOps[N]['input']): ShimOps[N]['output'] {
   const i = input as Record<string, string>;
@@ -621,7 +649,12 @@ function runShim<N extends ShimName>(s: MockState, name: N, input: ShimOps[N]['i
       const contact = o && s.contacts.find((c) => c.id === o.contact_id);
       if (!o || !contact) throw new Error('outreach');
       const body = s.outreachBodies.get(o.id) ?? { subject: null, hook: '', proof: '', ask: '' };
-      return { outreach: o, contact, ...body } as ShimOps[N]['output'];
+      const role = findRole(s, o.role_id);
+      const co = role ? companyOf(s, role).name : '';
+      const variants = toneVariants(contact.name.split(' ')[0] ?? contact.name, co, role?.title ?? '').map((v, t) =>
+        t === TONE_OF[o.tier] ? body : v,
+      );
+      return { outreach: o, contact, ...body, variants } as ShimOps[N]['output'];
     }
     case 'outreach.list':
       return { items: s.outreach.filter((o) => o.role_id === i.role_id) } as ShimOps[N]['output'];
@@ -630,7 +663,7 @@ function runShim<N extends ShimName>(s: MockState, name: N, input: ShimOps[N]['i
       return { markdown: md ? stripFrontmatter(md) : null } as ShimOps[N]['output'];
     }
     case 'onboard.samples':
-      return { items: calibrationSamples(s) } as ShimOps[N]['output'];
+      return { items: calibrationSamples(s), weights: { ...fx.RUBRIC.weights } } as ShimOps[N]['output'];
     case 'system.backends':
       return {
         items: [

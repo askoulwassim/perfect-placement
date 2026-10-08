@@ -1,51 +1,124 @@
-import { type ContactTier, TIER_RING } from '@perfect-placement/contracts';
+import type { ContactTier, OutreachStatus } from '@perfect-placement/contracts';
 import { Fragment } from 'react';
-import { type Person, TIER_LABEL, initials as toInitials } from '../lib/people';
-import { cv } from './glyphs';
+import { Btn } from './Btn';
+import { DraftStatusChip } from './controls';
+import { C, ellipsis, eyebrow, mono, X } from './theme';
 
-// ---------------------------------------------------------- ContactAvatar
+// ------------------------------------------------------------ tiers (prototype TIER table)
 
-export function ContactAvatar({ initials, tier, size = 40, you }: { initials: string; tier?: ContactTier; size?: number; you?: boolean }) {
-  const ring = tier ? TIER_RING[tier] : { color: 'emerald' as const, dashed: false };
-  const r = size / 2 - 2;
+export const TIER_VIS: Record<ContactTier, { ring: string; c: string; label: string; tone: number }> = {
+  warm_hiring: { ring: `2.5px solid ${C.emerald}`, c: C.emerald, label: 'Warm · hiring', tone: 0 },
+  warm_other: { ring: `3px solid ${C['emerald-deep']}`, c: C['emerald-2'], label: 'Warm', tone: 1 },
+  bridge: { ring: `2px dashed ${C.emerald}`, c: C.emerald, label: 'Bridge', tone: 2 },
+  cold_hiring: { ring: `2px solid ${C.sky}`, c: C.sky, label: 'Cold · hiring', tone: 3 },
+  cold_other: { ring: `2px dashed ${C.dim}`, c: C.dim, label: 'Cold', tone: 3 },
+};
+export const TIER_ORDER: readonly ContactTier[] = ['warm_hiring', 'warm_other', 'bridge', 'cold_hiring', 'cold_other'];
+export const TONES = ['Ask for the conversation', 'Coffee or intro', 'Forwardable blurb', 'Positioning note'] as const;
+
+// ------------------------------------------------------------ ContactAvatar
+
+export function ContactAvatar({
+  initials,
+  tier,
+  size = 38,
+  font = 11,
+}: {
+  initials: string;
+  tier: ContactTier;
+  size?: number;
+  font?: number;
+}) {
   return (
     <span
-      className={`avatar ${you ? 'avatar--you' : ''}`}
-      data-tier={tier ?? 'you'}
-      style={{ width: size, height: size }}
-      title={tier ? TIER_LABEL[tier] : 'You'}
+      className="avatar"
+      data-tier={tier}
+      title={TIER_VIS[tier].label}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: C['panel-2'],
+        border: TIER_VIS[tier].ring,
+        display: 'grid',
+        placeItems: 'center',
+        ...mono(font),
+        flex: 'none',
+        color: C.fg,
+        boxSizing: 'border-box',
+      }}
     >
-      <svg aria-hidden="true" width={size} height={size}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill={you ? cv('emerald') : cv('panel-2')}
-          stroke={cv(ring.color)}
-          strokeWidth={2.5}
-          strokeDasharray={ring.dashed ? '4 3' : undefined}
-        />
-      </svg>
-      <span className="avatar__initials" style={{ fontSize: size * 0.34 }}>
-        {initials}
-      </span>
+      {initials}
     </span>
   );
 }
 
-// ----------------------------------------------------------- BestPathPill
+// ------------------------------------------------------------ BestPathPill
 
-export function BestPathPill({ path }: { path: readonly string[] }) {
+/** "You → [MR] Maya R." on emerald-deep. */
+export function BestPathPill({
+  initials,
+  name,
+  tier,
+  via,
+  onClick,
+  mobile,
+}: {
+  initials: string;
+  name: string;
+  tier: ContactTier;
+  via?: string[];
+  onClick?: () => void;
+  mobile?: boolean;
+}) {
+  const dot = (t: string, you?: boolean) => (
+    <span
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: '50%',
+        background: you ? C.emerald : C['panel-2'],
+        color: you ? C['emerald-ink'] : C.fg,
+        border: you ? undefined : TIER_VIS[tier].ring,
+        display: 'grid',
+        placeItems: 'center',
+        ...mono(10),
+        fontWeight: you ? 700 : 400,
+        boxSizing: 'border-box',
+      }}
+    >
+      {t}
+    </span>
+  );
   return (
-    <span className="best-path">
-      {path.map((p, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: hops are positional
-        <Fragment key={i}>
-          {i > 0 && <span className="best-path__arrow">→</span>}
-          <span className="best-path__hop">{p}</span>
+    <Btn
+      op={null}
+      className="best-path"
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '6px 16px 6px 6px',
+        borderRadius: 999,
+        background: C['emerald-deep'],
+        border: 0,
+        color: C.fg,
+        ...(mobile ? { marginTop: 22, minHeight: 44 } : { marginBottom: 20 }),
+      }}
+      hover={{ background: X.bestHover }}
+    >
+      {dot('You', true)}
+      <span style={{ color: C.emerald }}>→</span>
+      {via?.map((v) => (
+        <Fragment key={v}>
+          <span style={{ fontSize: 12, color: C.muted }}>{v}</span>
+          <span style={{ color: C.emerald }}>→</span>
         </Fragment>
       ))}
-    </span>
+      {dot(initials)}
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{name}</span>
+    </Btn>
   );
 }
 
@@ -53,121 +126,249 @@ export function BestPathPill({ path }: { path: readonly string[] }) {
 
 export interface GraphNode {
   id: string;
-  label: string;
-  initials: string;
+  ini: string;
+  name: string;
+  /** Position in the prototype's 1000 x 580 space. */
+  x: number;
+  y: number;
+  kind: 'you' | 'person' | 'co';
   tier?: ContactTier;
-  col: 0 | 1 | 2 | 3;
+  best?: boolean;
 }
+export type EdgeKind = 'best' | 'warm' | 'bridge' | 'team';
 export interface GraphEdge {
-  from: string;
-  to: string;
-  tier: ContactTier;
+  a: string;
+  b: string;
+  k: EdgeKind;
 }
 
-/** You -> 1st -> 2nd -> hiring team, left to right. */
-export function graphOf(people: readonly Person[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const nodes: GraphNode[] = [{ id: 'you', label: 'You', initials: 'You', col: 0 }];
-  const edges: GraphEdge[] = [];
-  for (const { contact, link } of people) {
-    const col = link.is_hiring_team ? 3 : link.degree === '1' ? 1 : 2;
-    nodes.push({ id: contact.id, label: contact.name, initials: toInitials(contact.name), tier: link.tier, col });
-    edges.push({ from: link.via_contact_id ?? 'you', to: contact.id, tier: link.tier });
-  }
-  return { nodes, edges };
-}
-
-const COL_X = [0.08, 0.36, 0.64, 0.9];
-const COL_LABEL = ['You', '1st', '2nd', 'Hiring'];
+const EDGE_STYLE: Record<EdgeKind, [string, number, string | undefined, number]> = {
+  best: [C.emerald, 3, undefined, 1],
+  warm: [C['emerald-2'], 2, undefined, 0.9],
+  bridge: [C.emerald, 1.6, '6 6', 0.75],
+  team: [C['line-2'], 1.4, undefined, 1],
+};
 
 export function PeopleGraph({
   nodes,
   edges,
-  selected,
-  best,
-  onSelect,
-  height = 420,
+  bestTarget,
+  onOpen,
 }: {
   nodes: readonly GraphNode[];
   edges: readonly GraphEdge[];
-  selected?: string | null;
-  best?: readonly string[];
-  onSelect?: (id: string) => void;
-  height?: number;
+  bestTarget?: string;
+  onOpen?: (id: string) => void;
 }) {
-  const pos = new Map<string, { x: number; y: number }>();
-  for (const col of [0, 1, 2, 3] as const) {
-    const inCol = nodes.filter((n) => n.col === col);
-    inCol.forEach((n, i) => {
-      pos.set(n.id, { x: COL_X[col] as number, y: (i + 1) / (inCol.length + 1) });
-    });
-  }
-  const onBest = (e: GraphEdge) => !!best && best.includes(e.to) && (e.from === 'you' || best.includes(e.from));
+  const pos = new Map(nodes.map((n) => [n.id, n]));
+  const you = pos.get('you');
+  const target = bestTarget ? pos.get(bestTarget) : undefined;
   return (
-    <div className="graph" style={{ height }}>
-      <div className="graph__cols" aria-hidden="true">
-        {COL_LABEL.map((l, i) => (
-          <span key={l} className="eyebrow" style={{ left: `${(COL_X[i] as number) * 100}%` }}>
-            {l}
-          </span>
-        ))}
-      </div>
-      <svg className="graph__edges" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {edges.map((e) => {
-          const a = pos.get(e.from);
-          const b = pos.get(e.to);
-          if (!a || !b) return null;
-          const ring = TIER_RING[e.tier];
-          return (
+    <div
+      className="people-graph"
+      style={{
+        position: 'relative',
+        background: C['bg-2'],
+        borderRadius: 12,
+        height: 580,
+        overflow: 'hidden',
+        flex: '1 1 760px',
+        minWidth: 760,
+      }}
+    >
+      {[
+        ['YOU', '9%'],
+        ['1ST', '34%'],
+        ['2ND', '59%'],
+        ['HIRING TEAM', '86%'],
+      ].map(([l, x]) => (
+        <div
+          key={l}
+          style={{ position: 'absolute', top: 18, left: x, transform: 'translateX(-50%)', ...mono(10, C.dim), letterSpacing: '.1em' }}
+        >
+          {l}
+        </div>
+      ))}
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 1000 580"
+          preserveAspectRatio="none"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+        >
+          {you && target && (
             <line
-              key={`${e.from}-${e.to}`}
-              x1={a.x * 100}
-              y1={a.y * 100}
-              x2={b.x * 100}
-              y2={b.y * 100}
-              stroke={cv(ring.color)}
-              strokeWidth={onBest(e) ? 3 : 1.5}
-              strokeDasharray={ring.dashed ? '5 4' : undefined}
+              x1={you.x}
+              y1={you.y}
+              x2={target.x}
+              y2={target.y}
+              stroke={C.emerald}
+              strokeOpacity={0.14}
+              strokeWidth={12}
               vectorEffect="non-scaling-stroke"
-              opacity={onBest(e) ? 1 : 0.7}
+              strokeLinecap="round"
             />
-          );
-        })}
-      </svg>
+          )}
+          {edges.map((e) => {
+            const a = pos.get(e.a);
+            const b = pos.get(e.b);
+            if (!a || !b) return null;
+            const [stroke, w, dash, op] = EDGE_STYLE[e.k];
+            return (
+              <line
+                key={`${e.a}-${e.b}`}
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                stroke={stroke}
+                strokeWidth={w}
+                strokeDasharray={dash}
+                strokeOpacity={op}
+                vectorEffect="non-scaling-stroke"
+                strokeLinecap="round"
+              />
+            );
+          })}
+        </svg>
+      </div>
       {nodes.map((n) => {
-        const p = pos.get(n.id);
-        if (!p) return null;
-        const style = { left: `${p.x * 100}%`, top: `${p.y * 100}%` };
-        if (n.id === 'you')
-          return (
-            <span key={n.id} className="graph__node" style={style}>
-              <ContactAvatar initials="You" you size={52} />
-            </span>
-          );
+        const isYou = n.kind === 'you';
+        const isCo = n.kind === 'co';
         return (
-          <button
+          <Btn
             key={n.id}
-            type="button"
-            className={`graph__node ${selected === n.id ? 'is-selected' : ''} ${best?.includes(n.id) ? 'is-best' : ''}`}
-            style={style}
-            data-op="local"
-            onClick={() => onSelect?.(n.id)}
+            op={isYou ? 'local' : null}
+            className="graph__node"
+            data-node={n.id}
+            onClick={() => onOpen?.(n.id)}
+            style={{
+              position: 'absolute',
+              left: `${n.x / 10}%`,
+              top: `${n.y / 5.8}%`,
+              transform: 'translate(-50%,-26px)',
+              background: 'none',
+              border: 0,
+              padding: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 8,
+              color: C.fg,
+              cursor: isYou ? 'default' : 'pointer',
+            }}
           >
-            <ContactAvatar initials={n.initials} tier={n.tier} size={44} />
-            <span className="graph__label">{n.label}</span>
-          </button>
+            <span
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: isCo ? 14 : '50%',
+                background: isYou ? C.emerald : C['panel-2'],
+                border: isYou ? `2px solid ${C.emerald}` : isCo ? `1px solid ${C['line-2']}` : n.tier ? TIER_VIS[n.tier].ring : undefined,
+                display: 'grid',
+                placeItems: 'center',
+                ...mono(13),
+                fontWeight: 500,
+                color: isYou ? C['emerald-ink'] : C.fg,
+                boxShadow: isYou || n.best ? `0 0 0 6px ${X.em15}` : 'none',
+                boxSizing: 'border-box',
+              }}
+            >
+              {n.ini}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{n.name}</span>
+          </Btn>
         );
       })}
+      <div style={{ position: 'absolute', left: 20, bottom: 18, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        {TIER_ORDER.map((t) => (
+          <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, ...mono(10, C.muted), letterSpacing: '.06em' }}>
+            <span style={{ width: 14, height: 14, borderRadius: '50%', border: TIER_VIS[t].ring, boxSizing: 'border-box' }} />
+            {TIER_VIS[t].label}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------- OutreachBlock
+// ------------------------------------------------------------ PersonRow
 
-export function OutreachBlock({ label, text }: { label: 'Hook' | 'Proof' | 'Ask'; text: string }) {
+export function PersonRow({
+  id,
+  ini,
+  name,
+  role,
+  tier,
+  status,
+  best,
+  onOpen,
+  mobile,
+}: {
+  id: string;
+  ini: string;
+  name: string;
+  role: string;
+  tier: ContactTier;
+  status: OutreachStatus | 'none';
+  best?: boolean;
+  onOpen?: () => void;
+  mobile?: boolean;
+}) {
   return (
-    <section className="outreach-block">
-      <span className="eyebrow">{label}</span>
-      <p className="outreach-block__text">{text}</p>
-    </section>
+    <Btn
+      op={null}
+      className="person"
+      data-contact={id}
+      onClick={onOpen}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        width: '100%',
+        padding: mobile ? '10px 4px' : '10px 12px',
+        borderRadius: 10,
+        border: 0,
+        background: best ? X.deep35 : 'transparent',
+        color: C.fg,
+        textAlign: 'left',
+        minHeight: mobile ? 56 : undefined,
+      }}
+      hover={{ background: C.panel }}
+    >
+      <ContactAvatar initials={ini} tier={tier} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{name}</span>
+        <span style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>{role}</span>
+      </span>
+      <DraftStatusChip status={status} size={mobile ? 10 : 10.5} pad={mobile ? '0' : '3px 9px'} />
+    </Btn>
+  );
+}
+
+// ------------------------------------------------------------ OutreachBlock
+
+export function OutreachBlock({ label, text, mobile }: { label: 'Hook' | 'Proof' | 'Ask'; text: string; mobile?: boolean }) {
+  if (mobile)
+    return (
+      <div className="outreach-block" style={{ padding: '16px 0', borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ ...eyebrow(C.emerald, 9.5), letterSpacing: '.12em', marginBottom: 6 }}>{label}</div>
+        <div style={{ fontSize: 15, lineHeight: 1.5 }}>{text}</div>
+      </div>
+    );
+  return (
+    <div
+      className="outreach-block"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '64px minmax(0,1fr)',
+        gap: 16,
+        padding: '22px 0',
+        borderBottom: `1px solid ${C.line}`,
+      }}
+    >
+      <div style={{ ...eyebrow(C.emerald, 10), letterSpacing: '.12em', paddingTop: 5 }}>{label}</div>
+      <div style={{ fontSize: 18, lineHeight: 1.55, textWrap: 'pretty' }}>{text}</div>
+    </div>
   );
 }

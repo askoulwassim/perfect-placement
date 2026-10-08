@@ -1,99 +1,441 @@
-import { CONFIDENCE_BANDS, IMPACTS, POLICY_GRID, type Thresholds } from '@perfect-placement/contracts';
-import { type ReactNode, useEffect, useRef } from 'react';
-import { humanize } from '../lib/format';
-import { IconButton } from './controls';
-import { Icon, type IconName, WhoDecidesGlyph, whoOf } from './glyphs';
+import { CONFIDENCE_BANDS, IMPACTS, POLICY_GRID } from '@perfect-placement/contracts';
+import { type ReactNode, type RefObject, type KeyboardEvent as RKeyboardEvent, useEffect, useRef, useState } from 'react';
+import { Btn, useHover } from './Btn';
+import { Toggle } from './controls';
+import { type IconName, NavIcon, WhoDecidesGlyph, whoOf } from './glyphs';
+import { C, display, eyebrow, F, mono, tab, X } from './theme';
 
-// ----------------------------------------------------------- NavRail/TabBar
+// ------------------------------------------------------------ NavRail
 
-export type NavTarget = 'now' | 'needs-you' | 'river' | 'you' | 'ask' | 'onboarding' | 'settings';
-const NAV: ReadonlyArray<{ id: NavTarget; icon: IconName; label: string }> = [
-  { id: 'now', icon: 'now', label: 'Now' },
-  { id: 'needs-you', icon: 'needs', label: 'Needs you' },
-  { id: 'river', icon: 'river', label: 'River' },
-  { id: 'you', icon: 'you', label: 'You' },
-  { id: 'ask', icon: 'ask', label: 'Ask' },
+export type NavTarget = 'now' | 'needs-you' | 'river' | 'role' | 'people' | 'you' | 'onboarding' | 'settings' | 'ask';
+
+const RAIL: ReadonlyArray<[NavTarget, IconName, string]> = [
+  ['now', 'now', 'Now'],
+  ['needs-you', 'queue', 'Needs you'],
+  ['river', 'river', 'River'],
+  ['role', 'role', 'Role'],
+  ['people', 'people', 'People'],
+  ['you', 'you', 'You'],
+  ['onboarding', 'onboard', 'Setup'],
+  ['settings', 'settings', 'Settings'],
 ];
-const NAV_BOTTOM: typeof NAV = [
-  { id: 'onboarding', icon: 'setup', label: 'Setup' },
-  { id: 'settings', icon: 'settings', label: 'Settings' },
-];
 
-export function NavRail({ active, needsBadge, onNavigate }: { active: string; needsBadge: number; onNavigate: (t: NavTarget) => void }) {
-  const item = (n: (typeof NAV)[number]) => (
-    <IconButton key={n.id} label={n.label} op={null} active={active === n.id} onClick={() => onNavigate(n.id)}>
-      <Icon name={n.icon} />
-      {n.id === 'needs-you' && needsBadge > 0 && <span className="badge">{needsBadge}</span>}
-    </IconButton>
-  );
+function RailItem({
+  id,
+  icon,
+  label,
+  active,
+  badge,
+  onGo,
+}: {
+  id: NavTarget;
+  icon: IconName;
+  label: string;
+  active: boolean;
+  badge: boolean;
+  onGo: () => void;
+}) {
+  const [tip, bind] = useHover();
   return (
-    <nav className="rail" aria-label="Main">
-      <span className="rail__mark" aria-hidden="true">
-        P
-      </span>
-      <div className="rail__group">{NAV.map(item)}</div>
-      <div className="rail__group rail__group--bottom">{NAV_BOTTOM.map(item)}</div>
+    <div style={{ position: 'relative' }} {...bind}>
+      <Btn
+        op={null}
+        aria-label={label}
+        aria-current={active ? 'page' : undefined}
+        data-nav={id}
+        onClick={onGo}
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 10,
+          border: 0,
+          background: active ? C['panel-2'] : 'transparent',
+          color: active ? C.emerald : C.muted,
+          display: 'grid',
+          placeItems: 'center',
+          position: 'relative',
+          padding: 0,
+        }}
+      >
+        <NavIcon name={icon} />
+        {badge && <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 2, background: C.gold }} />}
+      </Btn>
+      {tip && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 54,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: C['panel-2'],
+            border: `1px solid ${C['line-2']}`,
+            padding: '6px 10px',
+            borderRadius: 8,
+            fontSize: 12,
+            whiteSpace: 'nowrap',
+            zIndex: 50,
+            pointerEvents: 'none',
+          }}
+        >
+          {label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const PPMark = ({ mb = 0 }: { mb?: number }) => (
+  <div
+    style={{
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      background: C.emerald,
+      color: C['emerald-ink'],
+      display: 'grid',
+      placeItems: 'center',
+      ...display(14, 800, '-0.04em'),
+      marginBottom: mb,
+      flex: 'none',
+    }}
+  >
+    PP
+  </div>
+);
+
+export function NavRail({ active, needsBadge, onNavigate }: { active: string; needsBadge: boolean; onNavigate: (t: NavTarget) => void }) {
+  return (
+    <nav
+      aria-label="Main"
+      className="rail"
+      style={{
+        position: 'sticky',
+        top: 0,
+        height: '100vh',
+        width: 76,
+        flex: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 6,
+        padding: '20px 0',
+        borderRight: `1px solid ${C.line}`,
+        background: X.railBg,
+        zIndex: 20,
+      }}
+    >
+      <PPMark mb={18} />
+      {RAIL.map(([id, icon, label]) => (
+        <RailItem
+          key={id}
+          id={id}
+          icon={icon}
+          label={label}
+          active={active === id}
+          badge={id === 'needs-you' && needsBadge}
+          onGo={() => onNavigate(id)}
+        />
+      ))}
+      <div style={{ flex: 1 }} />
+      <Btn
+        op={null}
+        title="Ask (⌘K)"
+        aria-label="Ask"
+        onClick={() => onNavigate('ask')}
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 10,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: C.muted,
+          ...mono(12),
+        }}
+        hover={{ borderColor: C['emerald-2'], color: C.emerald }}
+      >
+        ⌘K
+      </Btn>
     </nav>
   );
 }
 
-const TABS: typeof NAV = [
-  { id: 'now', icon: 'now', label: 'Now' },
-  { id: 'river', icon: 'river', label: 'River' },
-  { id: 'you', icon: 'you', label: 'You' },
-  { id: 'ask', icon: 'ask', label: 'Ask' },
+// ------------------------------------------------------------ TabBar (mobile)
+
+const TABS: ReadonlyArray<[NavTarget, string]> = [
+  ['now', 'Now'],
+  ['river', 'River'],
+  ['you', 'You'],
+  ['ask', 'Ask'],
 ];
 
-export function TabBar({ active, needsBadge, onNavigate }: { active: string; needsBadge: number; onNavigate: (t: NavTarget) => void }) {
+export function TabBar({ active, onNavigate }: { active: (t: NavTarget) => boolean; onNavigate: (t: NavTarget) => void }) {
   return (
-    <nav className="tabbar" aria-label="Tabs">
-      {TABS.map((t) => (
-        <IconButton
-          key={t.id}
-          label={t.label}
+    <nav
+      aria-label="Tabs"
+      className="tabbar"
+      style={{
+        flex: 'none',
+        height: 70,
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4,1fr)',
+        borderTop: `1px solid ${C.line}`,
+        background: C['bg-2'],
+        paddingBottom: 8,
+      }}
+    >
+      {TABS.map(([id, l]) => (
+        <Btn
+          key={id}
           op={null}
-          active={active === t.id || (t.id === 'now' && active === 'needs-you')}
-          onClick={() => onNavigate(t.id)}
+          aria-label={l}
+          title={l}
+          onClick={() => onNavigate(id)}
+          style={{ background: 'none', border: 0, color: active(id) ? C.emerald : C.dim, display: 'grid', placeItems: 'center' }}
         >
-          <Icon name={t.icon} />
-          {t.id === 'now' && needsBadge > 0 && <span className="badge">{needsBadge}</span>}
-        </IconButton>
+          {id === 'ask' ? (
+            <span style={{ ...mono(14), border: '1.5px solid currentColor', borderRadius: 7, padding: '2px 6px' }}>›_</span>
+          ) : (
+            <NavIcon name={id === 'now' ? 'now' : id === 'river' ? 'river' : 'you'} size={24} />
+          )}
+        </Btn>
       ))}
     </nav>
   );
 }
 
-// ----------------------------------------------------------- ScreenHeader
+// ------------------------------------------------------------ ScreenHeader
 
 export function ScreenHeader({
+  eyebrow: eb,
   title,
-  eyebrow,
   onBack,
   primary,
-  children,
+  mobile,
 }: {
-  title: ReactNode;
-  eyebrow?: string;
+  eyebrow: string;
+  title: string;
   onBack?: () => void;
   primary?: ReactNode;
-  children?: ReactNode;
+  mobile?: boolean;
+}) {
+  if (mobile)
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+        {onBack && (
+          <Btn
+            op={null}
+            aria-label="Back"
+            onClick={onBack}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              border: `1px solid ${C['line-2']}`,
+              background: 'transparent',
+              color: C.fg,
+              fontSize: 16,
+              flex: 'none',
+            }}
+          >
+            ←
+          </Btn>
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div style={eyebrow(C.muted, 10)}>{eb}</div>
+          <h1 className="screen-title" style={{ ...display(30, 800, '-0.03em'), lineHeight: 1.1, margin: '4px 0 0' }}>
+            {title}
+          </h1>
+        </div>
+      </div>
+    );
+  return (
+    <header style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 24, minHeight: 72 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={eyebrow()}>{eb}</div>
+        <h1
+          className="screen-title"
+          style={{
+            ...display(44, 800, '-0.035em'),
+            lineHeight: 1.05,
+            margin: '6px 0 0',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {title}
+        </h1>
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 'none' }}>
+        {onBack && (
+          <Btn
+            op={null}
+            aria-label="Back"
+            onClick={onBack}
+            style={{
+              background: 'transparent',
+              color: C.fg,
+              border: `1px solid ${C['line-2']}`,
+              borderRadius: 10,
+              height: 44,
+              width: 44,
+              fontSize: 18,
+            }}
+            hover={{ borderColor: C['emerald-2'] }}
+          >
+            ←
+          </Btn>
+        )}
+        {primary}
+      </div>
+    </header>
+  );
+}
+
+// ------------------------------------------------------------ CommandBar (Ask)
+
+export function AskPill({ onOpen }: { onOpen: () => void }) {
+  return (
+    <Btn
+      op={null}
+      className="ask-pill"
+      onClick={onOpen}
+      style={{
+        position: 'fixed',
+        bottom: 24,
+        left: 'calc(50% + 38px)',
+        transform: 'translateX(-50%)',
+        zIndex: 30,
+        width: 420,
+        maxWidth: 'calc(100vw - 140px)',
+        height: 48,
+        borderRadius: 999,
+        background: C.panel,
+        border: `1px solid ${C['line-2']}`,
+        color: C.muted,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '0 10px 0 20px',
+        cursor: 'text',
+        fontSize: 15,
+        boxShadow: X.shadowPill,
+      }}
+      hover={{ borderColor: C['emerald-2'] }}
+    >
+      <span style={{ fontFamily: F.mono, color: C.emerald }}>›</span>
+      <span style={{ flex: 1, textAlign: 'left' }}>Ask</span>
+      <span style={{ ...mono(11), padding: '3px 8px', border: `1px solid ${C['line-2']}`, borderRadius: 6 }}>⌘K</span>
+    </Btn>
+  );
+}
+
+export function CommandBar({
+  query,
+  onQuery,
+  onSubmit,
+  onClose,
+  suggestions,
+  reply,
+  inputRef,
+}: {
+  query: string;
+  onQuery: (q: string) => void;
+  onSubmit: () => void;
+  onClose: () => void;
+  suggestions: ReactNode;
+  reply?: ReactNode;
+  inputRef?: RefObject<HTMLInputElement | null>;
+}) {
+  const own = useRef<HTMLInputElement>(null);
+  const ref = inputRef ?? own;
+  useEffect(() => {
+    const t = setTimeout(() => ref.current?.focus(), 40);
+    return () => clearTimeout(t);
+  }, [ref]);
+  return (
+    <div role="dialog" aria-label="Ask" className="ask">
+      <Btn
+        op="local"
+        aria-label="Close"
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 60,
+          background: 'rgba(6,17,31,0.62)',
+          backdropFilter: 'blur(2px)',
+          border: 0,
+          cursor: 'default',
+        }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 70,
+          width: 'min(720px, calc(100vw - 32px))',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        {reply}
+        {!reply && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>{suggestions}</div>}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmit();
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            height: 56,
+            padding: '0 12px 0 20px',
+            background: C.panel,
+            border: `1px solid ${C['emerald-2']}`,
+            borderRadius: 14,
+            boxShadow: X.shadowAsk,
+          }}
+        >
+          <span style={{ fontFamily: F.mono, color: C.emerald, fontSize: 16 }}>›</span>
+          <input
+            ref={ref}
+            aria-label="Ask"
+            placeholder="Ask"
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && onClose()}
+            style={{ flex: 1, minWidth: 0, background: 'none', border: 0, outline: 'none', color: C.fg, fontSize: 16, fontFamily: F.ui }}
+          />
+          <span style={{ ...mono(11, C.dim), padding: '3px 8px', border: `1px solid ${C['line-2']}`, borderRadius: 6 }}>esc</span>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function AskSuggestion({
+  text,
+  op,
+  onRun,
+}: {
+  text: string;
+  op: 'runs.start' | 'roles.check_freshness' | 'people.find' | 'local';
+  onRun: () => void;
 }) {
   return (
-    <header className="screen-head">
-      <div className="screen-head__left">
-        {onBack && (
-          <IconButton label="Back" op={null} onClick={onBack} className="back-btn">
-            <Icon name="back" />
-          </IconButton>
-        )}
-        <div className="screen-head__titles">
-          {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-          <h1 className="screen-title">{title}</h1>
-        </div>
-        {children}
-      </div>
-      <div className="screen-head__primary">{primary}</div>
-    </header>
+    <Btn
+      op={op}
+      onClick={onRun}
+      style={{ background: C.panel, border: `1px solid ${C['line-2']}`, color: C.fg, borderRadius: 999, padding: '8px 14px', fontSize: 13 }}
+      hover={{ borderColor: C['emerald-2'], color: C.emerald }}
+    >
+      {text}
+    </Btn>
   );
 }
 
@@ -110,152 +452,260 @@ export function BackendCard({
   status: 'ok' | 'slow' | 'down';
   latencyMs: number | null;
 }) {
+  const dot = status === 'ok' ? C.emerald : status === 'slow' ? C.gold : C.coral;
+  const ring = status === 'ok' ? X.em15 : status === 'slow' ? X.gold16 : X.coral14;
   return (
-    <div className="backend" data-status={status}>
-      <span className={`backend__dot is-${status}`} aria-hidden="true" />
-      <span className="backend__name">{humanize(name)}</span>
-      <span className="eyebrow">{humanize(mode)}</span>
-      <span className="backend__lat">{latencyMs == null ? '--' : `${latencyMs} ms`}</span>
+    <div
+      className="backend"
+      data-status={status}
+      style={{
+        background: C.panel,
+        border: `1px solid ${C.line}`,
+        borderRadius: 12,
+        padding: '22px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+      }}
+    >
+      <span style={{ width: 12, height: 12, borderRadius: '50%', background: dot, boxShadow: `0 0 0 4px ${ring}` }} />
+      <div style={{ flex: 1 }}>
+        <div style={display(24, 700, 'normal')}>{name}</div>
+        <div style={{ ...mono(11, C.muted), letterSpacing: '.08em' }}>{mode.toUpperCase()}</div>
+      </div>
+      <div style={{ ...display(30, 800, 'normal'), ...tab }}>
+        {latencyMs ?? '—'}
+        <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
+      </div>
     </div>
   );
 }
 
-// ------------------------------------------------------------- PolicyGrid
+// ------------------------------------------------------------ PolicyGrid
 
+const CELL_BG = { auto: X.em06, second: X.em04, undo: X.em03, you: X.gold08 } as const;
+const IMPACT_HEX = { low: C.emerald, medium: C.gold, high: C.coral } as const;
+
+/** Confidence x impact grid (locked policy from contracts). Column widths follow the thresholds; handles drag them. */
 export function PolicyGrid({
   thresholds,
   onChange,
 }: {
-  thresholds: Pick<Thresholds, 'auto' | 'second_opinion'>;
-  onChange?: (t: { auto: number; second_opinion: number }) => void;
+  thresholds: { auto: number; second_opinion: number };
+  onChange: (t: { auto: number; second_opinion: number }) => void;
 }) {
-  const a = thresholds.auto.toFixed(2);
-  const s = thresholds.second_opinion.toFixed(2);
-  const cols = [`p ≥ ${a}`, `${s} to ${a}`, `< ${s}`];
+  const t0 = thresholds.second_opinion;
+  const t1 = thresholds.auto;
+  const track = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<0 | 1 | null>(null);
+  const set = (which: 0 | 1, v: number) => {
+    const r = Math.round(v * 100) / 100;
+    if (which === 1) onChange({ second_opinion: t0, auto: Math.min(0.99, Math.max(t0 + 0.05, r)) });
+    else onChange({ auto: t1, second_opinion: Math.max(0.55, Math.min(t1 - 0.05, r)) });
+  };
+  useEffect(() => {
+    if (drag == null) return;
+    const move = (e: MouseEvent) => {
+      const el = track.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      set(drag, 1 - f * 0.5);
+    };
+    const up = () => setDrag(null);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+  });
+  const cols = `150px ${((1 - t1) * 10).toFixed(3)}fr ${((t1 - t0) * 10).toFixed(3)}fr ${((t0 - 0.5) * 10).toFixed(3)}fr`;
+  const head = [`≥ ${t1.toFixed(2)}`, `${t0.toFixed(2)}–${t1.toFixed(2)}`, `< ${t0.toFixed(2)}`];
+  const handle = (which: 0 | 1, v: number, label: string) => (
+    <div
+      role="slider"
+      tabIndex={0}
+      aria-label={label}
+      aria-valuemin={0.5}
+      aria-valuemax={1}
+      aria-valuenow={v}
+      title="Drag"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        setDrag(which);
+      }}
+      onKeyDown={(e: RKeyboardEvent) => {
+        if (e.key === 'ArrowLeft') set(which, v + 0.01);
+        if (e.key === 'ArrowRight') set(which, v - 0.01);
+      }}
+      style={{
+        position: 'absolute',
+        left: `${((1 - v) / 0.5) * 100}%`,
+        top: 4,
+        width: 22,
+        height: 22,
+        transform: 'translateX(-50%)',
+        borderRadius: '50%',
+        background: C.bg,
+        border: `2px solid ${C.emerald}`,
+        cursor: 'ew-resize',
+        boxSizing: 'border-box',
+      }}
+    />
+  );
   return (
     <div className="policy">
-      <div className="policy__scale">
-        <span className="eyebrow">0.50</span>
-        <div className="policy__track">
-          <span
-            className="policy__seg"
-            style={{ left: 0, width: `${((thresholds.second_opinion - 0.5) / 0.5) * 100}%` }}
-            data-color="coral"
-          />
-          <span
-            className="policy__seg"
+      <div
+        className="policy__grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: cols,
+          background: C.panel,
+          border: `1px solid ${C.line}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ background: C['bg-2'], height: 44 }} />
+        {head.map((h) => (
+          <div
+            key={h}
+            className="policy__head"
             style={{
-              left: `${((thresholds.second_opinion - 0.5) / 0.5) * 100}%`,
-              width: `${((thresholds.auto - thresholds.second_opinion) / 0.5) * 100}%`,
+              background: C['bg-2'],
+              height: 44,
+              display: 'grid',
+              placeItems: 'center',
+              ...mono(12, C.muted),
+              borderLeft: `1px solid ${C.line}`,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
             }}
-            data-color="gold"
-          />
-          <span className="policy__seg" style={{ left: `${((thresholds.auto - 0.5) / 0.5) * 100}%`, right: 0 }} data-color="emerald" />
-          <input
-            type="range"
-            aria-label="Second opinion"
-            min={0.5}
-            max={1}
-            step={0.01}
-            value={thresholds.second_opinion}
-            onChange={(e) =>
-              onChange?.({ auto: thresholds.auto, second_opinion: Math.min(Number(e.target.value), thresholds.auto - 0.01) })
-            }
-          />
-          <input
-            type="range"
-            aria-label="Auto"
-            min={0.5}
-            max={1}
-            step={0.01}
-            value={thresholds.auto}
-            onChange={(e) =>
-              onChange?.({
-                second_opinion: thresholds.second_opinion,
-                auto: Math.max(Number(e.target.value), thresholds.second_opinion + 0.01),
-              })
-            }
-          />
-        </div>
-        <span className="eyebrow">1.00</span>
+          >
+            p {h}
+          </div>
+        ))}
+        {IMPACTS.map((imp) => (
+          <PolicyRow key={imp} imp={imp} />
+        ))}
       </div>
-      <table className="policy__grid">
-        <thead>
-          <tr>
-            <th />
-            {cols.map((c) => (
-              <th key={c} className="eyebrow">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {IMPACTS.map((impact) => (
-            <tr key={impact}>
-              <th className={`eyebrow policy__impact is-${impact}`}>{humanize(impact)}</th>
-              {CONFIDENCE_BANDS.map((band) => (
-                <td key={band} data-outcome={POLICY_GRID[impact][band]}>
-                  <WhoDecidesGlyph kind={whoOf(POLICY_GRID[impact][band])} size={18} left={0.66} />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px minmax(0,1fr)', marginTop: 6 }}>
+        <div />
+        <div ref={track} style={{ position: 'relative', height: 30 }}>
+          <div style={{ position: 'absolute', left: 0, right: 0, top: 14, height: 2, background: C.line, borderRadius: 2 }} />
+          {handle(1, t1, 'Auto')}
+          {handle(0, t0, 'Second opinion')}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 22, marginTop: 12, ...mono(11, C.muted), flexWrap: 'wrap' }}>
+        {(
+          [
+            ['auto', 'Auto'],
+            ['second', '2nd opinion'],
+            ['undo', 'Auto + undo'],
+            ['you', 'You'],
+          ] as const
+        ).map(([k, l]) => (
+          <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <WhoDecidesGlyph kind={k} size={k === 'second' ? 18 : 16} />
+            {l}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ------------------------------------------------------------- CommandBar
-
-export function CommandBar({
-  open,
-  query,
-  suggestions,
-  streaming,
-  reply,
-  onQuery,
-  onSubmit,
-  onClose,
-}: {
-  open: boolean;
-  query: string;
-  suggestions: ReactNode;
-  streaming?: boolean;
-  reply?: ReactNode;
-  onQuery: (q: string) => void;
-  onSubmit: () => void;
-  onClose: () => void;
-}) {
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (open) input.current?.focus();
-  }, [open]);
-  if (!open) return null;
+function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
+  const c = IMPACT_HEX[imp];
   return (
-    <div className="ask" role="dialog" aria-label="Ask">
-      <button type="button" className="ask__scrim" aria-label="Close" data-op="local" onClick={onClose} />
-      <div className="ask__panel">
-        {reply && <div className={`ask__reply ${streaming ? 'is-streaming' : ''}`}>{reply}</div>}
-        <div className="ask__chips">{suggestions}</div>
-        <form
-          className="ask__bar"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSubmit();
-          }}
-        >
-          <Icon name="search" />
-          <input
-            ref={input}
-            aria-label="Ask"
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && onClose()}
-          />
-          <kbd className="kbd">⌘K</kbd>
-        </form>
+    <>
+      <div style={{ height: 68, display: 'flex', alignItems: 'center', padding: '0 20px', borderTop: `1px solid ${C.line}` }}>
+        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>{imp}</span>
+      </div>
+      {CONFIDENCE_BANDS.map((band) => {
+        const k = whoOf(POLICY_GRID[imp][band]);
+        return (
+          <div
+            key={band}
+            data-outcome={POLICY_GRID[imp][band]}
+            style={{
+              height: 68,
+              display: 'grid',
+              placeItems: 'center',
+              borderTop: `1px solid ${C.line}`,
+              borderLeft: `1px solid ${C.line}`,
+              background: CELL_BG[k],
+            }}
+          >
+            <WhoDecidesGlyph kind={k} size={22} />
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// ------------------------------------------------------------ ScheduleRow
+
+export function ScheduleRow({
+  name,
+  cadence,
+  next,
+  on,
+  onToggle,
+}: {
+  name: string;
+  cadence: string;
+  next: string;
+  on: boolean;
+  onToggle: (on: boolean) => void;
+}) {
+  return (
+    <div
+      className="schedule"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0,1fr) 180px 110px 44px',
+        gap: 16,
+        alignItems: 'center',
+        height: 60,
+        borderBottom: `1px solid ${C.line}`,
+      }}
+    >
+      <span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span>
+      <span style={mono(12, C.muted)}>{cadence}</span>
+      <span style={mono(12, C.dim)}>{on ? next : 'off'}</span>
+      <Toggle on={on} label={name} onChange={onToggle} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ MobileFrame
+
+export function MobileFrame({ children, primary, tabbar }: { children: ReactNode; primary?: ReactNode; tabbar: ReactNode }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+      <div
+        className="mobile-frame"
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: 390,
+          height: 'min(844px, 100vh)',
+          background: `${X.mobileGlow}, ${C.bg}`,
+          border: `1px solid ${C.line}`,
+          borderRadius: 36,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div style={{ height: 44, flex: 'none' }} />
+        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 24px' }}>{children}</div>
+        {primary && <div style={{ flex: 'none', padding: '10px 20px', borderTop: `1px solid ${C.line}`, background: C.bg }}>{primary}</div>}
+        {tabbar}
       </div>
     </div>
   );

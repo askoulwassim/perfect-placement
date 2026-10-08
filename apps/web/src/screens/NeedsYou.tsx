@@ -1,228 +1,216 @@
 import type { Decision } from '@perfect-placement/contracts';
 import { useCallback, useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
-import { PrimaryButton, STATUS_LABEL } from '../components/controls';
-import { DecisionCard, type Evidence } from '../components/decision';
-import { HeroRing, ProgressDots } from '../components/meters';
-import type { DiffChip } from '../components/profile';
-import { ScreenHeader } from '../components/shell';
-import { altsOf, objectOf, pickOf, SHORT_Q, valueLabel } from '../lib/decisions';
-import { ago, humanize } from '../lib/format';
-import { TIER_LABEL } from '../lib/people';
-import { COMPONENT_NAME, chipsOf } from '../lib/profile';
+import { DecisionCard } from '../components/decision';
+import { ProgressDots } from '../components/meters';
+import { TIER_VIS } from '../components/people';
+import { C, display, X } from '../components/theme';
+import { Screen, useLayout } from '../layout';
+import { decisionView } from '../lib/view';
+import { go } from '../router';
 
-type Handled = 'done' | 'skipped' | 'portal';
+type Handled = 'done' | 'portal';
 
 export function NeedsYou() {
+  const { mobile } = useLayout();
+  const { showToast } = useApp();
   const queue = useOp('decisions.queue', {});
-  const [snapshot, setSnapshot] = useState<Decision[] | null>(null);
+  const [items, setItems] = useState<Decision[] | null>(null);
   const [handled, setHandled] = useState<Record<string, Handled>>({});
   const [index, setIndex] = useState(0);
   const [changeOpen, setChangeOpen] = useState(false);
   const act = useAct();
 
-  // Freeze the queue on entry so the dots stay stable while items resolve.
+  // Freeze the queue on entry so the dots stay put while items resolve.
   useEffect(() => {
-    if (!snapshot && queue.data) setSnapshot(queue.data.pending);
-  }, [queue.data, snapshot]);
+    if (!items && queue.data) setItems(queue.data.pending);
+  }, [queue.data, items]);
 
-  const items = snapshot ?? [];
-  const stillPending = new Set(queue.data?.pending.map((d) => d.id));
-  const open = items.filter((d) => !handled[d.id] && stillPending.has(d.id));
-  const current = items[index] && !handled[items[index].id] && stillPending.has(items[index].id) ? items[index] : open[0];
-  const curIndex = current ? items.indexOf(current) : -1;
+  const list = items ?? [];
+  const pendingIds = new Set(queue.data?.pending.map((d) => d.id));
+  const isDone = (d: Decision) => !!handled[d.id] || !pendingIds.has(d.id);
+  const resolved = list.map(isDone);
+  const cleared = items !== null && resolved.every(Boolean);
+  const cur = list[index] && !isDone(list[index] as Decision) ? (list[index] as Decision) : list.find((d) => !isDone(d));
+  const curIndex = cur ? list.indexOf(cur) : -1;
 
-  const advance = useCallback(
-    (id: string, how: Handled) => {
-      setHandled((h) => ({ ...h, [id]: how }));
-      setChangeOpen(false);
-      const pos = items.findIndex((x) => x.id === id);
-      const rest = open.filter((x) => x.id !== id);
-      const after = rest.find((x) => items.indexOf(x) > pos) ?? rest[0];
-      setIndex(after ? items.indexOf(after) : 0);
+  const nextOpen = useCallback(
+    (fromId: string) => {
+      const pos = list.findIndex((x) => x.id === fromId);
+      for (let k = 1; k <= list.length; k++) {
+        const j = (pos + k) % list.length;
+        const d = list[j];
+        if (d && d.id !== fromId && !handled[d.id] && pendingIds.has(d.id)) return j;
+      }
+      return pos;
     },
-    [items, open],
+    [list, handled, pendingIds],
   );
 
-  const isSubmit = current?.kind === 'apply.submit';
-  const portal = useOp('roles.get', current && isSubmit ? { role_id: current.subject_id } : null);
+  const finish = useCallback(
+    (d: Decision, how: Handled) => {
+      setHandled((h) => ({ ...h, [d.id]: how }));
+      setChangeOpen(false);
+      setIndex(nextOpen(d.id));
+    },
+    [nextOpen],
+  );
+
+  const isSubmit = cur?.kind === 'apply.submit';
+  const submitRole = useOp('roles.get', cur && isSubmit ? { role_id: cur.subject_id } : null);
 
   const accept = useCallback(async () => {
-    if (!current) return;
-    if (current.kind === 'apply.submit') {
-      const url = portal.data?.application?.portal_url ?? portal.data?.role.url;
+    if (!cur) return;
+    if (cur.kind === 'apply.submit') {
+      const url = submitRole.data?.application?.portal_url ?? submitRole.data?.role.url;
       if (url) window.open(url, '_blank', 'noopener');
-      advance(current.id, 'portal');
+      showToast('Portal opened · you submit');
+      finish(cur, 'portal');
       return;
     }
-    const o = await act('decisions.resolve', { decision_id: current.id, action: 'accept' });
-    if (o.status === 'ok') advance(current.id, 'done');
-  }, [current, act, advance, portal.data]);
+    const o = await act('decisions.resolve', { decision_id: cur.id, action: 'accept' });
+    if (o.status === 'ok') finish(cur, 'done');
+  }, [cur, act, finish, submitRole.data, showToast]);
 
   const change = useCallback(
     async (value: string | boolean | number) => {
-      if (!current) return;
-      const o = await act('decisions.resolve', { decision_id: current.id, action: 'change', value });
-      if (o.status === 'ok') advance(current.id, 'done');
+      if (!cur) return;
+      const o = await act('decisions.resolve', { decision_id: cur.id, action: 'change', value });
+      if (o.status === 'ok') finish(cur, 'done');
     },
-    [current, act, advance],
+    [cur, act, finish],
+  );
+
+  const step = useCallback(
+    (dir: 1 | -1) => {
+      if (!list.length) return;
+      setIndex((i) => (i + dir + list.length) % list.length);
+      setChangeOpen(false);
+    },
+    [list.length],
   );
 
   const skip = useCallback(async () => {
-    if (!current) return;
-    const o = await act('decisions.resolve', { decision_id: current.id, action: 'skip' });
-    if (o.status === 'ok') advance(current.id, 'skipped');
-  }, [current, act, advance]);
-
-  const move = useCallback(
-    (dir: 1 | -1) => {
-      if (!open.length || !current) return;
-      const pos = open.indexOf(current);
-      const next = open[(pos + dir + open.length) % open.length];
-      if (next) setIndex(items.indexOf(next));
-      setChangeOpen(false);
-    },
-    [open, current, items],
-  );
+    if (!cur) return;
+    await act('decisions.resolve', { decision_id: cur.id, action: 'skip' });
+    step(1);
+  }, [cur, act, step]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target instanceof Element ? e.target : null;
-      if (e.metaKey || e.ctrlKey || el?.closest('input, textarea, [role="dialog"]')) return;
+      if (e.metaKey || e.ctrlKey || el?.closest('input, textarea, [role="dialog"]') || cleared) return;
       const k = e.key.toLowerCase();
       if (k === 'a') void accept();
       else if (k === 'c') setChangeOpen((v) => !v);
       else if (k === 's') void skip();
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') move(1);
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') move(-1);
+      else if (e.key === 'ArrowRight') step(1);
+      else if (e.key === 'ArrowLeft') step(-1);
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [accept, skip, move]);
+  }, [accept, skip, step, cleared]);
 
-  const clear = snapshot !== null && !current;
+  const doneCount = resolved.filter(Boolean).length;
+  const primary = cleared
+    ? { label: 'Back to Now', op: null, onClick: () => go({ screen: 'now' }) }
+    : isSubmit
+      ? { label: 'Open portal', op: null, onClick: () => void accept() }
+      : { label: 'Accept', op: 'decisions.resolve' as const, onClick: () => void accept(), disabled: !cur };
+
   return (
-    <div className="screen screen--needs">
-      <ScreenHeader
-        title="Needs you"
-        primary={
-          isSubmit ? (
-            <PrimaryButton label="Open portal" op={null} onClick={() => void accept()} />
-          ) : (
-            <PrimaryButton label="Accept" op="decisions.resolve" disabled={!current} onClick={() => void accept()} />
-          )
-        }
-      >
-        {items.length > 0 && (
-          <ProgressDots count={items.length} index={curIndex} resolved={items.map((d) => !!handled[d.id] || !stillPending.has(d.id))} />
-        )}
-      </ScreenHeader>
-      {clear && (
-        <div className="clear-state">
-          <HeroRing count={0} fill={1} size={200} />
-          <span className="panel-title">Clear</span>
+    <Screen
+      label={mobile ? 'Needs you · mobile' : 'Needs you'}
+      eyebrow={`${doneCount} / ${list.length}`}
+      title="Needs you"
+      primary={primary}
+    >
+      {!cleared && list.length > 0 && (
+        <div style={{ margin: mobile ? '0 0 18px' : '24px 0 28px' }}>
+          <ProgressDots count={list.length} index={curIndex} resolved={resolved} gap={mobile ? 8 : 10} onPick={(i) => setIndex(i)} />
         </div>
       )}
-      {current && (
+      {cur && !cleared && (
         <CurrentCard
-          key={current.id}
-          d={current}
+          key={cur.id}
+          d={cur}
+          mobile={mobile}
           changeOpen={changeOpen}
           onToggleChange={() => setChangeOpen((v) => !v)}
-          onChange={change}
+          onPick={change}
           onSkip={skip}
         />
       )}
-    </div>
+      {cleared && (
+        <div
+          className="clear-state"
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: mobile ? 22 : 28, marginTop: mobile ? 70 : 90 }}
+        >
+          <div
+            style={{
+              width: mobile ? 160 : 200,
+              height: mobile ? 160 : 200,
+              borderRadius: '50%',
+              border: `${mobile ? 10 : 12}px solid ${C.emerald}`,
+              boxShadow: mobile ? undefined : `0 0 0 10px ${X.em08}`,
+            }}
+          />
+          <div style={display(mobile ? 48 : 64)}>Clear</div>
+        </div>
+      )}
+    </Screen>
   );
 }
 
 function CurrentCard({
   d,
+  mobile,
   changeOpen,
   onToggleChange,
-  onChange,
+  onPick,
   onSkip,
 }: {
   d: Decision;
+  mobile: boolean;
   changeOpen: boolean;
   onToggleChange: () => void;
-  onChange: (v: string | boolean | number) => void;
+  onPick: (v: string | boolean | number) => void;
   onSkip: () => void;
 }) {
   const { thresholds, now } = useApp();
-  const object = objectOf(d);
   const role = useOp('roles.get', d.subject_type === 'role' ? { role_id: d.subject_id } : null);
-  const profile = useOp('profile.get', object === 'profile' ? {} : null);
+  const profile = useOp('profile.get', d.subject_type === 'profile_diff' ? {} : null);
   const outreach = useOp('outreach.get', d.subject_type === 'outreach' ? { outreach_id: d.subject_id } : null);
   const contact = useOp('contacts.get', d.subject_type === 'contact' ? { contact_id: d.subject_id } : null);
-
-  let title = '';
-  let sub: string | undefined;
-  let evidence: Evidence[] = [];
-  let diff: { before: DiffChip[]; after: DiffChip[] } | undefined;
-
-  if (role.data) {
-    const r = role.data.role;
-    title = r.title;
-    sub = role.data.company.name;
-    if (d.kind === 'freshness.closed')
-      evidence = [
-        { label: humanize(r.freshness) },
-        { label: 'Checked', detail: ago(r.last_checked_at, now()) || 'never' },
-        { label: 'Posted', detail: ago(r.posted_at, now()) },
-      ];
-    else if (d.kind === 'inbox.classify') evidence = [{ label: STATUS_LABEL[r.status] }, { label: 'Gmail', detail: ago(d.ts, now()) }];
-    else if (d.kind === 'apply.submit') {
-      const paths = role.data.application?.package_paths_json ?? {};
-      evidence = Object.keys(paths).map((k) => ({ label: humanize(k) }));
-    } else evidence = [{ label: humanize(r.source) }, { label: STATUS_LABEL[r.status] }];
-  }
-  if (profile.data) {
-    const pd = profile.data.pending_diffs.find((x) => x.id === d.subject_id);
-    if (pd) {
-      title = COMPONENT_NAME[pd.component_key];
-      sub = 'Profile';
-      const dj = pd.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> };
-      diff = { before: chipsOf(dj.before ?? {}), after: chipsOf(dj.after ?? {}) };
-      evidence = pd.evidence_json.map((e) => ({ label: e }));
-    }
-  }
-  if (outreach.data) {
-    title = outreach.data.contact.name;
-    sub = TIER_LABEL[outreach.data.outreach.tier];
-    evidence = [
-      { label: 'Hook', detail: outreach.data.hook },
-      { label: 'Ask', detail: outreach.data.ask },
-    ];
-  }
-  if (contact.data) {
-    title = contact.data.contact.name;
-    sub = contact.data.contact.headline ?? undefined;
-    const link = contact.data.links[0];
-    evidence = link ? [{ label: TIER_LABEL[link.tier] }, { label: humanize(contact.data.contact.source) }] : [];
-  }
-
+  const v = decisionView(d, {
+    now: now(),
+    role: role.data,
+    diff: profile.data?.pending_diffs.find((x) => x.id === d.subject_id),
+    outreach: outreach.data && {
+      name: outreach.data.contact.name,
+      headline: outreach.data.contact.headline,
+      tierLabel: TIER_VIS[outreach.data.outreach.tier].label,
+      hook: outreach.data.hook,
+      ask: outreach.data.ask,
+    },
+    contact: contact.data && {
+      name: contact.data.contact.name,
+      headline: contact.data.contact.headline,
+      source: contact.data.contact.source,
+      tierLabel: contact.data.links[0] ? TIER_VIS[contact.data.links[0].tier].label : undefined,
+    },
+  });
   return (
     <DecisionCard
-      object={object}
-      objectTitle={title}
-      objectSub={sub}
-      question={SHORT_Q[d.kind]}
-      pick={valueLabel(d.kind, pickOf(d))}
-      resolver={d.backend}
-      p={d.p}
-      impact={d.impact}
+      v={v}
+      mobile={mobile}
       thresholds={thresholds}
-      evidence={evidence}
-      alts={altsOf(d).map((v) => ({ value: v, label: valueLabel(d.kind, v) }))}
-      diff={diff}
       changeOpen={changeOpen}
       onToggleChange={onToggleChange}
-      onChange={onChange}
-      onSkip={onSkip}
+      onPick={onPick}
+      onSkip={() => void onSkip()}
     />
   );
 }

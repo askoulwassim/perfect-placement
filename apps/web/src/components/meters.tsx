@@ -1,143 +1,323 @@
-import { type ColorName, CRITERIA, CRITERION_LABELS, type Thresholds } from '@perfect-placement/contracts';
-import { STAGES } from '../lib/stage';
-import { cv, Icon, type IconName } from './glyphs';
+import { CRITERIA, CRITERION_LABELS } from '@perfect-placement/contracts';
+import { Btn } from './Btn';
+import { CountIcon } from './glyphs';
+import { C, display, F, mono, probColor, tab, X } from './theme';
 
-// -------------------------------------------------------- ProbabilityBar
-
-/** Color by the policy thresholds (handoff §4): confident emerald, middle gold, low coral. */
-export const probColor = (p: number, t: Pick<Thresholds, 'auto' | 'second_opinion'>): ColorName =>
-  p >= t.auto ? 'emerald' : p >= t.second_opinion ? 'gold' : 'coral';
+// ------------------------------------------------------------ ProbabilityBar
 
 export function ProbabilityBar({
   p,
   thresholds,
-  wide,
+  small,
 }: {
   p: number;
-  thresholds: Pick<Thresholds, 'auto' | 'second_opinion'>;
-  wide?: boolean;
+  thresholds: { auto: number; second_opinion: number };
+  small?: boolean;
 }) {
-  const color = probColor(p, thresholds);
+  const col = probColor(p, thresholds);
   return (
-    <div className={`prob ${wide ? 'prob--wide' : ''}`} data-color={color}>
-      <div className="prob__track">
-        <div className="prob__fill" style={{ width: `${p * 100}%`, background: cv(color) }} />
-        <span className="prob__tick" style={{ left: `${thresholds.second_opinion * 100}%` }} />
-        <span className="prob__tick" style={{ left: `${thresholds.auto * 100}%` }} />
+    <div className="prob" data-color={col} style={{ display: 'flex', alignItems: 'center', gap: small ? 12 : 14 }}>
+      <div style={{ flex: 1, height: 4, borderRadius: 4, background: C.line, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${p * 100}%`, background: col, borderRadius: 4, transition: 'width .3s' }} />
       </div>
-      <span className="prob__num">{p.toFixed(2)}</span>
+      <div style={{ ...mono(small ? 13 : 14, col), ...tab }}>{p.toFixed(2)}</div>
     </div>
   );
 }
 
-// -------------------------------------------------------------- HeroRing
+// ------------------------------------------------------------ HeroRing
 
-export function HeroRing({ count, fill, size = 240 }: { count: number; fill: number; size?: number }) {
-  const r = size / 2 - 10;
-  const c = 2 * Math.PI * r;
-  const f = Math.max(0, Math.min(1, fill));
+/** Needs-you count in a ring whose fill is the share handled automatically. */
+export function HeroRing({ count, fill, mobile, onClick }: { count: number; fill: number; mobile?: boolean; onClick?: () => void }) {
+  const size = mobile ? 168 : 240;
+  const r = mobile ? 76 : 104;
+  const sw = mobile ? 10 : 12;
+  const Cu = 2 * Math.PI * r;
+  const cleared = count === 0;
+  const f = cleared ? 1 : Math.max(0, Math.min(1, fill));
   return (
-    <div className="hero-ring" style={{ width: size, height: size }} data-count={count}>
-      <svg aria-hidden="true" width={size} height={size}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={cv('line')} strokeWidth={10} />
+    <Btn
+      op={null}
+      aria-label="Needs you"
+      className="hero-ring"
+      onClick={onClick}
+      style={{ position: 'relative', width: size, height: size, flex: 'none', background: 'none', border: 0, padding: 0, color: C.fg }}
+    >
+      <svg aria-hidden="true" viewBox={`0 0 ${size} ${size}`} style={{ width: '100%', height: '100%' }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.line} strokeWidth={sw} />
         <circle
-          className="hero-ring__arc"
           cx={size / 2}
           cy={size / 2}
           r={r}
           fill="none"
-          stroke={cv('emerald')}
-          strokeWidth={10}
+          stroke={C.emerald}
+          strokeWidth={sw}
           strokeLinecap="round"
-          strokeDasharray={`${c * f} ${c}`}
+          strokeDasharray={`${f * Cu} ${Cu}`}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: 'stroke-dasharray .6s ease' }}
         />
       </svg>
-      <span className={`hero-ring__count ${count ? 'is-gold' : ''}`}>{count}</span>
-    </div>
+      <span
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: mobile ? 0 : 6,
+        }}
+      >
+        <span
+          className="hero-ring__count"
+          style={{ ...display(mobile ? 72 : 104, 800, '-0.05em'), lineHeight: 0.9, ...tab, color: cleared ? C.emerald : C.gold }}
+        >
+          {count}
+        </span>
+        <span style={{ ...mono(mobile ? 10 : 11, C.muted), letterSpacing: '.1em', marginTop: mobile ? 4 : 0 }}>
+          {Math.round(f * 100)}% AUTO
+        </span>
+      </span>
+    </Btn>
   );
 }
 
-// ------------------------------------------------------------- CountTile
+// ------------------------------------------------------------ CountTile
 
-export function CountTile({ icon, value, color, label }: { icon: IconName; value: number; color: ColorName; label: string }) {
+export function CountTile({
+  kind,
+  value,
+  label,
+  compact,
+}: {
+  kind: 'closed' | 'drafts' | 'replies';
+  value: number;
+  label: string;
+  compact?: boolean;
+}) {
+  if (compact)
+    return (
+      <div
+        title={label}
+        style={{
+          background: C.panel,
+          borderRadius: 12,
+          padding: '10px 14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <CountIcon kind={kind} size={20} stroke={2.4} />
+        <span style={display(28, 800, 'normal')}>{value}</span>
+      </div>
+    );
   return (
-    <div className="count-tile" style={{ color: cv(color) }} title={label}>
-      <Icon name={icon} size={20} />
-      <span className="count-tile__num">{value}</span>
+    <div
+      title={label}
+      className="count-tile"
+      style={{
+        background: C.panel,
+        borderRadius: 12,
+        padding: '22px 24px',
+        height: 156,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+      }}
+    >
+      <CountIcon kind={kind} />
+      <div style={{ ...display(64), lineHeight: 0.9, ...tab }}>{value}</div>
     </div>
   );
 }
 
-// ----------------------------------------------------------- ProgressDots
+// ------------------------------------------------------------ ProgressDots
 
-export function ProgressDots({ count, index, resolved = [] }: { count: number; index: number; resolved?: readonly boolean[] }) {
+export function ProgressDots({
+  count,
+  index,
+  resolved,
+  onPick,
+  gap = 10,
+  active = C.gold,
+  done = C.emerald,
+}: {
+  count: number;
+  index: number;
+  resolved: readonly boolean[];
+  onPick?: (i: number) => void;
+  gap?: number;
+  active?: string;
+  done?: string;
+}) {
   return (
-    <div className="dots" role="progressbar" aria-valuemin={1} aria-valuemax={count} aria-valuenow={index + 1}>
-      {Array.from({ length: count }, (_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: positional dots
-        <span key={i} className={`dots__dot ${i === index ? 'is-current' : ''} ${resolved[i] ? 'is-done' : ''}`} />
-      ))}
+    <div className="dots" style={{ display: 'flex', justifyContent: 'center', gap }}>
+      {Array.from({ length: count }, (_, i) => {
+        const style = {
+          width: i === index ? 28 : 10,
+          height: 10,
+          borderRadius: 999,
+          border: 0,
+          padding: 0,
+          background: resolved[i] ? done : i === index ? active : C['line-2'],
+          transition: 'all .2s',
+        };
+        return onPick ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: positional dots
+          <Btn key={i} op="local" aria-label={`${i + 1}`} style={style} onClick={() => onPick(i)} />
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: positional dots
+          <span key={i} style={style} />
+        );
+      })}
     </div>
   );
 }
 
-// ------------------------------------------------------------- ScoreRadar
+// ------------------------------------------------------------ ScoreRadar (radarSvg)
 
-export function ScoreRadar({ criteria, size = 260, compare }: { criteria: readonly number[]; size?: number; compare?: readonly number[] }) {
+export function ScoreRadar({ criteria, size }: { criteria: readonly number[]; size: number }) {
   const cx = size / 2;
-  const R = size / 2 - 46;
-  const pt = (i: number, v: number) => {
-    const a = (Math.PI * 2 * i) / 9 - Math.PI / 2;
-    const rr = (R * v) / 5;
-    return [cx + rr * Math.cos(a), cx + rr * Math.sin(a)] as const;
-  };
-  const poly = (vals: readonly number[]) => vals.map((v, i) => pt(i, v).join(',')).join(' ');
+  const R = size * 0.33;
+  const ang = (i: number) => ((-90 + i * 40) * Math.PI) / 180;
+  const P = (i: number, v: number) => [cx + (Math.cos(ang(i)) * R * v) / 5, cx + (Math.sin(ang(i)) * R * v) / 5] as const;
   return (
-    <svg className="radar" role="img" aria-label="Score" width={size} height={size}>
+    <svg
+      className="radar"
+      role="img"
+      aria-label="Score"
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ width: '100%', height: '100%', overflow: 'visible' }}
+    >
       <title>Score</title>
-      {[1, 2, 3, 4, 5].map((ring) => (
-        <polygon key={ring} points={poly(Array(9).fill(ring))} fill="none" stroke={cv('line')} strokeWidth={1} />
+      {[1, 2, 3, 4, 5].map((l) => (
+        <polygon key={`g${l}`} points={CRITERIA.map((_, i) => P(i, l).join(',')).join(' ')} fill="none" stroke={C.line} strokeWidth={1} />
       ))}
       {CRITERIA.map((c, i) => {
-        const [x, y] = pt(i, 5);
-        const [lx, ly] = pt(i, 6.1);
+        const [x, y] = P(i, 5);
+        return <line key={`a${c}`} x1={cx} y1={cx} x2={x} y2={y} stroke={C.line} strokeWidth={1} />;
+      })}
+      <polygon
+        points={criteria.map((v, i) => P(i, v).join(',')).join(' ')}
+        fill={X.radarFill}
+        stroke={C.emerald}
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      {criteria.map((v, i) => {
+        const [x, y] = P(i, v);
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed nine axes
+        return <circle key={`d${i}`} cx={x} cy={y} r={3.5} fill={C.emerald} />;
+      })}
+      {CRITERIA.map((c, i) => {
+        const [x, y] = P(i, 6.3);
+        const a = Math.abs(x - cx) < 10 ? 'middle' : x > cx ? 'start' : 'end';
         return (
-          <g key={c}>
-            <line x1={cx} y1={cx} x2={x} y2={y} stroke={cv('line')} />
-            <text x={lx} y={ly} className="radar__label" textAnchor="middle" dominantBaseline="middle">
+          <g key={`l${c}`}>
+            <text x={x} y={y - 3} textAnchor={a} fontFamily={F.mono} fontSize={10} fill={C.muted} letterSpacing="0.06em">
+              {`C${i + 1} · ${criteria[i]}`}
+            </text>
+            <text x={x} y={y + 11} textAnchor={a} fontFamily={F.ui} fontSize={11} fill={C.dim}>
               {CRITERION_LABELS[c]}
             </text>
           </g>
         );
       })}
-      {compare && <polygon points={poly(compare)} fill="none" stroke={cv('dim')} strokeDasharray="3 3" />}
-      <polygon points={poly(criteria)} fill="rgba(47,211,155,0.18)" stroke={cv('emerald')} strokeWidth={2} />
-      {criteria.map((v, i) => {
-        const [x, y] = pt(i, v);
-        // biome-ignore lint/suspicious/noArrayIndexKey: fixed nine axes
-        return <circle key={i} cx={x} cy={y} r={3} fill={cv('emerald')} />;
-      })}
     </svg>
   );
 }
 
-// -------------------------------------------------------------- StageRail
+// ------------------------------------------------------------ StageRail
 
-/** stage: 0..4 current step, 5 done, -1 none. Submit is always a gold "You" step. */
-export function StageRail({ stage }: { stage: number }) {
+const STAGE_NAMES = ['Research', 'Tailor', 'Connect', 'Fill', 'Submit'] as const;
+
+function stageStyle(i: number, stg: number) {
+  const done = i < stg;
+  const cur = i === stg;
+  const you = i === 4;
+  return {
+    done,
+    cur,
+    rad: you ? 6 : '50%',
+    bg: done ? (you ? C.gold : C.emerald) : 'transparent',
+    border: done || cur ? (you ? C.gold : C.emerald) : C['line-2'],
+    glow: cur ? `0 0 0 5px ${you ? X.gold16 : X.em16}` : 'none',
+    fg: done || cur ? C.fg : C.dim,
+    fw: cur ? 700 : 500,
+    line: done ? C.emerald : C.line,
+  };
+}
+
+/** stage: 0..4 current, 5 done, -1 none. Submit is always the gold square "You" step. */
+export function StageRail({ stage, mobile }: { stage: number; mobile?: boolean }) {
+  if (mobile)
+    return (
+      <div className="stage-rail" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 4, marginBottom: 22 }}>
+        {STAGE_NAMES.map((n, i) => {
+          const s = stageStyle(i, stage);
+          return (
+            <div
+              key={n}
+              className="stage"
+              data-state={s.done ? 'done' : s.cur ? 'current' : 'future'}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
+            >
+              <div
+                style={{ width: 22, height: 22, borderRadius: s.rad, background: s.bg, border: `2px solid ${s.border}`, boxShadow: s.glow }}
+              />
+              <span style={{ fontSize: 10, color: s.fg, fontWeight: s.fw }}>{n}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
   return (
-    <ol className="stage-rail">
-      {STAGES.map((name, i) => {
-        const state = stage < 0 ? 'future' : i < stage ? 'done' : i === stage ? 'current' : 'future';
-        const you = name === 'Submit';
+    <div className="stage-rail" style={{ display: 'flex', alignItems: 'center', margin: '28px 0 36px', maxWidth: 920 }}>
+      {STAGE_NAMES.map((n, i) => {
+        const s = stageStyle(i, stage);
         return (
-          <li key={name} className={`stage stage--${state} ${you ? 'stage--you' : ''}`} data-state={state}>
-            <span className="stage__mark">{state === 'done' ? <Icon name="check" size={14} /> : null}</span>
-            <span className="stage__name">{name}</span>
-          </li>
+          <div key={n} style={{ display: 'flex', alignItems: 'center', flex: i < 4 ? '1 1 0' : '0 0 auto' }}>
+            <div
+              className="stage"
+              data-state={s.done ? 'done' : s.cur ? 'current' : 'future'}
+              style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+            >
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: s.rad,
+                  background: s.bg,
+                  border: `2px solid ${s.border}`,
+                  display: 'grid',
+                  placeItems: 'center',
+                  boxShadow: s.glow,
+                  flex: 'none',
+                }}
+              >
+                {s.done && (
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12">
+                    <path
+                      d="M2.5 6.2l2.3 2.3 4.7-5"
+                      fill="none"
+                      stroke={C['emerald-ink']}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </div>
+              <div className="stage__name" style={{ fontSize: 14, fontWeight: s.fw, color: s.fg, whiteSpace: 'nowrap' }}>
+                {n}
+              </div>
+            </div>
+            {i < 4 && <div style={{ flex: 1, height: 2, margin: '0 14px', background: s.line, borderRadius: 2 }} />}
+          </div>
         );
       })}
-    </ol>
+    </div>
   );
 }

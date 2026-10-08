@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-export const MOBILE_QUERY = '(max-width: 640px)';
+/** Prototype switches to the phone layout below 720px. */
+export const MOBILE_QUERY = '(max-width: 719px)';
 
 export function useMobile(): boolean {
   const mq = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOBILE_QUERY).matches : false);

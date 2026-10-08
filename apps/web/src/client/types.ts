@@ -12,7 +12,10 @@ import type { Contact, ContactLink, Criterion, OpInput, OpName, OpOutcome, OpOut
 export interface CalibrationSample {
   id: string;
   company: string;
+  letter: string;
   title: string;
+  comp: string;
+  mode: string;
   /** 1..5 per criterion; drives the live weight bars. */
   criteria: Record<Criterion, number>;
 }
@@ -27,11 +30,20 @@ export interface BackendStatus {
 export interface ShimOps {
   'outreach.get': {
     input: { outreach_id: string };
-    output: { outreach: Outreach; contact: Contact; subject: string | null; hook: string; proof: string; ask: string };
+    output: {
+      outreach: Outreach;
+      contact: Contact;
+      subject: string | null;
+      hook: string;
+      proof: string;
+      ask: string;
+      /** One draft per tone (Ask for the conversation, Coffee or intro, Forwardable blurb, Positioning note). */
+      variants: Array<{ hook: string; proof: string; ask: string }>;
+    };
   };
   'outreach.list': { input: { role_id: string }; output: { items: Outreach[] } };
   'vault.read': { input: { path: string }; output: { markdown: string | null } };
-  'onboard.samples': { input: Record<string, never>; output: { items: CalibrationSample[] } };
+  'onboard.samples': { input: Record<string, never>; output: { items: CalibrationSample[]; weights: Record<Criterion, number> } };
   'system.backends': { input: Record<string, never>; output: { items: BackendStatus[] } };
   'contacts.get': { input: { contact_id: string }; output: { contact: Contact; links: ContactLink[] } };
 }

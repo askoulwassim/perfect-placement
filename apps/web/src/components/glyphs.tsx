@@ -1,197 +1,214 @@
-import { BAND_COLOR, type ColorName, DEFAULT_CONFIG } from '@perfect-placement/contracts';
 import type { ReactNode } from 'react';
+import { C, F } from './theme';
 
-export const cv = (c: ColorName) => `var(--pp-color-${c})`;
+// ------------------------------------------------------------ RoleTile (RoleTile.dc.html)
 
-export type IconName =
-  | 'now'
-  | 'needs'
-  | 'river'
-  | 'you'
-  | 'ask'
-  | 'setup'
-  | 'settings'
-  | 'back'
-  | 'check'
-  | 'closed'
-  | 'draft'
-  | 'reply'
-  | 'drop'
-  | 'search';
+export type Fresh = 'ok' | 'unsure' | 'closed' | 'none';
 
-const PATHS: Record<IconName, ReactNode> = {
-  now: (
-    <>
-      <circle cx="12" cy="12" r="8" />
-      <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-    </>
-  ),
-  needs: <path d="M12 3l9 9-9 9-9-9z" />,
-  river: <path d="M3 8c3-3 6 3 9 0s6 3 9 0M3 16c3-3 6 3 9 0s6 3 9 0" />,
-  you: (
-    <>
-      <circle cx="12" cy="12" r="3" />
-      <circle cx="4.5" cy="6" r="1.5" />
-      <circle cx="19.5" cy="6" r="1.5" />
-      <circle cx="4.5" cy="18" r="1.5" />
-      <circle cx="19.5" cy="18" r="1.5" />
-      <path d="M6 7l3.5 3M18 7l-3.5 3M6 17l3.5-3M18 17l-3.5-3" />
-    </>
-  ),
-  ask: (
-    <>
-      <path d="M7 4a3 3 0 1 0 0 6h10a3 3 0 1 0 0-6 3 3 0 0 0-3 3v10a3 3 0 1 0 3-3H7a3 3 0 1 0 3 3V7a3 3 0 0 0-3-3z" />
-    </>
-  ),
-  setup: (
-    <>
-      <circle cx="5" cy="12" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="19" cy="12" r="2" />
-      <path d="M7 12h3M14 12h3" />
-    </>
-  ),
-  settings: <path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4" />,
-  back: <path d="M15 5l-7 7 7 7" />,
-  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
-  closed: (
-    <>
-      <circle cx="12" cy="12" r="8" />
-      <path d="M6.5 17.5l11-11" />
-    </>
-  ),
-  draft: <path d="M4 6h16v12H4zM4 7l8 6 8-6" />,
-  reply: <path d="M10 8L5 12l5 4M5 12h9a5 5 0 0 1 5 5" />,
-  drop: <path d="M12 4v11M7 10l5 5 5-5M5 19h14" />,
-  search: (
-    <>
-      <circle cx="11" cy="11" r="6" />
-      <path d="M16 16l4 4" />
-    </>
-  ),
+const RT_C = 2 * Math.PI * 22.5;
+const RT_RING: Record<Fresh, [string, number]> = {
+  ok: [C.emerald, RT_C],
+  unsure: [C.gold, RT_C * 0.55],
+  closed: [C.coral, RT_C],
+  none: [C['line-2'], 0],
 };
 
-export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
+/** Round company tile with a freshness ring (full emerald, gold partial, coral + slash, none). */
+export function RoleTile({ letter, fresh, size }: { letter: string; fresh: Fresh; size: number }) {
+  const [ring, dash] = RT_RING[fresh];
   return (
-    <svg
-      aria-hidden="true"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <span
+      className="role-tile"
+      data-fresh={fresh}
+      style={{ position: 'relative', width: size, height: size, flex: 'none', display: 'grid', placeItems: 'center' }}
     >
-      {PATHS[name]}
-    </svg>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 48 48"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
+      >
+        <circle cx="24" cy="24" r="22.5" fill="none" stroke={C.line} strokeWidth="2" />
+        <circle
+          cx="24"
+          cy="24"
+          r="22.5"
+          fill="none"
+          stroke={ring}
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${RT_C}`}
+          transform="rotate(-90 24 24)"
+        />
+        <line
+          x1="8"
+          y1="40"
+          x2="40"
+          y2="8"
+          stroke={C.coral}
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeOpacity={fresh === 'closed' ? 1 : 0}
+        />
+      </svg>
+      <span
+        style={{
+          width: '74%',
+          height: '74%',
+          borderRadius: '50%',
+          background: C['panel-2'],
+          display: 'grid',
+          placeItems: 'center',
+          fontFamily: F.display,
+          fontWeight: 800,
+          fontSize: size * 0.36,
+          lineHeight: 1,
+          color: C.fg,
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {letter.slice(0, 1).toUpperCase()}
+      </span>
+    </span>
   );
 }
 
-// ------------------------------------------------------------- BandDot
+// ------------------------------------------------------------ WhoDecidesGlyph (Glyph.dc.html)
 
-export interface Bands {
-  green_min: number;
-  yellow_min: number;
+export type WhoKind = 'auto' | 'second' | 'undo' | 'you';
+
+export function WhoDecidesGlyph({ kind, left = 0.7, size = 16 }: { kind: WhoKind; left?: number; size?: number }) {
+  const Cu = 2 * Math.PI * 6;
+  return (
+    <span className="who-glyph" data-kind={kind} style={{ width: size, height: size, flex: 'none', display: 'grid', placeItems: 'center' }}>
+      {kind === 'auto' && <span style={{ width: 10, height: 10, borderRadius: '50%', background: C.emerald }} />}
+      {kind === 'second' && (
+        <span style={{ display: 'flex', gap: 2 }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.emerald }} />
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.emerald, opacity: 0.55 }} />
+        </span>
+      )}
+      {kind === 'undo' && (
+        <svg aria-hidden="true" viewBox="0 0 16 16" style={{ width: 14, height: 14 }}>
+          <circle cx="8" cy="8" r="6" fill="none" stroke={C['emerald-deep']} strokeWidth="2" />
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            fill="none"
+            stroke={C.emerald}
+            strokeWidth="2"
+            strokeDasharray={`${Cu * Math.max(0, Math.min(1, left))} ${Cu}`}
+            strokeLinecap="round"
+            transform="rotate(-90 8 8)"
+          />
+        </svg>
+      )}
+      {kind === 'you' && <span style={{ width: 10, height: 10, borderRadius: 2, background: C.gold }} />}
+    </span>
+  );
 }
-export const bandOf = (fit: number, bands: Bands = DEFAULT_CONFIG.scoring) =>
-  fit >= bands.green_min ? 'green' : fit >= bands.yellow_min ? 'yellow' : 'red';
 
-export function BandDot({ fit, bands, size = 10 }: { fit: number | null; bands?: Bands; size?: number }) {
-  const color = fit == null ? 'dim' : BAND_COLOR[bandOf(fit, bands)];
+export const whoOf = (outcome: string): WhoKind =>
+  outcome === 'auto' ? 'auto' : outcome === 'auto_second' ? 'second' : outcome === 'auto_undo' ? 'undo' : 'you';
+
+// ------------------------------------------------------------ BandDot / FreshnessRing
+
+export function BandDot({ color, size = 10 }: { color: string; size?: number }) {
   return (
     <span
       className="band-dot"
-      data-band={fit == null ? 'none' : bandOf(fit, bands)}
-      style={{ width: size, height: size, background: cv(color) }}
-      aria-hidden="true"
+      style={{ width: size, height: size, borderRadius: '50%', background: color, flex: 'none', display: 'inline-block' }}
     />
   );
 }
 
-// ------------------------------------------------------- FreshnessRing
-
-export type Fresh = 'ok' | 'unsure' | 'closed' | 'none';
-const FRESH_COLOR: Record<Fresh, ColorName> = { ok: 'emerald', unsure: 'gold', closed: 'coral', none: 'line-2' };
-
-export function FreshnessRing({ fresh, size = 28, children }: { fresh: Fresh; size?: number; children?: ReactNode }) {
-  const r = size / 2 - 2;
-  return (
-    <span className="fresh-ring" data-fresh={fresh} style={{ width: size, height: size }}>
-      <svg aria-hidden="true" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={cv(FRESH_COLOR[fresh])}
-          strokeWidth={2}
-          strokeDasharray={fresh === 'unsure' ? `${r * 0.9} ${r * 0.35}` : undefined}
-        />
-        {fresh === 'closed' && (
-          <line x1={size * 0.22} y1={size * 0.78} x2={size * 0.78} y2={size * 0.22} stroke={cv('coral')} strokeWidth={2} />
-        )}
-      </svg>
-      {children && <span className="fresh-ring__inner">{children}</span>}
-    </span>
-  );
+/** Small open ring next to "checked 3h". */
+export function FreshnessRing({ color, size = 8 }: { color: string; size?: number }) {
+  return <span style={{ width: size, height: size, borderRadius: '50%', border: `2px solid ${color}`, display: 'inline-block' }} />;
 }
 
-// ------------------------------------------------------------ RoleTile
+// ------------------------------------------------------------ icons (rail, tab bar, count tiles)
 
-export function RoleTile({ letter, fresh, size = 44 }: { letter: string; fresh: Fresh; size?: number }) {
+export type IconName = 'now' | 'queue' | 'river' | 'role' | 'people' | 'you' | 'onboard' | 'settings';
+
+const NAV_PATHS: Record<IconName, ReactNode> = {
+  now: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+    </>
+  ),
+  queue: (
+    <>
+      <rect x="5" y="5" width="14" height="14" rx="3" />
+      <path d="M9 12h6" strokeLinecap="round" />
+    </>
+  ),
+  river: <path d="M3 8h4M10 8h4M17 8h4M3 16h7M13 16h8" strokeLinecap="round" />,
+  role: (
+    <g strokeLinecap="round">
+      <rect x="4" y="5" width="16" height="14" rx="3" />
+      <circle cx="9" cy="12" r="2" />
+      <path d="M13 11h4M13 14h3" />
+    </g>
+  ),
+  people: (
+    <>
+      <circle cx="7.5" cy="9" r="3" />
+      <circle cx="16.5" cy="15" r="3" />
+      <path d="M10 10.6l4 2.8" />
+    </>
+  ),
+  you: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="12" cy="12" r="8.5" strokeDasharray="2 3" />
+    </>
+  ),
+  onboard: (
+    <g fill="currentColor" stroke="none">
+      <circle cx="4.5" cy="12" r="1.8" />
+      <circle cx="9.5" cy="12" r="1.8" />
+      <circle cx="14.5" cy="12" r="1.8" opacity=".5" />
+      <circle cx="19.5" cy="12" r="1.8" opacity=".3" />
+    </g>
+  ),
+  settings: (
+    <g strokeLinecap="round">
+      <path d="M4 8h16M4 16h16" />
+      <circle cx="9" cy="8" r="2.3" fill={C['bg-2']} />
+      <circle cx="15" cy="16" r="2.3" fill={C['bg-2']} />
+    </g>
+  ),
+};
+
+export function NavIcon({ name, size = 22 }: { name: IconName; size?: number }) {
   return (
-    <span className="role-tile" data-fresh={fresh} style={{ width: size, height: size, fontSize: size * 0.45 }}>
-      <span className="role-tile__letter">{letter.slice(0, 1).toUpperCase()}</span>
-      {fresh === 'closed' && <span className="role-tile__slash" />}
-    </span>
-  );
-}
-
-// ----------------------------------------------------- WhoDecidesGlyph
-
-export type WhoKind = 'auto' | 'second' | 'undo' | 'you';
-
-export function WhoDecidesGlyph({ kind, left = 1, size = 14 }: { kind: WhoKind; left?: number; size?: number }) {
-  const s = size;
-  const label = { auto: 'Auto', second: 'Auto, second', undo: 'Auto + undo', you: 'You' }[kind];
-  return (
-    <svg className="who-glyph" data-kind={kind} role="img" aria-label={label} width={kind === 'second' ? s * 1.7 : s} height={s}>
-      <title>{label}</title>
-      {kind === 'auto' && <circle cx={s / 2} cy={s / 2} r={s / 2 - 1} fill={cv('emerald')} />}
-      {kind === 'second' && (
-        <>
-          <circle cx={s / 2} cy={s / 2} r={s / 2 - 1} fill={cv('emerald')} />
-          <circle cx={s * 1.2} cy={s / 2} r={s / 2 - 1} fill={cv('emerald')} opacity={0.5} />
-        </>
-      )}
-      {kind === 'undo' && <UndoArc s={s} left={left} />}
-      {kind === 'you' && <rect x={1} y={1} width={s - 2} height={s - 2} rx={2} fill={cv('gold')} />}
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      {NAV_PATHS[name]}
     </svg>
   );
 }
 
-function UndoArc({ s, left }: { s: number; left: number }) {
-  const r = s / 2 - 1.5;
-  const c = 2 * Math.PI * r;
+export function CountIcon({ kind, size = 28, stroke = 2.2 }: { kind: 'closed' | 'drafts' | 'replies'; size?: number; stroke?: number }) {
+  const common = { width: size, height: size, viewBox: '0 0 28 28', fill: 'none', strokeWidth: stroke } as const;
+  if (kind === 'closed')
+    return (
+      <svg aria-hidden="true" {...common} stroke={C.coral}>
+        <circle cx="14" cy="14" r="11" />
+        <path d="M6.5 21.5l15-15" strokeLinecap="round" />
+      </svg>
+    );
+  if (kind === 'drafts')
+    return (
+      <svg aria-hidden="true" {...common} stroke={C.emerald} strokeLinecap="round">
+        <rect x="6" y="3.5" width="16" height="21" rx="3" />
+        <path d="M10 10h8M10 14.5h8M10 19h5" />
+      </svg>
+    );
   return (
-    <>
-      <circle cx={s / 2} cy={s / 2} r={r} fill="none" stroke={cv('emerald-deep')} strokeWidth={2} />
-      <circle
-        cx={s / 2}
-        cy={s / 2}
-        r={r}
-        fill="none"
-        stroke={cv('emerald')}
-        strokeWidth={2}
-        strokeDasharray={`${c * Math.max(0, Math.min(1, left))} ${c}`}
-        transform={`rotate(-90 ${s / 2} ${s / 2})`}
-      />
-    </>
+    <svg aria-hidden="true" {...common} stroke={C.sky} strokeLinejoin="round">
+      <path d="M4 6.5h20v13H11l-5 4v-4H4z" />
+    </svg>
   );
 }
-
-/** Policy outcome -> glyph. */
-export const whoOf = (outcome: string): WhoKind =>
-  outcome === 'auto' ? 'auto' : outcome === 'auto_second' ? 'second' : outcome === 'auto_undo' ? 'undo' : 'you';

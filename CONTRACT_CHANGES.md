@@ -39,7 +39,7 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Lane: D
 - Date: 2026-10-08
 - Contract: packages/contracts/src/ops/registry.ts
-- Change: add `outreach.get` { outreach_id } -> { outreach: Outreach, contact: Contact, subject: string | null, hook: string, proof: string, ask: string }; low, readOnly, owner H.
+- Change: add `outreach.get` { outreach_id } -> { outreach: Outreach, contact: Contact, subject: string | null, hook: string, proof: string, ask: string, variants: { hook, proof, ask }[4] }; low, readOnly, owner H. `variants` is one draft per tone (Ask for the conversation, Coffee or intro, Forwardable blurb, Positioning note); the prototype's tone chips switch between them locally.
 - Why: the Outreach draft screen shows Hook / Proof / Ask, and the Needs-you "Ready for Gmail?" card shows them as evidence. No op returns draft text; markdown must not be parsed by the UI.
 - Shim: `ShimOps['outreach.get']`.
 - Status: open
@@ -75,7 +75,7 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Lane: D
 - Date: 2026-10-08
 - Contract: registry.ts
-- Change: add `onboard.samples` {} -> { items: { id, company, title, criteria: Record<Criterion, 1..5> }[] } (the 12 calibration roles) and `onboard.state` {} -> OnboardState (resume mid-flow).
+- Change: add `onboard.samples` {} -> { items: { id, company, letter, title, comp, mode, criteria: Record<Criterion, 1..5> }[], weights: Record<Criterion, number> } (the 12 calibration roles plus the baseline weights the bars start from) and `onboard.state` {} -> OnboardState (resume mid-flow). OnboardState.next_question would also need `step` for sliders (the prototype uses 5).
 - Why: Calibrate shows 12 sample roles and `onboard.calibrate` needs their `sample_id`; Onboarding cannot resume without a state read.
 - Shim: `ShimOps['onboard.samples']`; state kept in the screen.
 - Status: open
@@ -111,7 +111,7 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Lane: D
 - Date: 2026-10-08
 - Contract: ui.ts `PRIMARY_ACTIONS`
-- Change: people label `Draft for <name>` (op runs.start); onboarding `Next` is `onboard.answer` only on the Interview step and navigation (null) on Resume and Calibrate (those steps call `onboard.ingest_resume` and `onboard.calibrate` from the drop zone and Y/N/M).
+- Change: people label `Draft for <first name>` (op runs.start); needs-you shows `Back to Now` (null) when clear; role shows `Open River` (null) once applied; onboarding `Next` is `onboard.answer` only on the Interview step and navigation (null) on Resume and Calibrate (those steps call `onboard.ingest_resume` and `onboard.calibrate` from the drop zone and N/M/Y).
 - Why: matches the handoff screen table and the click paths.
 - Shim: none needed.
 - Status: open
@@ -123,4 +123,13 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Change: `POST /api/ops/:name` with the op input as JSON body, response = `OpOutcome` JSON, actor = human.
 - Why: `apps/web/src/client/http.ts` targets this; lane B/C should serve it in `pp up`.
 - Shim: `VITE_PP_API=/api` switches the UI to it.
+- Status: open
+
+### Prototype values missing from tokens
+- Lane: D
+- Date: 2026-10-08
+- Contract: packages/contracts/src/tokens.ts (`tint`)
+- Change: add the extra tints and shadows the prototype uses: rail bg `rgba(9,26,45,0.6)`, river column bg `rgba(9,26,45,0.55)`, emerald alphas 0.03/0.04/0.06/0.07/0.08/0.12/0.14/0.15/0.16, gold alphas 0.06/0.08/0.12/0.16/0.35/0.5, coral 0.12/0.14/0.35, emerald-deep 0.18/0.35, best-path hover `#0E6B51`, calibration card shadow `#0A1C31`, mobile ground glow `radial-gradient(500px 360px at 100% 0%, rgba(11,92,69,0.5), rgba(11,92,69,0) 70%)`, pill shadow `0 12px 40px rgba(0,0,0,0.35)`, Ask shadow `0 20px 60px rgba(0,0,0,0.45)`. Also note the prototype switches to the phone layout below 720px, not 390.
+- Why: the faithful port uses them; today they live as literals in `apps/web/src/components/theme.ts` (`X`).
+- Shim: `X` constants in theme.ts.
 - Status: open

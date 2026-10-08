@@ -2,7 +2,8 @@ import type { Screen } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 
 export type Route =
-  | { screen: 'now' | 'needs-you' | 'river' | 'you' | 'onboarding' | 'settings' }
+  | { screen: 'now' | 'needs-you' | 'river' | 'you' | 'settings' }
+  | { screen: 'onboarding'; calibrate?: boolean }
   | { screen: 'role'; roleId: string }
   | { screen: 'people'; roleId: string }
   | { screen: 'outreach-draft'; outreachId: string };
@@ -13,9 +14,10 @@ export function parseRoute(hash: string): Route {
     case 'needs-you':
     case 'river':
     case 'you':
-    case 'onboarding':
     case 'settings':
       return { screen: head };
+    case 'onboarding':
+      return arg === 'calibrate' ? { screen: 'onboarding', calibrate: true } : { screen: 'onboarding' };
     case 'role':
       return arg ? { screen: 'role', roleId: arg } : { screen: 'river' };
     case 'people':
@@ -35,6 +37,8 @@ export function href(r: Route): string {
       return `#/people/${encodeURIComponent(r.roleId)}`;
     case 'outreach-draft':
       return `#/outreach/${encodeURIComponent(r.outreachId)}`;
+    case 'onboarding':
+      return r.calibrate ? '#/onboarding/calibrate' : '#/onboarding';
     default:
       return `#/${r.screen}`;
   }

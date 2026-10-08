@@ -3,8 +3,8 @@ import { humanize } from './format';
 
 /** The question in five words or fewer, per decision kind. */
 export const SHORT_Q: Record<DecisionKind, string> = {
-  'freshness.closed': 'Still open?',
-  'inbox.classify': 'What is this email?',
+  'freshness.closed': 'Is this posting open?',
+  'inbox.classify': 'What is this reply?',
   'roles.dedupe': 'Same job?',
   'roles.criterion': 'Score this?',
   'roles.move': 'Move this role?',
@@ -12,8 +12,8 @@ export const SHORT_Q: Record<DecisionKind, string> = {
   'profile.learn': 'Learn this?',
   'profile.apply_diff': 'Apply this change?',
   'people.classify': 'Who is this?',
-  'outreach.to_gmail': 'Ready for Gmail?',
-  'apply.submit': 'Ready to submit?',
+  'outreach.to_gmail': 'Create the Gmail draft?',
+  'apply.submit': 'Submit this application?',
   other: 'Your call?',
 };
 
@@ -28,10 +28,10 @@ export const objectOf = (d: Pick<Decision, 'kind' | 'subject_type'>): DecisionOb
         : 'role';
 
 const BOOL_LABELS: Partial<Record<DecisionKind, [string, string]>> = {
-  'freshness.closed': ['Open', 'Closed'],
+  'freshness.closed': ['Still open', 'Closed'],
   'profile.apply_diff': ['Apply', 'Keep'],
-  'outreach.to_gmail': ['Ready', 'Not yet'],
-  'apply.submit': ['Ready', 'Not yet'],
+  'outreach.to_gmail': ['Create', 'Hold'],
+  'apply.submit': ['Package ready', 'Hold'],
   'roles.dedupe': ['Same', 'New'],
 };
 

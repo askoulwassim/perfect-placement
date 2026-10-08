@@ -13,6 +13,7 @@ pnpm --filter @perfect-placement/web test
 ## Layout
 
 - `src/client/`: `OpClient` (`run(name, input)`), fixtures mock, HTTP client, React hooks (`useOp` reads, `useAct` writes). Shim reads not yet in the registry are typed in `types.ts` (`ShimOps`) and filed in `CONTRACT_CHANGES.md`.
-- `src/components/`: the component library (`COMPONENTS` names). Lane J imports from `@perfect-placement/web/components`.
+- `src/components/`: the component library (`COMPONENTS` names), ported 1:1 from the Claude Design prototype (markup, inline styles, SVG geometry, ppBounce/ppIn). `theme.ts` maps prototype values to contract tokens; extras live in `X`. Lane J imports from `@perfect-placement/web/components`.
+- `src/layout.tsx`: desktop (rail + header primary top right) vs phone frame below 720px (primary pinned above the tab bar).
 - `src/screens/`: Now, Needs you, River, Role, People, Outreach draft, You, Onboarding, Ask (Cmd+K overlay), Settings.
 - Every `<button>` carries `data-op` (an op name, `nav`, or `local`); tests assert it.

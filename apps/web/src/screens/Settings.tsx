@@ -1,8 +1,9 @@
 import { type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
-import { PrimaryButton, Toggle } from '../components/controls';
-import { BackendCard, PolicyGrid, ScreenHeader } from '../components/shell';
+import { BackendCard, PolicyGrid, ScheduleRow } from '../components/shell';
+import { C, eyebrow, mono } from '../components/theme';
+import { Screen } from '../layout';
 
 type ScheduleKey = keyof PolicyConfig['schedules'];
 const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
@@ -11,8 +12,9 @@ const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
   ['scout_score', 'Scout + score'],
 ];
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
 
-/** "daily 07:30" | "fri 05:30" -> next run as "Fri 05:30" / "07:30". "off" = paused. */
+/** "daily 07:30" | "fri 05:30" -> "Fri 07:30" (next run, UTC). null when paused or unparseable. */
 export function nextRun(spec: string, now: Date): string | null {
   const m = spec
     .trim()
@@ -25,19 +27,19 @@ export function nextRun(spec: string, now: Date): string | null {
   if (when === 'daily') {
     if (at <= now) at.setUTCDate(at.getUTCDate() + 1);
   } else {
-    const target = DAYS.indexOf(when as string);
-    let add = (target - at.getUTCDay() + 7) % 7;
+    let add = (DAYS.indexOf(when as string) - at.getUTCDay() + 7) % 7;
     if (add === 0 && at <= now) add = 7;
     at.setUTCDate(at.getUTCDate() + add);
   }
-  const day =
-    at.getUTCDate() === now.getUTCDate()
-      ? 'Today'
-      : at.getUTCDate() === now.getUTCDate() + 1
-        ? 'Tomorrow'
-        : (DAYS[at.getUTCDay()] ?? '').replace(/^./, (c) => c.toUpperCase());
-  return `${day} ${hh?.padStart(2, '0')}:${mm}`;
+  return `${cap(DAYS[at.getUTCDay()] as string)} ${(hh as string).padStart(2, '0')}:${mm}`;
 }
+
+/** "daily 07:30" -> "Daily 07:30"; "fri 05:30" -> "Weekly Fri 05:30". */
+export const cadence = (spec: string) => {
+  const [w, t] = spec.split(/\s+/);
+  if (!w || !t) return spec;
+  return w === 'daily' ? `Daily ${t}` : `Weekly ${cap(w)} ${t}`;
+};
 
 export function Settings() {
   const { config, thresholds, setThresholds, now, showToast } = useApp();
@@ -59,39 +61,58 @@ export function Settings() {
   };
 
   return (
-    <div className="screen screen--settings">
-      <ScreenHeader title="Settings" primary={<PrimaryButton label="Save" op="config.update" onClick={() => void save()} />} />
-      <div className="settings">
-        <section className="settings__block">
-          <span className="eyebrow">Backends</span>
-          <div className="backends">
+    <Screen
+      label="Settings"
+      eyebrow={PP_HOME_DEFAULT}
+      title="Settings"
+      primary={{ label: 'Save', op: 'config.update', onClick: () => void save() }}
+    >
+      <div style={{ maxWidth: 1000, display: 'flex', flexDirection: 'column', gap: 48, marginTop: 32 }}>
+        <div>
+          <div style={{ ...eyebrow(), marginBottom: 14 }}>Backends</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16 }}>
             {backends.data?.items.map((b) => (
-              <BackendCard key={b.name} name={b.name} mode={b.mode} status={b.status} latencyMs={b.latencyMs} />
+              <BackendCard key={b.name} name={cap(b.name)} mode={b.mode} status={b.status} latencyMs={b.latencyMs} />
             ))}
           </div>
-        </section>
-        <section className="settings__block">
-          <span className="eyebrow">Policy</span>
+        </div>
+        <div>
+          <div style={{ ...eyebrow(), marginBottom: 14 }}>Policy</div>
           <PolicyGrid thresholds={thresholds} onChange={(x) => setThresholds({ ...thresholds, ...x })} />
-        </section>
-        <section className="settings__block">
-          <span className="eyebrow">Schedules</span>
-          {SCHEDULES.map(([key, label]) => {
+        </div>
+        <div>
+          <div style={{ ...eyebrow(), marginBottom: 6 }}>Schedules</div>
+          {SCHEDULES.map(([key, name]) => {
             const on = schedules[key] !== 'off';
+            const spec = on ? schedules[key] : saved[key];
             return (
-              <div key={key} className="schedule">
-                <span className="schedule__name">{label}</span>
-                <span className="schedule__next">{on ? nextRun(schedules[key], t) : '--'}</span>
-                <Toggle on={on} label={label} onChange={(v) => setSchedules({ ...schedules, [key]: v ? saved[key] : 'off' })} />
-              </div>
+              <ScheduleRow
+                key={key}
+                name={name}
+                cadence={cadence(spec)}
+                next={nextRun(spec, t) ?? '—'}
+                on={on}
+                onToggle={(v) => setSchedules({ ...schedules, [key]: v ? saved[key] : 'off' })}
+              />
             );
           })}
-        </section>
-        <section className="settings__block">
-          <span className="eyebrow">Data home</span>
-          <code className="mono">{PP_HOME_DEFAULT}</code>
-        </section>
+        </div>
+        <div>
+          <div style={{ ...eyebrow(), marginBottom: 14 }}>Data home</div>
+          <span
+            style={{
+              ...mono(14),
+              background: C['bg-2'],
+              border: `1px solid ${C.line}`,
+              borderRadius: 10,
+              padding: '12px 16px',
+              display: 'inline-block',
+            }}
+          >
+            {PP_HOME_DEFAULT}
+          </span>
+        </div>
       </div>
-    </div>
+    </Screen>
   );
 }
