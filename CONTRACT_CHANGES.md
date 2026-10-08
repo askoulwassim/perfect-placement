@@ -429,7 +429,7 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Change: either add `@openuidev/react-lang@0.3.2`, `@openuidev/lang-core@0.3.2`, `react`, `react-dom` to apps/web and include `genui/src` in its build, or add `apps/web/genui` to `pnpm-workspace.yaml`. Keep `@openuidev/lang-core` OUT of `onlyBuiltDependencies` (its postinstall sends install telemetry). In the apps/web Vite config, alias `@openuidev/devtools` to an empty module (react-lang loads it from cdn.jsdelivr.net when NODE_ENV=development).
 - Why: genui is a standalone package with its own lockfile during Wave 1 because lane D owns apps/web's package.json.
 - Shim: `cd apps/web/genui && pnpm install --ignore-workspace && pnpm check` (see genui/README.md).
-- Status: accepted as Phase 3 integration work (not a contract change).
+- Status: accepted as Phase 3 integration work (not a contract change); done in Phase 3b (PR #13).
 
 ## Wave 2 Phase 2
 
