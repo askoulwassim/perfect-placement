@@ -1,0 +1,39 @@
+{
+  "name": "@perfect-placement/genui-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lane J OpenUI spike. Standalone (not a workspace package): install with `pnpm install --ignore-workspace` inside this folder.",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "measure": "vitest run src/checks/measure.check.ts --reporter=verbose",
+    "demo": "vite",
+    "check": "pnpm typecheck && pnpm test",
+    "demo:build": "vite build --outDir dist --emptyOutDir"
+  },
+  "dependencies": {
+    "@openuidev/lang-core": "0.3.2",
+    "@openuidev/react-lang": "0.3.2",
+    "@perfect-placement/contracts": "link:../../../packages/contracts",
+    "@perfect-placement/fixtures": "link:../../../packages/fixtures",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "js-tiktoken": "^1.0.20",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "happy-dom": "^20.0.0",
+    "vite": "^7.0.0",
+    "@types/node": "^22.0.0"
+  },
+  "pnpm": {
+    "neverBuiltDependencies": [
+      "@openuidev/lang-core"
+    ]
+  }
+}

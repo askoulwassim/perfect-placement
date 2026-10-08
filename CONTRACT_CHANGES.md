@@ -404,4 +404,22 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Change: add the extra tints and shadows the prototype uses: rail bg `rgba(9,26,45,0.6)`, river column bg `rgba(9,26,45,0.55)`, emerald alphas 0.03/0.04/0.06/0.07/0.08/0.12/0.14/0.15/0.16, gold alphas 0.06/0.08/0.12/0.16/0.35/0.5, coral 0.12/0.14/0.35, emerald-deep 0.18/0.35, best-path hover `#0E6B51`, calibration card shadow `#0A1C31`, mobile ground glow `radial-gradient(500px 360px at 100% 0%, rgba(11,92,69,0.5), rgba(11,92,69,0) 70%)`, pill shadow `0 12px 40px rgba(0,0,0,0.35)`, Ask shadow `0 20px 60px rgba(0,0,0,0.45)`. Also note the prototype switches to the phone layout below 720px, not 390.
 - Why: the faithful port uses them; today they live as literals in `apps/web/src/components/theme.ts` (`X`).
 - Shim: `X` constants in theme.ts.
+## Lane J requests
+
+### Zod prop schemas for the four generated-UI cards
+- Lane: J
+- Date: 2026-10-08
+- Contract: packages/contracts/src/ui.ts (new export, e.g. `GENUI_PROPS`)
+- Change: add zod schemas, id-only: `RoleCard: z.object({ roleId: z.string() })`, `ScoreRadar: z.object({ roleId: z.string() })`, `ContactCard: z.object({ contactId: z.string(), roleId: z.string().optional() })`, `ProfileDiff: z.object({ diffId: z.string() })`. Key order is part of the contract (OpenUI maps positional args by key order).
+- Why: OpenUI generates the model prompt and parses replies from these schemas; lane D's components and the MCP tool schema should share one source instead of `COMPONENTS` prop strings.
+- Shim: defined locally in `apps/web/genui/src/library.tsx`.
+- Status: open
+
+### Fold apps/web/genui into the build (not a contract; Wave 2 integration)
+- Lane: J
+- Date: 2026-10-08
+- Contract: pnpm-workspace.yaml / apps/web/package.json / apps/web vite config
+- Change: either add `@openuidev/react-lang@0.3.2`, `@openuidev/lang-core@0.3.2`, `react`, `react-dom` to apps/web and include `genui/src` in its build, or add `apps/web/genui` to `pnpm-workspace.yaml`. Keep `@openuidev/lang-core` OUT of `onlyBuiltDependencies` (its postinstall sends install telemetry). In the apps/web Vite config, alias `@openuidev/devtools` to an empty module (react-lang loads it from cdn.jsdelivr.net when NODE_ENV=development).
+- Why: genui is a standalone package with its own lockfile during Wave 1 because lane D owns apps/web's package.json.
+- Shim: `cd apps/web/genui && pnpm install --ignore-workspace && pnpm check` (see genui/README.md).
 - Status: open
