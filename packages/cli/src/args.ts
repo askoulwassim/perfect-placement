@@ -7,7 +7,7 @@ export interface Args {
   has(key: string): boolean;
 }
 
-const BOOLEAN_FLAGS = new Set(['all', 'dry-run', 'help']);
+const BOOLEAN_FLAGS = new Set(['all', 'dry-run', 'help', 'json', 'kev', 'fixtures']);
 
 export function parseArgs(argv: readonly string[]): Args {
   const _: string[] = [];

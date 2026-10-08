@@ -78,7 +78,13 @@ importers:
       '@perfect-placement/engine':
         specifier: workspace:*
         version: link:../engine
+      '@perfect-placement/mcp':
+        specifier: workspace:*
+        version: link:../mcp
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.1
+        version: 1.32.1(zod@4.6.5)
       '@perfect-placement/fixtures':
         specifier: workspace:*
         version: link:../fixtures
@@ -132,6 +138,9 @@ importers:
       '@perfect-placement/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@perfect-placement/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@perfect-placement/fixtures':
         specifier: workspace:*
         version: link:../fixtures

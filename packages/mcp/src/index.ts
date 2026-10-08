@@ -1,9 +1,12 @@
-// Lane C. MCP server generated from the ops registry; inject `runOp` (lane B) to use it.
+// Lane C. MCP server generated from the ops registry, served from the engine's runOp.
 export const OWNER_LANE = 'C' as const;
+export { type FixtureDemo, type OpenedEngine, offlineServices, openFixtureDemo } from './engine.js';
 export { createPpMcpServer, type PpMcpServerOptions, SERVER_NAME, SERVER_VERSION } from './server.js';
 export {
   buildTool,
   buildTools,
+  CONFIDENCE_ARG,
+  DEFAULT_TOOL_NAME_STYLE,
   META_KEY,
   type OpToolMeta,
   outcomeToToolResult,

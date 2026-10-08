@@ -70,17 +70,17 @@ export function inbox(engine: Engine, args: Args, io: Io): Promise<number> {
   return inRun(engine, 'inbox', args, io, async (ctx) => [await engine.runOp('inbox.ingest', { messages }, ctx)]);
 }
 
-/** `pp op <name> [--input '<json>' | --in file] [--actor human]` -> any op. */
+/** `pp op <name> ['<json>' | --input '<json>' | --in file] [--actor human]` -> any op. */
 export async function op(engine: Engine, args: Args, io: Io): Promise<number> {
   const name = args._[1];
-  if (!name) throw new CliError('usage: pp op <name> [--input <json> | --in <file|->] [--actor agent|human|schedule]');
+  if (!name) throw new CliError('usage: pp op <name> [<json> | --input <json> | --in <file|->] [--actor agent|human|schedule]');
   let input: unknown = {};
-  const inline = args.get('input');
+  const inline = args._[2] ?? args.get('input');
   if (inline) {
     try {
       input = JSON.parse(inline);
     } catch (e) {
-      throw new CliError(`--input is not valid JSON: ${(e as Error).message}`);
+      throw new CliError(`op input is not valid JSON: ${(e as Error).message}`);
     }
   } else if (args.has('in')) input = readJsonInput(args, io);
   const ctx: OpContext = {
