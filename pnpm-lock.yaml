@@ -36,6 +36,9 @@ importers:
       '@perfect-placement/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@perfect-placement/engine':
+        specifier: workspace:*
+        version: link:../engine
     devDependencies:
       '@perfect-placement/fixtures':
         specifier: workspace:*
