@@ -30,3 +30,23 @@ These were added in Wave 0 so lanes do not need to request them:
 ## Requests
 
 _None yet._
+
+## Lane J requests
+
+### Zod prop schemas for the four generated-UI cards
+- Lane: J
+- Date: 2026-10-08
+- Contract: packages/contracts/src/ui.ts (new export, e.g. `GENUI_PROPS`)
+- Change: add zod schemas, id-only: `RoleCard: z.object({ roleId: z.string() })`, `ScoreRadar: z.object({ roleId: z.string() })`, `ContactCard: z.object({ contactId: z.string(), roleId: z.string().optional() })`, `ProfileDiff: z.object({ diffId: z.string() })`. Key order is part of the contract (OpenUI maps positional args by key order).
+- Why: OpenUI generates the model prompt and parses replies from these schemas; lane D's components and the MCP tool schema should share one source instead of `COMPONENTS` prop strings.
+- Shim: defined locally in `apps/web/genui/src/library.tsx`.
+- Status: open
+
+### Fold apps/web/genui into the build (not a contract; Wave 2 integration)
+- Lane: J
+- Date: 2026-10-08
+- Contract: pnpm-workspace.yaml / apps/web/package.json / apps/web vite config
+- Change: either add `@openuidev/react-lang@0.3.2`, `@openuidev/lang-core@0.3.2`, `react`, `react-dom` to apps/web and include `genui/src` in its build, or add `apps/web/genui` to `pnpm-workspace.yaml`. Keep `@openuidev/lang-core` OUT of `onlyBuiltDependencies` (its postinstall sends install telemetry). In the apps/web Vite config, alias `@openuidev/devtools` to an empty module (react-lang loads it from cdn.jsdelivr.net when NODE_ENV=development).
+- Why: genui is a standalone package with its own lockfile during Wave 1 because lane D owns apps/web's package.json.
+- Shim: `cd apps/web/genui && pnpm install --ignore-workspace && pnpm check` (see genui/README.md).
+- Status: open
