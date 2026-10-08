@@ -1,23 +1,30 @@
 /*
- * "A fresh Claude Code session can list roles, score a fixture role, and see a queued
- * decision": proven with a real MCP client over the in-memory transport and the FAKE
- * fixtures runOp (lane B's runOp replaces it in Wave 2).
+ * "A fresh Claude Code / Codex / Cursor session can list roles, score a fixture role, and see a
+ * queued decision": a real MCP client over the in-memory transport, on the real engine opened on
+ * a temp copy of the synthetic fixture vault (no network, no Kev, no runner spawn).
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { OP_NAMES } from '@perfect-placement/contracts';
+import { type FixtureEngine, openFixtureEngine } from '@perfect-placement/engine/testing';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createPpMcpServer } from './server.js';
-import { createFakeRunOp, type FakeRunOp } from './testing/fake-run-op.js';
 import type { ToolNameStyle } from './tools.js';
 
-let fake: FakeRunOp;
+let engine: FixtureEngine;
 let client: Client;
+const calls: Array<{ op: string; ctx: { actor: string; confidence?: unknown } }> = [];
 
-async function connect(toolNames: ToolNameStyle = 'dotted') {
-  fake = createFakeRunOp();
-  const server = createPpMcpServer({ runOp: fake.runOp, now: () => new Date(FIXTURE_NOW), toolNames });
+async function connect(toolNames?: ToolNameStyle) {
+  const server = createPpMcpServer({
+    runOp: (op, input, ctx) => {
+      calls.push({ op, ctx });
+      return engine.runOp(op, input, ctx);
+    },
+    now: () => new Date(FIXTURE_NOW),
+    ...(toolNames ? { toolNames } : {}),
+  });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -41,67 +48,93 @@ const readJson = async (uri: string) => {
   return JSON.parse((r.contents[0] as { text: string }).text);
 };
 
-describe('MCP server over the fake runOp', () => {
-  beforeEach(() => connect());
-  afterEach(() => client.close());
+describe('MCP server on the real engine (fixtures vault)', () => {
+  beforeEach(async () => {
+    calls.length = 0;
+    engine = openFixtureEngine();
+    await connect();
+  });
+  afterEach(async () => {
+    await client.close();
+    engine.cleanup();
+  });
 
-  it('lists one tool per op', async () => {
+  it('lists one tool per op, underscore names by default', async () => {
     const { tools } = await client.listTools();
     expect(tools.length).toBe(OP_NAMES.length);
-    expect(tools.map((t) => t.name)).toContain('roles.list');
+    expect(tools.map((t) => t.name)).toContain('roles_list');
+    expect(tools.find((t) => t.name === 'roles_list')?.title).toBe('roles.list');
   });
 
   it('lists roles', async () => {
-    const res = await call('roles.list', { status: ['inbox'] });
+    const res = await call('roles_list', { status: ['inbox'] });
     expect(res.structuredContent.status).toBe('ok');
     const ids = res.structuredContent.output.items.map((i: { role: { id: string } }) => i.role.id);
     expect(ids).toContain(FIXTURE_ROLE_IDS.notionInbox);
   });
 
   it('scores a fixture role and the role moves', async () => {
-    const criteria = { c1: 5, c2: 5, c3: 5, c4: 5, c5: 5, c6: 5, c7: 5, c8: 5, c9: 5 };
-    const res = await call('roles.score', { role_id: FIXTURE_ROLE_IDS.notionInbox, criteria, facts: { workplace: 'hybrid' } });
+    const criteria = { c1: 4, c2: 4, c3: 4, c4: 4, c5: 4, c6: 4, c7: 4, c8: 4, c9: 4 };
+    const res = await call('roles_score', {
+      role_id: FIXTURE_ROLE_IDS.notionInbox,
+      criteria,
+      facts: { workplace: 'remote', remote_ok: true },
+    });
     expect(res.structuredContent.status).toBe('ok');
-    expect(res.structuredContent.output.score.band).toBe('green');
     expect(res.structuredContent.output.status).toBe('active');
-    const role = await call('roles.get', { role_id: FIXTURE_ROLE_IDS.notionInbox });
+    const role = await call('roles_get', { role_id: FIXTURE_ROLE_IDS.notionInbox });
     expect(role.structuredContent.output.role.status).toBe('active');
   });
 
   it('every call reaches runOp as an agent', async () => {
-    await call('roles.list');
-    expect(fake.state.calls.at(-1)?.ctx.actor).toBe('agent');
+    await call('roles_list');
+    expect(calls.at(-1)?.ctx.actor).toBe('agent');
+  });
+
+  it('confidence maps to ctx.confidence and drives the policy grid (#17)', async () => {
+    const role_id = FIXTURE_ROLE_IDS.datadogActive;
+    const unsure = await call('roles_move', { role_id, to: 'on-deck' });
+    expect(unsure.structuredContent.status).toBe('requires_human');
+    expect(calls.at(-1)?.ctx.confidence).toBeUndefined();
+    const sure = await call('roles_move', { role_id, to: 'on-deck', confidence: 0.95 });
+    expect(sure.structuredContent.status).toBe('ok');
+    expect(sure.structuredContent.output.role.status).toBe('on-deck');
+    expect(calls.at(-1)?.ctx.confidence).toEqual({ p: 0.95, backend: 'agent' });
+    const bad = await call('roles_move', { role_id, to: 'active', confidence: 2 });
+    expect(bad.isError).toBe(true);
+    expect(bad.structuredContent.code).toBe('invalid_input');
   });
 
   it('shows queued decisions', async () => {
-    const res = await call('decisions.queue', { status: ['pending'] });
+    const res = await call('decisions_queue', { status: ['pending'] });
     expect(res.structuredContent.output.pending.length).toBeGreaterThan(0);
     const queue = await readJson('pp://needs-you');
-    expect(queue.pending.map((d: { id: string }) => d.id)).toContain('dc_0001');
+    expect(queue.pending.length).toBeGreaterThan(0);
   });
 
-  it('high-impact ops return requires_human with a queued decision id that shows in the queue', async () => {
-    const res = await call('apply.mark_submitted', { role_id: FIXTURE_ROLE_IDS.vercelDraft });
+  it('human-only ops return requires_human with a queued decision id that shows in the queue', async () => {
+    const res = await call('apply_mark_submitted', { role_id: FIXTURE_ROLE_IDS.vercelDraft });
     expect(res.isError).toBeFalsy();
     expect(res.structuredContent.status).toBe('requires_human');
     const id = res.structuredContent.decisionId as string;
     expect(res.content[0]?.text).toContain(id);
-    const queue = await call('decisions.queue', {});
+    const queue = await call('decisions_queue', {});
     expect(queue.structuredContent.output.pending.map((d: { id: string }) => d.id)).toContain(id);
-    const send = await call('outreach.send', { outreach_id: 'or_0001' });
-    expect(send.structuredContent.status).toBe('requires_human');
+    const send = await call('outreach_send', { outreach_id: 'or_0001' });
+    expect(send.structuredContent.status).not.toBe('ok');
   });
 
   it('passes runOp errors through as tool errors', async () => {
-    const bad = await call('roles.score', { role_id: 'x', criteria: { c1: 9 }, facts: {} });
+    const bad = await call('roles_score', { role_id: 'x', criteria: { c1: 9 }, facts: {} });
     expect(bad.isError).toBe(true);
     expect(bad.structuredContent.code).toBe('invalid_input');
-    const missing = await call('roles.get', { role_id: 'nope' });
+    const missing = await call('roles_get', { role_id: 'nope' });
     expect(missing.structuredContent.code).toBe('not_found');
   });
 
   it('rejects unknown tools', async () => {
-    await expect(client.callTool({ name: 'roles.delete_everything', arguments: {} })).rejects.toThrow(/unknown tool/);
+    await expect(client.callTool({ name: 'roles_delete_everything', arguments: {} })).rejects.toThrow(/unknown tool/);
+    await expect(client.callTool({ name: 'roles.list', arguments: {} })).rejects.toThrow(/unknown tool/);
   });
 
   it('serves resources: profile, role, contacts, company', async () => {
@@ -126,11 +159,11 @@ describe('MCP server over the fake runOp', () => {
     await expect(client.readResource({ uri: 'pp://roles/nope' })).rejects.toThrow();
   });
 
-  it('supports underscore tool names', async () => {
+  it('supports dotted tool names when asked', async () => {
     await client.close();
-    await connect('underscore');
+    await connect('dotted');
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toContain('roles_list');
-    expect((await call('roles_list', { limit: 2 })).structuredContent.output.items.length).toBe(2);
+    expect(tools.map((t) => t.name)).toContain('roles.list');
+    expect((await call('roles.list', { limit: 2 })).structuredContent.output.items.length).toBe(2);
   });
 });

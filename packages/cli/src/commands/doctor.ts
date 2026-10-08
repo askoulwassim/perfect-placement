@@ -1,5 +1,5 @@
 // Lane A owns this file. `pp doctor [--home <PP_HOME>] [--json]` -> system.doctor.
-// Lane B wires it into src/index.ts (and the op handler to db.doctor); until then: `node dist/commands/doctor.js`.
+// `pp doctor` (cli.ts) runs the system.doctor op through the engine and prints it with `renderDoctor`.
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { db } from '@perfect-placement/engine';
@@ -17,8 +17,12 @@ export function doctorCommand(argv: string[], io: CliIo = defaultIo, cwd: string
     return 0;
   }
   const home = db.resolvePpHome(typeof f.home === 'string' ? f.home : undefined, io.env ?? process.env);
-  const res = db.doctor({ home, cwd });
-  if (f.json) io.out(JSON.stringify(res, null, 2));
+  return renderDoctor(db.doctor({ home, cwd }), home, io, f.json === true);
+}
+
+/** Print a doctor result (text, or JSON with `json`) and return the exit code. Shared with `pp doctor` via the engine. */
+export function renderDoctor(res: db.DoctorResult, home: string, io: CliIo, json: boolean): number {
+  if (json) io.out(JSON.stringify(res, null, 2));
   else {
     io.out(`pp doctor: ${home}`);
     for (const c of res.checks) io.out(`${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `: ${c.detail}` : ''}`);
