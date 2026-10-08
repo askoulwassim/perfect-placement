@@ -1,5 +1,5 @@
 // Lane A owns this file. `pp migrate --from <v1 repo path> [--home <dir>] [--dry-run] [--json]`.
-// Lane B wires it into src/index.ts; until then it also runs directly: `node dist/commands/migrate.js --from ...`.
+// `pp migrate` (cli.ts) calls `migrateCommand`; the importer is the engine's `db.migrateV1`, which refuses a PP_HOME inside a git repo.
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

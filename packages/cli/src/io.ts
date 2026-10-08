@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Actor, type OpOutcome } from '@perfect-placement/contracts';
+import type { EngineServices } from '@perfect-placement/engine';
 import type { Args } from './args.js';
 
 export interface Io {
@@ -8,6 +9,8 @@ export interface Io {
   err(line: string): void;
   /** Reads all of stdin (for `--in -`). */
   stdin(): string;
+  /** Engine services override (tests: no network, no Kev, no runner spawn). Default: the real ones. */
+  services?: EngineServices;
 }
 
 export const processIo: Io = {

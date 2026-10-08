@@ -1,21 +1,16 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CRITERIA, type Criterion, type OpContext, type OpOutput } from '@perfect-placement/contracts';
-import { FIXTURE_SEED_SQL } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ctxAt, type FixtureEngine, okOut, openFixtureEngine, tickingClock } from '../testing/index.js';
 import { type CalibrationSample, deriveWeights } from './calibration.js';
 import { rubricWeights } from './components.js';
-import { createProfileHandlers } from './handlers.js';
-import { startComponentInterview } from './onboard.js';
-import { createFileOnboardStore } from './onboard-store.js';
 import { parseResumeHeuristic } from './resume.js';
-import { getComponents, getCurrentVersion, listDiffs } from './store.js';
 import { SYNTH_RESUME } from './synthetic.js';
-import { createTempDb, testDeps } from './testing.js';
 
 type State = OpOutput<'onboard.ingest_resume'>;
-let tick = 0;
-const ctx = (actor: OpContext['actor'] = 'human'): OpContext => ({ actor, now: () => new Date(Date.UTC(2026, 9, 8, 12, 0, ++tick)) });
+const clock = tickingClock();
+const ctx = (actor: OpContext['actor'] = 'human'): OpContext => ctxAt(actor, {}, clock);
 
 /** Deterministic answer for any question (first option / midpoint / text). */
 function answerFor(q: NonNullable<State['next_question']>): string | number | string[] {
@@ -27,11 +22,18 @@ function answerFor(q: NonNullable<State['next_question']>): string | number | st
   return `answer for ${q.label}`;
 }
 
-let env: ReturnType<typeof createTempDb> | undefined;
+let e: FixtureEngine | undefined;
 afterEach(() => {
-  env?.cleanup();
-  env = undefined;
+  e?.cleanup();
+  e = undefined;
 });
+const op = async (name: string, input: unknown, c: OpContext = ctx()) => okOut(await (e as FixtureEngine).runOp(name, input, c));
+const comps = async (version?: string) =>
+  okOut(await (e as FixtureEngine).runOp('profile.get', version ? { version_id: version } : {}, ctx())) as {
+    version: { id: string; parent_id: string | null; reason: string };
+    components: Array<{ id: string; key: string; confidence: number; md_path: string | null; data_json: Record<string, unknown> }>;
+    pending_diffs: Array<{ component_key: string; impact: string; diff_json: Record<string, unknown> }>;
+  };
 
 describe('resume parsing', () => {
   it('drafts Story and Craft from the text only', () => {
@@ -73,24 +75,28 @@ describe('calibration method', () => {
 
 describe('onboarding end to end via ops', () => {
   it('fresh vault: resume -> interview (skipping what the resume answered) -> 12 calibrations -> confirm', async () => {
-    env = createTempDb(); // migrations only: no profile yet
-    const samples: CalibrationSample[] = Array.from({ length: 12 }, (_, i) => ({
-      id: `sample-${i}`,
+    e = openFixtureEngine({ seed: false }); // vault files, empty db: no profile yet
+    // Calibration samples come from scored roles: add 12 through ops.
+    const candidates = Array.from({ length: 12 }, (_, i) => ({
+      company_name: `Sample Co ${i}`,
       title: `Sample ${i}`,
-      criteria: Object.fromEntries(CRITERIA.map((c) => [c, c === 'c3' ? (i % 3) + 2 : ((i * 7 + c.charCodeAt(1)) % 5) + 1])) as Record<
-        Criterion,
-        number
-      >,
+      source: 'link' as const,
+      workplace: 'remote' as const,
     }));
-    const vault = join(env.dir, 'vault');
-    mkdirSync(join(vault, 'files'), { recursive: true });
-    writeFileSync(join(vault, 'files', 'resume.md'), SYNTH_RESUME);
-    const deps = testDeps(env.db, { vaultDir: vault, onboardStore: createFileOnboardStore(vault), calibrationSamples: () => samples });
-    const ops = createProfileHandlers(deps);
+    const { added } = await op('roles.add', { candidates }, ctx('agent'));
+    for (const [i, role_id] of (added as string[]).entries()) {
+      const criteria = Object.fromEntries(CRITERIA.map((c) => [c, c === 'c3' ? (i % 3) + 2 : ((i * 7 + c.charCodeAt(1)) % 5) + 1]));
+      await op('roles.score', { role_id, criteria, facts: { workplace: 'remote', remote_ok: true } }, ctx('agent'));
+    }
+    expect((await op('onboard.state', {})).step).toBe('resume');
 
-    const r0 = await ops['onboard.ingest_resume']({ file_path: 'files/resume.md' }, ctx());
-    expect(r0.status).toBe('ok');
-    let state = (r0 as { output: State }).output;
+    // The resume is a vault file.
+    const resumePath = 'files/resume.md';
+    // An upload lands in the vault's files/ folder.
+    mkdirSync(join((e as FixtureEngine).home, 'files'), { recursive: true });
+    writeFileSync(join((e as FixtureEngine).home, resumePath), SYNTH_RESUME);
+
+    let state = (await op('onboard.ingest_resume', { file_path: resumePath })) as State;
     expect(state.step).toBe('interview');
     expect(state.components_filled).toEqual(['story', 'craft']);
 
@@ -98,121 +104,112 @@ describe('onboarding end to end via ops', () => {
     while (state.next_question) {
       const q = state.next_question;
       asked.push(q.id);
-      const r = await ops['onboard.answer']({ question_id: q.id, value: answerFor(q) }, ctx());
-      expect(r.status, q.id).toBe('ok');
-      state = (r as { output: State }).output;
+      state = (await op('onboard.answer', { question_id: q.id, value: answerFor(q) })) as State;
     }
-    // Skip logic: the resume answered headline, wins, function and level.
     for (const skipped of ['story.headline', 'story.win', 'craft.functions', 'craft.level']) expect(asked).not.toContain(skipped);
-    // Adaptive follow-up: 'other' hard no -> asked for the other.
     expect(asked).toContain('dealbreakers.other');
     expect(asked.length).toBeGreaterThanOrEqual(15);
     expect(state.step).toBe('calibrate');
+    expect((await op('onboard.state', {})).step).toBe('calibrate');
 
-    // Bad answers are rejected.
-    const bad = await ops['onboard.calibrate']({ sample_id: 'nope', choice: 'yes' }, ctx());
-    expect(bad.status === 'error' && bad.code).toBe('not_found');
+    expect(await (e as FixtureEngine).runOp('onboard.calibrate', { sample_id: 'nope', choice: 'yes' }, ctx())).toMatchObject({
+      code: 'not_found',
+    });
+
+    const cards = await op('onboard.samples', {});
+    expect(cards.items).toHaveLength(12);
+    expect(cards.items[0]).toMatchObject({ letter: 'S', mode: 'remote', comp: 'Not listed' });
+    expect(Object.values(cards.weights as Record<string, number>).reduce((a, b) => a + b, 0)).toBe(100);
 
     let last: { weights: Record<string, number>; remaining: number } | undefined;
-    for (const s of samples) {
+    for (const s of cards.items as Array<{ id: string; criteria: Record<Criterion, number> }>) {
       const choice = s.criteria.c3 >= 4 ? 'yes' : s.criteria.c3 === 3 ? 'maybe' : 'no';
-      const r = await ops['onboard.calibrate']({ sample_id: s.id, choice }, ctx());
-      expect(r.status).toBe('ok');
-      last = (r as { output: typeof last }).output;
+      last = await op('onboard.calibrate', { sample_id: s.id, choice });
     }
     expect(last?.remaining).toBe(0);
     expect(Object.values(last?.weights ?? {}).reduce((a, b) => a + b, 0)).toBe(100);
-    // External-facing (c3) predicted every yes: it is the top weight.
     const top = Object.entries(last?.weights ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0];
     expect(top).toBe('c3');
 
-    const conf = await ops['onboard.confirm']({}, ctx());
-    expect(conf.status).toBe('ok');
-    const version = (conf as { output: { version: { id: string; parent_id: string | null; reason: string } } }).output.version;
-    expect(version.parent_id).toBeNull();
-    expect(version.reason).toBe('onboard');
-    const comps = getComponents(env.db, version.id);
-    expect(comps).toHaveLength(11);
-    expect(rubricWeights(comps)).toEqual(last?.weights);
-    const craft = comps.find((c) => c.key === 'craft');
+    const conf = await op('onboard.confirm', {});
+    expect(conf.version.parent_id).toBeNull();
+    expect(conf.version.reason).toBe('onboard');
+    const p = await comps();
+    expect(p.components).toHaveLength(11);
+    expect(rubricWeights(p.components as never)).toEqual(last?.weights);
+    const craft = p.components.find((c) => c.key === 'craft');
     expect(craft?.data_json.level).toBe('principal');
     expect(craft?.confidence).toBeGreaterThanOrEqual(0.8);
-    expect(comps.find((c) => c.key === 'work_mode')?.data_json.modes).toEqual(['remote']);
-    // Story markdown written with frontmatter id.
-    const story = comps.find((c) => c.key === 'story');
+    expect(p.components.find((c) => c.key === 'work_mode')?.data_json.modes).toEqual(['remote']);
+    const story = p.components.find((c) => c.key === 'story');
     expect(story?.md_path).toBe('profile/story.md');
-    const md = readFileSync(join(vault, 'profile', 'story.md'), 'utf8');
+    const md = readFileSync(join((e as FixtureEngine).home, 'profile', 'story.md'), 'utf8');
     expect(md).toContain(`id: "${story?.id}"`);
     expect(md).toContain('Acme Data');
-    expect(existsSync(join(vault, 'onboarding.json'))).toBe(true);
+    // The session lives in the onboard_session table (no JSON file).
+    const row = (e as FixtureEngine).db.prepare('SELECT step, version_id FROM onboard_session ORDER BY started_at DESC LIMIT 1').get();
+    expect(row).toEqual({ step: 'done', version_id: conf.version.id });
 
-    // Session is done: further answers are refused.
-    const after = await ops['onboard.answer']({ question_id: 'craft.mode', value: 'ic' }, ctx());
-    expect(after.status === 'error' && after.code).toBe('not_found');
+    expect(await (e as FixtureEngine).runOp('onboard.answer', { question_id: 'craft.mode', value: 'ic' }, ctx())).toMatchObject({
+      code: 'not_found',
+    });
   });
 
-  it('fixtures: re-interview one component without redoing the rest', async () => {
-    env = createTempDb(FIXTURE_SEED_SQL);
-    const deps = testDeps(env.db);
-    const ops = createProfileHandlers(deps);
-    let state = startComponentInterview(deps, ['growth'], ctx());
+  it('fixtures: re-interview one component without redoing the rest (onboard.start with components)', async () => {
+    e = openFixtureEngine();
+    let state = (await op('onboard.start', { components: ['growth'] })) as State;
     expect(state.next_question?.id).toBe('growth.ceiling');
     const ids: string[] = [];
     while (state.next_question) {
       ids.push(state.next_question.id);
-      const r = await ops['onboard.answer']({ question_id: state.next_question.id, value: state.next_question.options?.[2] ?? 'x' }, ctx());
-      state = (r as { output: State }).output;
+      state = (await op('onboard.answer', {
+        question_id: state.next_question.id,
+        value: state.next_question.options?.[2] ?? 'x',
+      })) as State;
     }
     expect(ids).toEqual(['growth.ceiling', 'growth.trajectory']);
     expect(state.step).toBe('confirm');
-    const conf = await ops['onboard.confirm']({}, ctx());
-    expect(conf.status).toBe('ok');
-    const v = getCurrentVersion(env.db);
-    expect(v?.parent_id).toBe('pv_0002');
-    const comps = getComponents(env.db, v?.id ?? '');
-    expect(comps.find((c) => c.key === 'growth')?.data_json.scope_ceiling).toBe('head of product');
-    expect(comps.find((c) => c.key === 'growth')?.data_json.trajectory).toBe('deeper');
-    // Everything else carried over unchanged.
-    const prev = getComponents(env.db, 'pv_0002');
-    for (const c of comps.filter((x) => x.key !== 'growth')) expect(c.data_json).toEqual(prev.find((p) => p.key === c.key)?.data_json);
+    await op('onboard.confirm', {});
+    const p = await comps();
+    expect(p.version.parent_id).toBe('pv_0002');
+    expect(p.components.find((c) => c.key === 'growth')?.data_json.scope_ceiling).toBe('head of product');
+    expect(p.components.find((c) => c.key === 'growth')?.data_json.trajectory).toBe('deeper');
+    const prev = await comps('pv_0002');
+    for (const c of p.components.filter((x) => x.key !== 'growth'))
+      expect(c.data_json).toEqual(prev.components.find((x) => x.key === c.key)?.data_json);
   });
 
-  it('fixtures: an agent re-onboarding cannot write filters; they become pending high diffs', async () => {
-    env = createTempDb(FIXTURE_SEED_SQL);
-    const deps = testDeps(env.db);
-    const ops = createProfileHandlers(deps);
-    let state = startComponentInterview(deps, ['work_mode', 'craft'], ctx('agent'));
+  it('fixtures: an agent re-onboarding cannot write filters; they become pending high diffs (via profile.propose_diff)', async () => {
+    e = openFixtureEngine();
+    let state = (await op('onboard.start', { components: ['work_mode', 'craft'] }, ctx('agent'))) as State;
     while (state.next_question) {
       const q = state.next_question;
       const value = q.id === 'work_mode.modes' ? ['remote', 'hybrid'] : q.id === 'work_mode.locations' ? 'US' : answerFor(q);
-      const r = await ops['onboard.answer']({ question_id: q.id, value }, ctx('agent'));
-      state = (r as { output: State }).output;
+      state = (await op('onboard.answer', { question_id: q.id, value }, ctx('agent'))) as State;
     }
-    const before = listDiffs(env.db, 'pending').length;
-    const conf = await ops['onboard.confirm']({}, ctx('agent'));
-    expect(conf.status).toBe('ok');
-    const v = getCurrentVersion(env.db);
-    const comps = getComponents(env.db, v?.id ?? '');
-    expect(comps.find((c) => c.key === 'work_mode')?.data_json.modes).toEqual(['remote']); // unchanged
-    const pending = listDiffs(env.db, 'pending');
-    expect(pending.length).toBe(before + 1);
-    const wm = pending.find((d) => d.component_key === 'work_mode');
+    const before = (await comps()).pending_diffs.length;
+    const conf = await op('onboard.confirm', {}, ctx('agent'));
+    expect(conf.proposed_diffs).toHaveLength(1);
+    const p = await comps();
+    expect(p.components.find((c) => c.key === 'work_mode')?.data_json.modes).toEqual(['remote']); // unchanged
+    expect(p.pending_diffs.length).toBe(before + 1);
+    const wm = p.pending_diffs.find((d) => d.component_key === 'work_mode');
     expect(wm?.impact).toBe('high');
     expect((wm?.diff_json as { after: { modes: string[] } } | undefined)?.after.modes).toEqual(['remote', 'hybrid']);
   });
 
-  it('refuses out-of-order steps and invalid answers', async () => {
-    env = createTempDb(FIXTURE_SEED_SQL);
-    const ops = createProfileHandlers(testDeps(env.db));
-    expect((await ops['onboard.answer']({ question_id: 'craft.mode', value: 'ic' }, ctx())).status).toBe('error');
-    expect((await ops['onboard.confirm']({}, ctx())).status).toBe('error');
-    expect((await ops['onboard.ingest_resume']({}, ctx())).status).toBe('error');
-    const r = await ops['onboard.ingest_resume']({ text: SYNTH_RESUME }, ctx());
-    expect(r.status).toBe('ok');
-    // fixtures profile already answers most questions; the first unknown one comes next
-    const q = (r as { output: State }).output.next_question;
-    expect(q).not.toBeNull();
-    const wrong = await ops['onboard.answer']({ question_id: 'terms.floor', value: 'lots' }, ctx());
-    expect(wrong.status).toBe('error');
+  it('resumes the fixture session and refuses out-of-order steps and invalid answers', async () => {
+    e = openFixtureEngine();
+    // The fixture has a re-interview paused at calibration.
+    expect((await op('onboard.state', {})).step).toBe('calibrate');
+    // A fresh full onboarding starts at the resume step.
+    expect((await op('onboard.start', {})).step).toBe('resume');
+    const ee = e as FixtureEngine;
+    expect((await ee.runOp('onboard.answer', { question_id: 'craft.mode', value: 'ic' }, ctx())).status).toBe('error');
+    expect((await ee.runOp('onboard.confirm', {}, ctx())).status).toBe('error');
+    expect((await ee.runOp('onboard.ingest_resume', {}, ctx())).status).toBe('error');
+    const r = (await op('onboard.ingest_resume', { text: SYNTH_RESUME })) as State;
+    expect(r.next_question).not.toBeNull();
+    expect((await ee.runOp('onboard.answer', { question_id: 'terms.floor', value: 'lots' }, ctx())).status).toBe('error');
   });
 });

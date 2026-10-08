@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROFILE_COMPONENT_KEYS, TABLES, type TableName } from '@perfect-placement/contracts';
+import { DREAM_AFFINITY, PROFILE_COMPONENT_KEYS, TABLES, type TableName } from '@perfect-placement/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDb } from '../connection.js';
 import { doctor } from '../doctor.js';
@@ -22,6 +22,15 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
+function migratedRole(home: string, id: string) {
+  const db = openDb(dbPath(home));
+  try {
+    return hydrate('role', db.prepare('SELECT * FROM role WHERE id = ?').get(id) as Record<string, unknown>);
+  } finally {
+    db.close();
+  }
+}
+
 function snapshot(file: string): Record<string, unknown[]> {
   const db = openDb(file, { readonly: true });
   try {
@@ -38,7 +47,7 @@ describe('pp migrate (v1 importer)', () => {
   it('reproduces v1 counts, ids and inferred archive reasons', () => {
     const r = migrateV1({ from, home });
     expect(r.countsMatch).toBe(true);
-    expect(r.planned).toMatchObject({ active: 1, 'on-deck': 1, applied: 1, archived: 5 });
+    expect(r.planned).toMatchObject({ active: 1, 'on-deck': 1, applied: 1, archived: 6 });
     expect(r.dbCounts).toEqual(r.planned);
     const db = openDb(dbPath(home));
     for (const [v1, exp] of Object.entries(SYNTHETIC_V1.expected)) {
@@ -59,7 +68,17 @@ describe('pp migrate (v1 importer)', () => {
     db.close();
     expect(r.warnings.some((w) => w.includes('zzz-corp_orphan-role'))).toBe(true);
     expect(r.warnings.some((w) => w.includes('duplicate url'))).toBe(true);
-    expect(r.fileMatches).toEqual({ file_field: 1, id: 5, fuzzy: 1, none: 1 });
+    expect(r.fileMatches).toEqual({ file_field: 1, id: 6, fuzzy: 1, none: 1 });
+    // #20: green score archived by v1 for unconfirmed remote -> dealbreaker + verify_remote.
+    const hooli = migratedRole(home, 'hooli_staff-pm-data');
+    expect(hooli).toMatchObject({ status: 'archived', archive_reason: 'dealbreaker' });
+    expect(hooli.flags_json.verify_remote).toBe(true);
+    expect(migratedRole(home, 'initech_director-data').flags_json.verify_remote).toBeUndefined();
+    // #10: dream companies get affinity +3.
+    const co = openDb(dbPath(home));
+    expect((co.prepare(`SELECT affinity FROM company WHERE id = 'globex'`).get() as { affinity: number }).affinity).toBe(DREAM_AFFINITY);
+    expect((co.prepare(`SELECT affinity FROM company WHERE id = 'initech'`).get() as { affinity: number }).affinity).toBe(0);
+    co.close();
   });
 
   it('preserves every score record, including rescore history', () => {
@@ -109,8 +128,15 @@ describe('pp migrate (v1 importer)', () => {
     expect(comps.map((c) => c.key).sort()).toEqual([...PROFILE_COMPONENT_KEYS].sort());
     expect(readMd(home, 'profile/story.md').body).toContain('Synthetic STAR story');
     expect(readMd(home, 'profile/voice.md').body).toContain('Synthetic hook');
+    // Lane E's converter (no stand-in): structured components, verbatim v1 sections, criterion weights.
     const terms = JSON.parse(comps.find((c) => c.key === 'terms')?.data_json as string);
-    expect(terms).toMatchObject({ stub: 'v1', comp_floor: 150000 });
+    expect(terms.stub).toBeUndefined();
+    expect(terms.comp_floor).toBe(150000);
+    const company = JSON.parse(comps.find((c) => c.key === 'company')?.data_json as string);
+    expect(company.dream_companies).toContain('Globex');
+    expect(company.affinity).toMatchObject({ globex: DREAM_AFFINITY });
+    const version = db.prepare('SELECT reason FROM profile_version').get() as { reason: string };
+    expect(version.reason).toContain('v1 import');
     db.close();
   });
 
@@ -129,13 +155,13 @@ describe('pp migrate (v1 importer)', () => {
     const res = doctor({ home, cwd: tmp });
     expect(res.checks.filter((c) => !c.ok)).toEqual([]);
     expect(res.ok).toBe(true);
-    expect(res.counts.archived).toBe(5);
+    expect(res.counts.archived).toBe(6);
   });
 
   it('dry run writes nothing', () => {
     const r = migrateV1({ from, home, dryRun: true });
     expect(r.countsMatch).toBe(true);
-    expect(r.inserted.role).toBe(8);
+    expect(r.inserted.role).toBe(9);
     expect(existsSync(home)).toBe(false);
   });
 

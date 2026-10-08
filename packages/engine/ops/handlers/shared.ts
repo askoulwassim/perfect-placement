@@ -1,9 +1,10 @@
 import type { Application, ArchiveReason, Company, Role, RoleStatus, Score } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
-import { checkTransition, freesSlot, type MoveVia, pickPromotions, SLOT_STATUSES } from '../../status/index.js';
-import { get, insert, select, update } from '../_shim/repo.js';
+import { checkTransition, type MoveVia } from '../../status/index.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
+import { rebalance } from '../lanes/scoring.js';
+import { get, insert, select, update } from '../rows.js';
 import type { HandlerContext } from '../runtime.js';
 
 export function getRole(db: Database.Database, id: string): Role {
@@ -74,10 +75,13 @@ export interface MoveOptions {
   payload?: Record<string, unknown>;
 }
 
+/** Statuses that take part in the per-company cap (wave1-decisions #13: on-deck does not). */
+const CAP_STATUSES: readonly RoleStatus[] = ['active', 'held'];
+
 /**
  * The one place a role's status changes inside lane B ops. Checks the status machine,
- * writes the row, appends the markdown log, emits role_moved / role_archived, and
- * promotes held roles when a company slot frees.
+ * writes the row, appends the markdown log, emits role_moved / role_archived, and re-applies
+ * the per-company cap (lane F `rebalanceCompany`) when the role entered or left the pool.
  */
 export function moveRole(h: HandlerContext, role: Role, to: RoleStatus, opts: MoveOptions): Role {
   const check = checkTransition({
@@ -93,50 +97,37 @@ export function moveRole(h: HandlerContext, role: Role, to: RoleStatus, opts: Mo
   const patch: Partial<Role> = {
     status: to,
     archive_reason: to === 'archived' ? (opts.archiveReason ?? null) : null,
-    held_reason: null,
+    held_reason: to === 'held' ? 'company_cap' : null,
     updated_at: h.nowIso(),
   };
   if (to === 'archived' && opts.note) patch.flags_json = { ...role.flags_json, archive_note: opts.note };
+  // Undoing a freshness close: the posting is no longer known closed.
+  if (opts.via === 'undo' && from === 'archived' && role.archive_reason === 'closed') {
+    const { closed: _closed, ...flags } = role.flags_json;
+    patch.flags_json = flags;
+    patch.freshness = 'unknown';
+  }
   update(h.db, 'role', role.id, patch);
   const moved: Role = { ...role, ...patch };
   const reason = opts.archiveReason ?? opts.note;
   appendRoleLog(h, role, `${from} -> ${to} (${h.name}${reason ? `: ${reason}` : ''})`);
   const payload = { from, to, via: opts.via, ...(opts.note ? { note: opts.note } : {}), ...(opts.payload ?? {}) };
-  if (to === 'archived') h.emit('role_archived', 'role', role.id, { ...payload, reason: opts.archiveReason }, opts.decisionId);
-  else h.emit('role_moved', 'role', role.id, payload, opts.decisionId);
-  if (freesSlot(from, to)) promoteHeld(h, role.company_id);
+  // roles.move restoring an archive (an undo) cannot emit role_archived: role_moved carries the reason.
+  if (to === 'archived' && h.canEmit('role_archived'))
+    h.emit('role_archived', 'role', role.id, { ...payload, reason: opts.archiveReason }, opts.decisionId);
+  else h.emit('role_moved', 'role', role.id, to === 'archived' ? { ...payload, reason: opts.archiveReason } : payload, opts.decisionId);
+  if (CAP_STATUSES.includes(from) || CAP_STATUSES.includes(to)) rebalance(h, role.company_id);
   return moved;
 }
 
-/**
- * Held promotion (blueprint "Per-company cap"): when a company has fewer than
- * config.scoring.company_active_cap active roles, its best held roles become active.
- * Emits role_promoted, or role_moved {promoted:true} for ops whose frozen `emits`
- * lack role_promoted (see CONTRACT_CHANGES.md, Lane B requests).
- */
-export function promoteHeld(h: HandlerContext, companyId: string): string[] {
-  const slots = SLOT_STATUSES.map(() => '?').join(', ');
-  const active = (
-    h.db.prepare(`SELECT count(*) n FROM role WHERE company_id = ? AND status IN (${slots})`).get(companyId, ...SLOT_STATUSES) as {
-      n: number;
-    }
-  ).n;
-  const held = select(h.db, 'role', `company_id = ? AND status = 'held'`, [companyId]);
-  if (held.length === 0) return [];
-  const pick = pickPromotions(
-    held.map((r) => ({ id: r.id, found_at: r.found_at, total: latestScore(h.db, r.id)?.total ?? null })),
-    active,
-    h.config.scoring.company_active_cap,
-  );
-  for (const id of pick) {
-    const role = held.find((r) => r.id === id) as Role;
-    const check = checkTransition({ from: 'held', to: 'active', actor: h.ctx.actor, via: 'promote' });
-    if (!check.ok) continue;
-    update(h.db, 'role', id, { status: 'active', held_reason: null, updated_at: h.nowIso() });
-    appendRoleLog(h, role, 'held -> active (company slot freed)');
-    const payload = { from: 'held', to: 'active', company_id: companyId };
-    if (h.canEmit('role_promoted')) h.emit('role_promoted', 'role', id, payload);
-    else h.emit('role_moved', 'role', id, { ...payload, promoted: true });
-  }
-  return pick;
+/** The inverse of a move for `decisions.undo`: restore `from` (and its archive reason) exactly. */
+export function undoMove(role: Pick<Role, 'id' | 'status' | 'archive_reason'>): { op: 'roles.move'; input: Record<string, unknown> } {
+  return {
+    op: 'roles.move',
+    input: {
+      role_id: role.id,
+      to: role.status,
+      ...(role.status === 'archived' && role.archive_reason ? { reason: role.archive_reason } : {}),
+    },
+  };
 }

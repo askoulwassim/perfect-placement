@@ -63,7 +63,12 @@ async function main() {
   let pool: Record<string, DecisionBackend>;
   const notes: string[] = [];
   if (live) {
-    const map = backendsFromConfig(DEFAULT_CONFIG);
+    // An explicit --live eval opts in to the adapters that are off by default (Jev, the Anthropic API).
+    const b = DEFAULT_CONFIG.backends;
+    const map = backendsFromConfig({
+      ...DEFAULT_CONFIG,
+      backends: { ...b, jev: { ...b.jev, enabled: true }, llm: { provider: 'anthropic', enabled: true } },
+    });
     pool = {};
     for (const b of wanted) {
       const be = map[b as 'jev' | 'kev' | 'llm'];

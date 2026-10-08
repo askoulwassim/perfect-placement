@@ -7,21 +7,26 @@
   "overrides": {
     "freshness.closed": {
       "auto": 0.92
+    },
+    "profile.apply_diff": {
+      "confident_outcome": "auto_undo"
+    },
+    "inbox.classify": {
+      "confident_outcome": "auto_undo"
     }
   },
   "backends": {
-    "default": "jev",
-    "fallback": "kev",
-    "jev": {
-      "baseUrl": "",
-      "keyEnv": "JEV_API_KEY"
-    },
+    "default": "kev",
+    "fallback": "agent",
     "kev": {
       "baseUrl": "http://127.0.0.1:8009"
     },
-    "llm": {
-      "provider": "anthropic"
-    }
+    "jev": {
+      "baseUrl": "",
+      "keyEnv": "JEV_API_KEY",
+      "enabled": false
+    },
+    "agent": {}
   },
   "scoring": {
     "affinity_cap": 5,
@@ -32,8 +37,15 @@
   "scout": {
     "watchlist_share_max": 0.34
   },
+  "runner": {
+    "command": "claude"
+  },
   "linkedin": {
+    "mode": "live",
+    "driver": "claude-in-chrome",
     "max_profiles_per_day": 40,
+    "max_pages_per_run": 6,
+    "max_mutual_expansions": 3,
     "min_delay_s": 20
   },
   "freshness": {

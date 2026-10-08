@@ -7,23 +7,21 @@
 | File | What |
 | --- | --- |
 | `components.ts` | zod data schema per component (loose: unknown fields kept), criterion ownership, rubric weights, impact tiers |
-| `store.ts` | profile repository over better-sqlite3 (**Wave 2 shim**: lane A repositories) |
-| `profile-ops.ts` | `profile.get`, `profile.history`, `profile.propose_diff`, `profile.apply_diff`, `profile.reject_diff`, `undoDiff` |
+| `versions.ts` | versions, components and diffs over lane A repositories |
+| `profile-ops.ts` | `profile.get`, `profile.history`, `profile.propose_diff`, `profile.apply_diff`, `profile.reject_diff`, `undoDiff` (`profile.undo_diff`) |
 | `questions.ts` | onboarding question bank with skip logic |
 | `resume.ts` | heuristic resume -> Story + Craft drafts (fallback when no LLM is injected) |
 | `calibration.ts` | 12-sample calibration -> criterion weights |
-| `onboard.ts`, `onboard-store.ts` | `onboard.*` ops; session store (**Wave 2 shim**: JSON file, no table yet) |
+| `onboard.ts`, `onboard-store.ts` | `onboard.*` ops (start, state, samples, ingest_resume, answer, calibrate, confirm); sessions in the `onboard_session` table |
 | `learn.ts` | learn loop: event -> resolver -> LLM diff -> policy |
 | `convert-v1.ts`, `convert-v1-cli.ts` | v1 profile converter + coverage check + report |
-| `handlers.ts` | op handlers keyed by op name, for lane B's `runOp` |
-| `deps.ts` | injected interfaces (db, emit, ask, llm, store) + id/event shims |
-| `testing.ts` | **Wave 2 shims / test helpers**: temp db, fake resolver, decision action attacher |
+| `deps.ts` | `ProfileDeps`, built per op call by `ops/lanes/profile.ts`: lane A repos, runOp's emitter + staged vault, the resolver, nested `runOp`, optional writing model |
 | `synthetic.ts` | synthetic v1-shaped inputs and resume for tests (a made-up person) |
 
 ## Component data
 
 `profile_component.data_json` is validated per key by `COMPONENT_DATA_SCHEMAS`. Every component may also carry
-`criteria_weights`, `criteria` (rubric anchors), `notes`, `open_questions`, `v1_sections` (verbatim v1 text).
+`criterion_weights`, `criteria` (rubric anchors), `notes`, `open_questions`, `v1_sections` (verbatim v1 text).
 
 **Criterion ownership** (each C1..C9 weight lives on exactly one component):
 
@@ -44,11 +42,11 @@ returns the 9 weights (integers summing to 100) that lane F scores with.
 `diff_json = { before, after }` over top-level keys of the component data. Apply sets `after` keys and removes keys only in
 `before`. A diff applies if its base version is still current, else only if the touched keys still equal `before`.
 
-| Kind | Components | Impact | Routing for an agent |
+| Kind | Components | Impact | Routing for an agent (#14, #24) |
 | --- | --- | --- | --- |
-| filter | work_mode, terms, dealbreakers | high | always human. Hard guard in code, whatever the resolver says |
-| weighted | craft, domain, company, team, growth | medium | auto + 24h undo if p >= 0.90, else human |
-| asset | story, voice, network | low | auto if p >= 0.90, auto if 0.70 to 0.90 and a second backend agrees, else human |
+| filter | work_mode, terms, dealbreakers | high | Dealbreakers and a Terms comp floor change: hard exclusion, always human. Other filter changes: auto + undo when confident, else human |
+| weighted | craft, domain, company, team, growth | medium | auto + 24h undo when confident (`config.overrides['profile.apply_diff'].confident_outcome`), second opinion in the middle band, else human |
+| asset | story, voice, network | medium | same as weighted |
 
 A human actor, or a decision a human resolved (`ctx.decisionId` with `human_choice`/`resolved_at`), applies directly.
 Applying a weighted or filter diff returns the unapplied roles to rescore (`active`, `held`, `on-deck`); asset diffs return none.
@@ -81,10 +79,14 @@ Choices win: with 12 judged samples a perfectly predictive criterion is multipli
 
 ## Learn loop
 
-`learnFromEvent(deps, eventId, ctx)`: ignores non-`LEARNING_EVENTS`; asks 11 Noulli questions (`profile.learn`, low);
-for each confident yes the LLM drafts `{ before, after, evidence }` (`before` is always recomputed from the data);
-`profile.propose_diff`; then `routeDiff` asks `profile.apply_diff` with the component's impact and applies, rejects
-(confident no) or queues. Every queued decision gets `action_json = { op: 'profile.apply_diff', input: { diff_id } }`.
+Op `profile.learn { event_id }` (`learnFromEvent`): ignores non-`LEARNING_EVENTS`; asks 11 Noulli questions (`profile.learn`,
+low); for each yes the writing model drafts `{ before, after, evidence }` (`before` is always recomputed from the data) and
+the loop runs nested ops: `profile.propose_diff`, then `routeDiff` asks `profile.apply_diff` and the loop runs
+`profile.apply_diff` (auto), `profile.reject_diff` (confident no) or leaves it queued. Every decision carries
+`action_json = { op: 'profile.apply_diff', input: { diff_id }, when: true, undo: { op: 'profile.undo_diff', ... } }`.
+Applied weighted and filter diffs rescore `RESCORE_MOVABLE` roles (inbox, active, held; never on-deck, #13) through nested
+`roles.score` with their latest judged criteria. With no writing model in the engine (the default: all LLM work runs in the
+agent session), the loop only asks; the learn skill drafts and calls `profile.propose_diff`.
 
 ## v1 converter
 

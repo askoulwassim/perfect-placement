@@ -1,5 +1,16 @@
-import type { AskFn, ContactTier, OpContext, OpName, OpOutcome, OpOutput, PolicyConfig } from '@perfect-placement/contracts';
-import type Database from 'better-sqlite3';
+import type {
+  AskFn,
+  ContactTier,
+  EventType,
+  OpContext,
+  OpName,
+  OpOutcome,
+  OpOutput,
+  PolicyConfig,
+  RecordFn,
+  SubjectType,
+} from '@perfect-placement/contracts';
+import type { Repos } from '../db/repo.js';
 import type { GmailContactsSource, GmailDraftClient } from '../integrations/gmail/index.js';
 import type { LinkedInSource } from '../integrations/linkedin/index.js';
 
@@ -17,22 +28,25 @@ export interface WriterPrompt {
   user: string;
 }
 
-/** LLM writer (config.backends.llm). Injected; Wave 2 wires the Anthropic client. */
+/** Outreach writer for runs without an agent session (EngineServices.outreachWriter). */
 export interface OutreachWriter {
   write(prompt: WriterPrompt): Promise<DraftText>;
 }
 
 /**
- * Everything lane H handlers need, injected. In Wave 2 the ops registry (lane B) builds this from
- * the open vault: db from lane A, `ask` from lane I, writer from the LLM backend, adapters per config.
+ * Everything lane H handlers need, built per op call by the engine (packages/engine/ops/lanes/people.ts):
+ * lane A repos, runOp's emitter + staged vault, this op's resolver, adapters per config.
  */
 export interface PeopleDeps {
-  /** better-sqlite3 handle with migrations applied. */
-  db: Database.Database;
-  /** Absolute vault root (PP_HOME). */
-  vaultDir: string;
+  repos: Repos;
+  /** Staged vault (flushed when the op commits). */
+  vault: { read(rel: string): string | null; write(rel: string, content: string): void };
+  /** runOp's event writer. */
+  emit(type: EventType, subjectType: SubjectType, subjectId: string, payload: Record<string, unknown>): string;
   /** Resolver `ask` (lane I). Writes decision rows and returns policy outcomes. */
   ask: AskFn;
+  /** Resolver `record` (an externally judged answer through the policy). */
+  record: RecordFn;
   config: PolicyConfig;
   linkedin?: LinkedInSource;
   gmail?: GmailDraftClient;

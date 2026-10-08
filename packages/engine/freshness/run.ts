@@ -23,8 +23,11 @@ export interface FreshnessDeps {
   /** Politeness gap between roles that hit the network. Default 750 ms. */
   delayMs?: number;
   sleep?: (ms: number) => Promise<void>;
-  /** Writes `runs/<date>_freshness.md` into the vault (vault-relative path). Optional. */
-  writeRunLog?: (relPath: string, markdown: string) => void | Promise<void>;
+  /**
+   * Writes `runs/<date>_freshness.md` into the vault (vault-relative path). Optional. Returns the path
+   * actually written when it differs (e.g. a second run on the same day).
+   */
+  writeRunLog?: (relPath: string, markdown: string) => string | undefined | Promise<string | undefined>;
   /** Cap on page/JD text sent as resolver state. */
   maxText?: number;
 }
@@ -174,6 +177,13 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
         state: resolverState(role, ev),
         questions: [OPEN_QUESTION],
         subject: { type: 'role', id: role.id },
+        // A human accept of "not open" archives it; undo restores the prior status.
+        action: {
+          op: 'roles.archive',
+          input: { role_id: role.id, reason: 'closed' },
+          when: false,
+          undo: { op: 'roles.move', input: { role_id: role.id, to: role.status } },
+        },
       };
       try {
         const res = await deps.ask(req);
@@ -210,9 +220,11 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
   const summary = summarize(rows, skipped.length, dry);
   if (!dry && runId && !ctx.runId) {
     const date = startedAt.toISOString().slice(0, 10);
-    const logPath = deps.writeRunLog ? vaultPath.runLog(date, RUN_OP) : null;
-    if (deps.writeRunLog && logPath)
-      await deps.writeRunLog(logPath, renderRunLog(rows, summary, { runId, startedAt: startedAt.toISOString() }));
+    let logPath = deps.writeRunLog ? vaultPath.runLog(date, RUN_OP) : null;
+    if (deps.writeRunLog && logPath) {
+      const written = await deps.writeRunLog(logPath, renderRunLog(rows, summary, { runId, startedAt: startedAt.toISOString() }));
+      if (typeof written === 'string') logPath = written;
+    }
     await deps.store.finishRun(runId, {
       at: ctx.now().toISOString(),
       status: summary.errors > 0 ? 'partial' : 'ok',
@@ -223,6 +235,7 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
 
   const output: CheckFreshnessOutput = {
     results: rows.map(({ role_id, freshness, method, stale, decision_id }) => ({ role_id, freshness, method, stale, decision_id })),
+    skipped,
   };
   return { output, rows, skipped, summary, runId };
 }
@@ -261,9 +274,6 @@ async function persist(role: ScopeRole, row: FreshnessRow, at: string, ctx: OpCo
   }
 
   await store.recordCheck({ roleId: role.id, freshness: row.freshness === 'open' ? 'open' : 'unsure', at, flags });
-  if (row.action === 'queue' && row.decision_id) {
-    await store.attachDecisionAction(row.decision_id, { op: 'roles.archive', input: { role_id: role.id, reason: 'closed' } });
-  }
   await emit('freshness_checked');
 }
 

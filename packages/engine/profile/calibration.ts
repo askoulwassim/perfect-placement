@@ -1,6 +1,6 @@
 import { CRITERIA, type Criterion } from '@perfect-placement/contracts';
+import type { Repos } from '../db/repo.js';
 import { NEUTRAL_WEIGHTS, normalizeWeights } from './components.js';
-import type { Db } from './deps.js';
 import type { Draft } from './questions.js';
 
 /*
@@ -32,6 +32,10 @@ export interface CalibrationSample {
   company?: string;
   /** Criterion levels 1..5 for this posting (from its latest score, or judged). */
   criteria: Record<Criterion, number>;
+  /** For the calibration card (onboard.samples). */
+  comp_min?: number | null;
+  comp_max?: number | null;
+  workplace?: string;
 }
 
 const Y: Record<CalibrationChoice, number> = { yes: 1, maybe: 0.5, no: 0 };
@@ -97,37 +101,31 @@ export function statedPrior(base: Record<Criterion, number> | null, draft: Draft
 }
 
 /**
- * Default sample source (SHIM until lane F/B expose a sampler): up to 12 scored roles,
+ * Default sample source: up to 12 scored roles,
  * round-robin across bands so the set spans green, yellow and red. Levels = latest score.
  */
-export function samplesFromDb(db: Db, n = CALIBRATION_SIZE): CalibrationSample[] {
-  const rows = db
-    .prepare(
-      `SELECT r.id, r.title, c.name AS company, s.band, s.c1, s.c2, s.c3, s.c4, s.c5, s.c6, s.c7, s.c8, s.c9
-       FROM role r JOIN company c ON c.id = r.company_id
-       JOIN score s ON s.role_id = r.id
-       WHERE s.created_at = (SELECT MAX(created_at) FROM score s2 WHERE s2.role_id = r.id)
-       ORDER BY r.id`,
-    )
-    .all() as Array<Record<string, unknown>>;
-  const byBand: Record<string, Array<Record<string, unknown>>> = { green: [], yellow: [], red: [] };
-  const seen = new Set<string>();
-  for (const r of rows) {
-    if (seen.has(r.id as string)) continue;
-    seen.add(r.id as string);
-    byBand[r.band as string]?.push(r);
+export function samplesFromDb(R: Repos, n = CALIBRATION_SIZE): CalibrationSample[] {
+  const byBand: Record<string, CalibrationSample[]> = { green: [], yellow: [], red: [] };
+  for (const r of R.role.select('id IN (SELECT role_id FROM score) ORDER BY id')) {
+    const s = R.score.select('role_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1', [r.id])[0];
+    if (!s) continue;
+    const c = R.company.get(r.company_id);
+    byBand[s.band]?.push({
+      id: r.id,
+      title: r.title,
+      company: c?.name ?? r.company_id,
+      criteria: Object.fromEntries(CRITERIA.map((k) => [k, s[k]])) as Record<Criterion, number>,
+      comp_min: r.comp_min,
+      comp_max: r.comp_max,
+      workplace: r.workplace,
+    });
   }
-  const picked: Array<Record<string, unknown>> = [];
+  const picked: CalibrationSample[] = [];
   while (picked.length < n && (byBand.green?.length || byBand.yellow?.length || byBand.red?.length)) {
     for (const b of ['green', 'yellow', 'red']) {
       const next = byBand[b]?.shift();
       if (next && picked.length < n) picked.push(next);
     }
   }
-  return picked.map((r) => ({
-    id: r.id as string,
-    title: r.title as string,
-    company: r.company as string,
-    criteria: Object.fromEntries(CRITERIA.map((c) => [c, Number(r[c])])) as Record<Criterion, number>,
-  }));
+  return picked;
 }

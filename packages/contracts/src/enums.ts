@@ -47,9 +47,27 @@ export const ARCHIVE_REASONS = [
   'withdrawn',
   /** v1 migration only, when the reason cannot be inferred. */
   'legacy',
+  /** Accepting a `roles.dedupe` decision archives the newer copy (Wave 2; not a skip signal for Learn). */
+  'duplicate',
 ] as const;
 export const ArchiveReason = z.enum(ARCHIVE_REASONS);
 export type ArchiveReason = z.infer<typeof ArchiveReason>;
+
+/**
+ * Statuses an automated rescore may move a role out of (Wave 2, lane F request).
+ * `on-deck` is a human pick: protected from automated rescoring (wave1-decisions #13).
+ */
+export const RESCORE_MOVABLE = ['inbox', 'active', 'held'] as const satisfies readonly RoleStatus[];
+
+/** Archive reasons a rescore may revive (a better score can bring the role back). */
+export const RESCORE_REVIVABLE_ARCHIVE = ['below_threshold', 'dealbreaker'] as const satisfies readonly ArchiveReason[];
+
+/**
+ * Known keys of `role.flags_json` (free-form, these are conventions).
+ * - `verify_remote: true`: green-scored role archived as `dealbreaker` because remote was not confirmed
+ *   (v1 migration, wave1-decisions #20). Revisit at the approved v2 rescore.
+ */
+export const ROLE_FLAG_KEYS = ['verify_remote', 'closed', 'dream_company', 'dealbreaker'] as const;
 
 export const HELD_REASONS = ['company_cap'] as const;
 export const HeldReason = z.enum(HELD_REASONS);
@@ -141,6 +159,39 @@ export const PROFILE_COMPONENT_KIND: Record<ProfileComponentKey, ComponentKind> 
   network: 'asset',
 };
 
+/**
+ * Which component owns each rubric criterion's weight (Wave 2; lanes E + F, amended).
+ * The owner stores `data_json.criterion_weights: { cN: points }` (points of 100).
+ * C2 is scored blind, so it is role-intrinsic and sits with Craft.
+ * A weighted component's `weight` column = sum of its owned weights / 100; Terms (filter) keeps
+ * `weight` null but carries `criterion_weights.c6`.
+ */
+export const CRITERION_OWNER: Record<Criterion, ProfileComponentKey> = {
+  c1: 'team',
+  c2: 'craft',
+  c3: 'craft',
+  c4: 'domain',
+  c5: 'domain',
+  c6: 'terms',
+  c7: 'team',
+  c8: 'growth',
+  c9: 'craft',
+};
+
+/** Criteria a component owns, in C1..C9 order. */
+export function criteriaOwnedBy(key: ProfileComponentKey): Criterion[] {
+  return CRITERIA.filter((c) => CRITERION_OWNER[c] === key);
+}
+
+/**
+ * Impact of a profile diff by component kind (wave1-decisions #14): filters high (never auto),
+ * weighted and asset medium (auto + 24h undo when confident).
+ */
+export const COMPONENT_DIFF_IMPACT: Record<ComponentKind, Impact> = { filter: 'high', weighted: 'medium', asset: 'medium' };
+
+/** Default affinity for a dream company (wave1-decisions #10). Still capped by `config.scoring.affinity_cap`; never bypasses a dealbreaker. */
+export const DREAM_AFFINITY = 3;
+
 export const PROFILE_DIFF_STATUSES = ['pending', 'applied', 'rejected', 'undone'] as const;
 export const ProfileDiffStatus = z.enum(PROFILE_DIFF_STATUSES);
 export type ProfileDiffStatus = z.infer<typeof ProfileDiffStatus>;
@@ -191,7 +242,13 @@ export const ACTORS = ['agent', 'human', 'schedule'] as const;
 export const Actor = z.enum(ACTORS);
 export type Actor = z.infer<typeof Actor>;
 
-export const BACKENDS = ['rule', 'jev', 'kev', 'llm', 'human'] as const;
+/**
+ * Decision backends (wave1-decisions #7, #9). Order of use: rule -> kev -> agent -> human.
+ * - `kev`: local System One model (default).
+ * - `agent`: the calling Claude Code / Codex / Cursor session, answering over MCP.
+ * - `jev`, `llm`: optional adapters kept in code, disabled by default.
+ */
+export const BACKENDS = ['rule', 'jev', 'kev', 'llm', 'agent', 'human'] as const;
 export const Backend = z.enum(BACKENDS);
 export type Backend = z.infer<typeof Backend>;
 

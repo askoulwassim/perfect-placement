@@ -1,7 +1,8 @@
 /*
  * The Perfect Placement MCP server. A thin adapter: tools and resources map 1:1 onto
- * `runOp(name, input, ctx)` (lane B). Validation, policy, decisions and writes all
- * happen inside runOp. The actor is always `agent`: an MCP client is never a human.
+ * `runOp(name, input, ctx)` (the engine's, see `openEngine`). Validation, policy, decisions
+ * and writes all happen inside runOp. The actor is always `agent`: an MCP client is never a
+ * human. The optional `confidence` tool argument becomes `ctx.confidence` (backend `agent`).
  */
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -12,21 +13,23 @@ import {
   type ReadResourceResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { OpContext, OpName, RunOp } from '@perfect-placement/contracts';
-import { buildTools, outcomeToToolResult, type ToolNameStyle, toolNameMap } from './tools.js';
+import { buildTools, CONFIDENCE_ARG, DEFAULT_TOOL_NAME_STYLE, outcomeToToolResult, type ToolNameStyle, toolNameMap } from './tools.js';
 
 export const SERVER_NAME = 'perfect-placement';
 export const SERVER_VERSION = '0.1.0';
 
 export interface PpMcpServerOptions {
-  /** The single ops entry point. Wave 2 injects lane B's; tests inject the fixtures fake. */
+  /** The single ops entry point: `openEngine().runOp` (tests may inject a fake). */
   runOp: RunOp;
   /** Injected clock (deterministic tests). */
   now?: () => Date;
+  /** Default `underscore` (`roles_list`); see `ToolNameStyle`. */
   toolNames?: ToolNameStyle;
 }
 
 const INSTRUCTIONS = [
-  'Perfect Placement job-search system. Every tool is one op from the ops registry.',
+  'Perfect Placement job-search system. Every tool is one op from the ops registry; the tool name is the op name with dots as underscores (roles.list is roles_list).',
+  'Writing tools take an optional confidence (0 to 1): medium-impact calls go through the policy grid with it, and without it they wait for a human.',
   'A result of requires_human means the call was queued for a human in the Needs-you queue: do not retry it.',
   'This server never submits applications and never sends email.',
 ].join(' ');
@@ -34,8 +37,12 @@ const INSTRUCTIONS = [
 export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
   const { runOp } = options;
   const now = options.now ?? (() => new Date());
-  const style = options.toolNames ?? 'dotted';
-  const ctx = (): OpContext => ({ actor: 'agent', now });
+  const style = options.toolNames ?? DEFAULT_TOOL_NAME_STYLE;
+  const ctx = (confidence?: number): OpContext => ({
+    actor: 'agent',
+    now,
+    ...(confidence === undefined ? {} : { confidence: { p: confidence, backend: 'agent' } }),
+  });
 
   const mcp = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -49,8 +56,11 @@ export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
   mcp.server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const op = byName.get(req.params.name);
     if (!op) throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${req.params.name}`);
+    const { [CONFIDENCE_ARG]: confidence, ...input } = (req.params.arguments ?? {}) as Record<string, unknown>;
+    if (confidence !== undefined && (typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1)))
+      return outcomeToToolResult(op, { status: 'error', code: 'invalid_input', message: `${CONFIDENCE_ARG} must be a number from 0 to 1` });
     try {
-      return outcomeToToolResult(op, await runOp(op, req.params.arguments ?? {}, ctx()));
+      return outcomeToToolResult(op, await runOp(op, input, ctx(confidence as number | undefined)));
     } catch (err) {
       return outcomeToToolResult(op, { status: 'error', code: 'internal', message: err instanceof Error ? err.message : String(err) });
     }
@@ -127,18 +137,11 @@ export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
     },
   );
 
-  // Shim until a `companies.get` op exists (CONTRACT_CHANGES.md, Lane C requests).
   mcp.registerResource(
     'company',
     new ResourceTemplate('pp://companies/{company_id}', { list: undefined }),
-    { title: 'Company', description: 'A company and its roles (roles.list by company_id).', mimeType: 'application/json' },
-    async (uri, v) => {
-      const company_id = decodeURIComponent(one(v.company_id));
-      const out = await read<RoleListOut>('roles.list', { company_id, limit: 500 });
-      const first = out.items[0];
-      if (!first) throw new McpError(ErrorCode.InvalidParams, `no company with roles: ${company_id}`);
-      return json(uri, { company: first.company, roles: out.items });
-    },
+    { title: 'Company', description: 'A company, its dossier and its roles (companies.get).', mimeType: 'application/json' },
+    async (uri, v) => json(uri, await read('companies.get', { company_id: decodeURIComponent(one(v.company_id)) })),
   );
 
   return mcp;

@@ -24,7 +24,7 @@ const TABS = [
 type Tab = (typeof TABS)[number][0];
 
 export function RoleScreen({ roleId }: { roleId: string }) {
-  const { now, config, showToast } = useApp();
+  const { now, config, showToast, watchRun } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
@@ -42,9 +42,9 @@ export function RoleScreen({ roleId }: { roleId: string }) {
 
   const { role, company, latest_score: score, contacts } = data;
   const tl = tile(data, t, config.scoring);
-  const stage = stageOf(role, app);
-  const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
   const best = bestPath(contacts);
+  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id));
+  const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';
@@ -78,10 +78,12 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             label: STAGES[stage] as string,
             op: 'runs.start' as const,
             onClick: async () => {
+              const label = STAGES[stage] as string;
               const o = await act('runs.start', { skill, role_id: role.id });
               if (o.status !== 'ok') return;
+              watchRun(o.output.run.id, (run) => showToast(run.status === 'error' ? `${label} failed` : `${label} done`));
               if (skill === 'connect') go({ screen: 'people', roleId: role.id });
-              else showToast(`${STAGES[stage]} done`);
+              else showToast(`${label} started`);
             },
           }
         : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };

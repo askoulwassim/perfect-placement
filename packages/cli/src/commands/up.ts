@@ -1,29 +1,38 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Actor, type OpContext, type OpOutcome } from '@perfect-placement/contracts';
+import type { OpContext, OpOutcome } from '@perfect-placement/contracts';
 import { ops } from '@perfect-placement/engine';
+import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp';
 
 /*
- * `pp up`: one local process serving
- *   /api/ops       op list            (GET)
- *   /api/ops/:name runOp              (POST { input, actor?, dryRun?, runId?, decisionId? })
- *   /api/health
- *   /mcp           MCP Streamable HTTP (lane C mounts here in Wave 2)
- *   /              the built web UI    (lane D, apps/web/dist)
- * Bound to 127.0.0.1 only.
+ * `pp up`: one local process, loopback only.
+ *   POST /api/ops/:name   runOp(name, <JSON body = op input>, { actor: 'human' }) -> OpOutcome JSON
+ *   GET  /api/ops         op list
+ *   GET  /api/health
+ *   POST /mcp             MCP Streamable HTTP (actor agent), same engine
+ *   GET  /*               apps/web/dist with SPA fallback
+ * The web dev server (Vite) runs on 5178 and calls this API cross-origin (loopback origins only).
  */
+
+export const DEFAULT_PORT = 5177;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 export type Mount = { prefix: string; handle(req: IncomingMessage, res: ServerResponse): void | Promise<void> };
 
 export interface UpOptions {
   engine: ops.Engine;
+  /** Default 5177; 0 = ephemeral (tests). */
   port?: number;
+  /** Bind address; loopback only. Default 127.0.0.1. */
   host?: string;
-  /** Static web build to serve at `/`. */
+  /** Static web build at `/`. Default apps/web/dist if built; null = none. */
   webDir?: string | null;
-  /** Extra handlers (MCP HTTP transport) by path prefix. */
+  /** Mount MCP Streamable HTTP at /mcp (default true). */
+  mcp?: boolean;
+  toolNames?: ToolNameStyle;
+  /** Extra handlers by path prefix. */
   mounts?: Mount[];
 }
 
@@ -49,24 +58,37 @@ export const httpStatusOf = (o: OpOutcome<unknown>) =>
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
+  '.map': 'application/json',
 };
 
-/** apps/web/dist next to this package in the monorepo, if built. */
+/** apps/web/dist in the monorepo, if built. */
 export function defaultWebDir(): string | null {
   const dir = fileURLToPath(new URL('../../../../apps/web/dist', import.meta.url));
   return existsSync(join(dir, 'index.html')) ? dir : null;
 }
 
+const hostnameOf = (host: string | undefined): string | null => {
+  if (!host) return null;
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return null;
+  }
+};
+
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
 }
+const fail = (res: ServerResponse, status: number, code: string, message: string) => json(res, status, { status: 'error', code, message });
 
 async function readBody(req: IncomingMessage, limit = 5 * 1024 * 1024): Promise<string> {
   let size = 0;
@@ -79,37 +101,59 @@ async function readBody(req: IncomingMessage, limit = 5 * 1024 * 1024): Promise<
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function serveStatic(dir: string, pathname: string, res: ServerResponse): boolean {
+/** Serve a file from `dir`, or index.html for extensionless paths (SPA routes). */
+function serveStatic(dir: string, pathname: string, req: IncomingMessage, res: ServerResponse): boolean {
   const root = resolve(dir);
-  let file = normalize(join(root, decodeURIComponent(pathname)));
-  if (!file.startsWith(root)) return false;
-  if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html'); // SPA fallback
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  let file = normalize(join(root, decoded));
+  if (file !== root && !file.startsWith(root + sep)) return false;
+  if (!existsSync(file) || statSync(file).isDirectory()) {
+    if (extname(decoded) && extname(decoded) !== '.html') return false; // a missing asset is a 404, not the app
+    file = join(root, 'index.html');
+  }
   if (!existsSync(file)) return false;
   res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-  res.end(readFileSync(file));
+  res.end(req.method === 'HEAD' ? undefined : readFileSync(file));
   return true;
 }
 
 export function up(opts: UpOptions): Promise<Running> {
   const { engine } = opts;
+  const host = opts.host ?? '127.0.0.1';
+  if (!LOOPBACK_HOSTS.has(host)) return Promise.reject(new Error(`pp up binds to loopback only, not ${host}`));
   const webDir = opts.webDir === undefined ? defaultWebDir() : opts.webDir;
-  const mounts = opts.mounts ?? [];
+  const mounts = [...(opts.mounts ?? [])];
+  if (opts.mcp !== false) {
+    const handle = createMcpHttpHandler({ runOp: engine.runOp, ...(opts.toolNames ? { toolNames: opts.toolNames } : {}) });
+    mounts.push({ prefix: '/mcp', handle });
+  }
 
   const server = createServer(async (req, res) => {
     try {
+      // DNS-rebinding guard: only loopback Host headers, for every route.
+      const hostname = hostnameOf(req.headers.host);
+      if (!hostname || !LOOPBACK_HOSTS.has(hostname)) return fail(res, 403, 'forbidden', 'host not allowed');
       const url = new URL(req.url ?? '/', 'http://localhost');
       const origin = req.headers.origin;
-      if (origin && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      if (origin && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
         res.setHeader('access-control-allow-origin', origin);
-        res.setHeader('access-control-allow-headers', 'content-type');
+        res.setHeader('access-control-allow-headers', 'content-type, mcp-protocol-version');
         res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+        res.setHeader('vary', 'origin');
       }
       if (req.method === 'OPTIONS') return void res.writeHead(204).end();
 
-      for (const m of mounts) if (url.pathname.startsWith(m.prefix)) return void (await m.handle(req, res));
+      for (const m of mounts)
+        if (url.pathname === m.prefix || url.pathname.startsWith(`${m.prefix}/`)) return void (await m.handle(req, res));
 
       if (url.pathname === '/api/health') return json(res, 200, { ok: true, home: engine.home });
-      if (url.pathname === '/api/ops' && req.method === 'GET')
+      if (url.pathname === '/api/ops') {
+        if (req.method !== 'GET') return fail(res, 405, 'method_not_allowed', 'GET /api/ops');
         return json(
           res,
           200,
@@ -123,42 +167,68 @@ export function up(opts: UpOptions): Promise<Running> {
             implemented: !d.unimplemented && engine.has(d.name),
           })),
         );
-      const m = /^\/api\/ops\/([a-z_.]+)$/.exec(url.pathname);
-      if (m && req.method === 'POST') {
-        let body: Record<string, unknown> = {};
+      }
+      const m = /^\/api\/ops\/([^/]+)$/.exec(url.pathname);
+      if (m) {
+        const name = decodeURIComponent(m[1] as string);
+        if (!(name in ops.ALL_OPS)) return fail(res, 404, 'not_found', `unknown op: ${name}`);
+        if (req.method !== 'POST') {
+          res.setHeader('allow', 'POST');
+          return fail(res, 405, 'method_not_allowed', `POST /api/ops/${name}`);
+        }
         const raw = await readBody(req);
-        if (raw.trim()) body = JSON.parse(raw) as Record<string, unknown>;
-        const actor = Actor.safeParse(body.actor ?? 'human');
-        if (!actor.success) return json(res, 400, { status: 'error', code: 'invalid_input', message: 'bad actor' });
-        const ctx: OpContext = {
-          actor: actor.data,
-          now: () => new Date(),
-          ...(typeof body.runId === 'string' ? { runId: body.runId } : {}),
-          ...(typeof body.decisionId === 'string' ? { decisionId: body.decisionId } : {}),
-          ...(body.dryRun === true ? { dryRun: true } : {}),
-        };
-        const outcome = await engine.runOp(m[1] as string, body.input ?? {}, ctx);
+        let input: unknown = {};
+        if (raw.trim()) {
+          try {
+            input = JSON.parse(raw);
+          } catch (e) {
+            return fail(res, 400, 'invalid_input', `body is not valid JSON: ${(e as Error).message}`);
+          }
+        }
+        const ctx: OpContext = { actor: 'human', now: () => new Date() };
+        const outcome = await engine.runOp(name, input, ctx);
         return json(res, httpStatusOf(outcome), outcome);
       }
-      if (url.pathname.startsWith('/mcp'))
-        return json(res, 501, { status: 'error', code: 'unimplemented', message: 'MCP HTTP mounts here (lane C)' });
-      if (req.method === 'GET' && webDir && serveStatic(webDir, url.pathname, res)) return;
-      json(res, 404, { status: 'error', code: 'not_found', message: url.pathname });
+      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return fail(res, 404, 'not_found', url.pathname);
+      if ((req.method === 'GET' || req.method === 'HEAD') && webDir && serveStatic(webDir, url.pathname, req, res)) return;
+      fail(res, 404, 'not_found', url.pathname);
     } catch (e) {
-      json(res, 500, { status: 'error', code: 'internal', message: (e as Error).message });
+      if (!res.headersSent) fail(res, 500, 'internal', (e as Error).message);
+      else res.end();
     }
   });
 
-  return new Promise((ok, fail) => {
-    server.once('error', fail);
-    server.listen(opts.port ?? 4317, opts.host ?? '127.0.0.1', () => {
+  return new Promise((ok, reject) => {
+    server.once('error', reject);
+    server.listen(opts.port ?? DEFAULT_PORT, host, () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : opts.port;
       ok({
         server,
-        url: `http://${opts.host ?? '127.0.0.1'}:${port}`,
-        close: () => new Promise((done) => server.close(() => done())),
+        url: `http://${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${port}`,
+        close: () =>
+          new Promise((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          }),
       });
     });
   });
+}
+
+/** `pp up --kev`: report whether Kev answers (never starts it). */
+export async function checkKev(engine: ops.Engine): Promise<{ ok: boolean; line: string }> {
+  const o = await engine.runOp('system.backends', {}, { actor: 'human', now: () => new Date() });
+  if (o.status !== 'ok') return { ok: false, line: `kev: unknown (${o.status === 'error' ? o.message : o.status})` };
+  const items = (o.output as { items: Array<{ name: string; status: string; latencyMs: number | null }> }).items;
+  const kev = items.find((i) => i.name === 'kev');
+  const baseUrl = ops.readConfig(engine.home).backends.kev?.baseUrl ?? '';
+  if (!kev) return { ok: false, line: 'kev: not configured' };
+  const ok = kev.status !== 'down';
+  return {
+    ok,
+    line: ok
+      ? `kev: ${kev.status} at ${baseUrl}${kev.latencyMs === null ? '' : ` (${kev.latencyMs} ms)`}`
+      : `kev: unreachable at ${baseUrl} (start Kev yourself; decisions fall back to the agent or Needs you)`,
+  };
 }

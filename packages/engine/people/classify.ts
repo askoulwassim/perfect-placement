@@ -10,7 +10,7 @@ import {
   readVault,
   stripFrontmatter,
   updateLink,
-} from './repo.js';
+} from './queries.js';
 import { isHiringTeam, tierFor } from './tier.js';
 import { err, type Handler } from './types.js';
 
@@ -28,8 +28,8 @@ export const CLASSIFY_INSTRUCTIONS =
 export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps) => {
   const parsed = peopleClassify.input.safeParse(raw);
   if (!parsed.success) return err('invalid_input', 'people.classify input', parsed.error.issues);
-  const { contact_id, role_id } = parsed.data;
-  const { db } = deps;
+  const { contact_id, role_id, role: picked } = parsed.data;
+  const { repos: db } = deps;
 
   const contact = getContact(db, contact_id);
   if (!contact) return err('not_found', `contact ${contact_id}`);
@@ -39,7 +39,7 @@ export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps
   const link = getLinkForRole(db, contact_id, role_id);
   if (!link) return err('not_found', `no contact_link for ${contact_id} on ${role_id}; run people.find or people.link first`);
 
-  const jd = role.md_path ? readVault(deps.vaultDir, role.md_path) : null;
+  const jd = role.md_path ? readVault(deps, role.md_path) : null;
   const state: Record<string, string> = {
     contact_name: contact.name,
     contact_headline: contact.headline ?? '',
@@ -49,6 +49,29 @@ export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps
     jd_excerpt: jd ? stripFrontmatter(jd).slice(0, JD_EXCERPT_MAX) : '',
   };
 
+  // A human pick (Needs you accept/change runs this op with `role: "$value"`): apply it, no resolver call.
+  if (picked) {
+    const hiring = isHiringTeam(picked);
+    const tier = tierFor(link.degree, hiring);
+    let decisionId = ctx.decisionId;
+    let outcome: 'auto' | 'auto_second' | 'auto_undo' | 'human' = 'auto';
+    if (!decisionId) {
+      // A direct pick from the calling session: logged as its judgment.
+      const r = await deps.record({
+        decision: 'people.classify',
+        impact: 'low',
+        subject: { type: 'contact', id: contact_id },
+        question: { id: 'who', type: 'choice', instructions: CLASSIFY_INSTRUCTIONS, options: [...CONTACT_ROLES], state },
+        answer: { id: 'who', value: picked, p: ctx.confidence?.p ?? 1 },
+        backend: ctx.confidence?.backend ?? 'agent',
+      });
+      decisionId = r.decisionId;
+      outcome = r.outcome;
+    }
+    if (outcome !== 'human' && !ctx.dryRun) updateLink(db, { ...link, tier, is_hiring_team: hiring });
+    return { status: 'ok', output: { role: picked, tier, p: ctx.confidence?.p ?? 1, decision_id: decisionId, outcome }, eventIds: [] };
+  }
+
   let result: Awaited<ReturnType<typeof deps.ask>>;
   try {
     result = await deps.ask({
@@ -57,6 +80,8 @@ export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps
       state,
       questions: [{ id: 'who', type: 'choice', instructions: CLASSIFY_INSTRUCTIONS, options: [...CONTACT_ROLES] }],
       subject: { type: 'contact', id: contact_id },
+      // A human accept or change applies the chosen classification.
+      action: { op: 'people.classify', input: { contact_id, role_id, role: '$value' } },
     });
   } catch (e) {
     return err('backend_unavailable', `resolver: ${(e as Error).message}`);
@@ -75,7 +100,7 @@ export const classifyContact: Handler<'people.classify'> = async (raw, ctx, deps
     updateLink(db, { ...link, tier, is_hiring_team: hiring });
   }
 
-  return { status: 'ok', output: { role: contactRole, tier, p: answer.p, decision_id: decisionId }, eventIds: [] };
+  return { status: 'ok', output: { role: contactRole, tier, p: answer.p, decision_id: decisionId, outcome }, eventIds: [] };
 };
 
 /**
@@ -86,7 +111,7 @@ export const linkContact: Handler<'people.link'> = async (raw, ctx, deps) => {
   const parsed = peopleLink.input.safeParse(raw);
   if (!parsed.success) return err('invalid_input', 'people.link input', parsed.error.issues);
   const input = parsed.data;
-  const { db } = deps;
+  const { repos: db } = deps;
 
   if (!getContact(db, input.contact_id)) return err('not_found', `contact ${input.contact_id}`);
   if (input.via_contact_id && !getContact(db, input.via_contact_id)) return err('not_found', `contact ${input.via_contact_id}`);

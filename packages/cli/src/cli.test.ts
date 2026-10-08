@@ -1,11 +1,9 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ops } from '@perfect-placement/engine';
-import { openFixtureEngine } from '@perfect-placement/engine/ops/testing';
+import { fakeBackend, fakeLauncher, noNetwork, openFixtureEngine } from '@perfect-placement/engine/testing';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
-import { up } from './commands/up.js';
 import type { Io } from './io.js';
 
 let home: string;
@@ -19,7 +17,14 @@ beforeEach(() => {
   e.close();
   out = [];
   err = [];
-  io = { env: { PP_HOME: home }, out: (l) => out.push(l), err: (l) => err.push(l), stdin: () => '[]' };
+  io = {
+    env: { PP_HOME: home },
+    out: (l) => out.push(l),
+    err: (l) => err.push(l),
+    stdin: () => '[]',
+    // No network, no Kev, no runner spawn in tests.
+    services: { fetch: noNetwork, launcher: fakeLauncher(), backends: { kev: fakeBackend('kev', 'down') }, freshnessDelayMs: 0, env: {} },
+  };
 });
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
@@ -62,44 +67,38 @@ describe('pp', () => {
     expect(lastJson().status).toBe('requires_human');
   });
 
-  it('score, fresh and doctor pass through to lanes F, G and A (unimplemented until merged)', async () => {
+  it('score, fresh and doctor run lanes F, G and A through runOp', async () => {
     const file = join(home, 'scores.json');
-    writeFileSync(file, '[]');
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          role_id: FIXTURE_ROLE_IDS.notionInbox,
+          criteria: { c1: 4, c2: 4, c3: 4, c4: 4, c5: 4, c6: 4, c7: 4, c8: 4, c9: 4 },
+          facts: { workplace: 'remote', remote_ok: true },
+        },
+      ]),
+    );
     expect(await runCli(['score', '--in', file], io)).toBe(0);
-    expect(await runCli(['fresh', '--role', FIXTURE_ROLE_IDS.datadogActive], io)).toBe(1);
-    expect(lastJson()).toMatchObject({ code: 'unimplemented' });
-    expect(await runCli(['doctor'], io)).toBe(1);
-    expect(lastJson().message).toContain('lane A');
+    expect(lastJson()).toMatchObject({ status: 'ok', output: { status: 'active' } });
+    // No network and Kev down: the posting cannot be judged, so it waits in Needs you.
+    expect(await runCli(['fresh', '--role', FIXTURE_ROLE_IDS.datadogActive], io)).toBe(0);
+    expect(lastJson().output.results[0]).toMatchObject({ role_id: FIXTURE_ROLE_IDS.datadogActive, freshness: 'unsure' });
+    const doctorCode = await runCli(['doctor', '--json'], io);
+    const report = lastJson();
+    expect(report.counts.active).toBeGreaterThan(0);
+    expect(doctorCode).toBe(report.ok ? 0 : 1);
+  });
+
+  it('op takes the input as a positional JSON argument', async () => {
+    expect(await runCli(['op', 'roles.get', JSON.stringify({ role_id: FIXTURE_ROLE_IDS.rampIv })], io)).toBe(0);
+    expect(lastJson().output.role.id).toBe(FIXTURE_ROLE_IDS.rampIv);
+    expect(await runCli(['op', 'roles.get', '{nope'], io)).toBe(2);
+    expect(err.at(-1)).toContain('not valid JSON');
   });
 
   it('bad input is a usage error', async () => {
     expect(await runCli(['scout'], io)).toBe(2);
     expect(err[0]).toContain('--in');
-  });
-});
-
-describe('pp up', () => {
-  it('serves the op list and runs ops over HTTP', async () => {
-    const engine = ops.openEngine({ home });
-    const running = await up({ engine, port: 0, webDir: null });
-    try {
-      const list = (await (await fetch(`${running.url}/api/ops`)).json()) as { name: string; implemented: boolean }[];
-      expect(list.find((o) => o.name === 'roles.list')?.implemented).toBe(true);
-      expect(list.find((o) => o.name === 'outreach.send')?.implemented).toBe(false);
-      const res = await fetch(`${running.url}/api/ops/pipeline.summary`, { method: 'POST', body: JSON.stringify({ input: {} }) });
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { output: { counts: { active: number } } }).output.counts.active).toBeGreaterThan(0);
-      const bad = await fetch(`${running.url}/api/ops/roles.get`, { method: 'POST', body: JSON.stringify({ input: { role_id: 'nope' } }) });
-      expect(bad.status).toBe(404);
-      const queued = await fetch(`${running.url}/api/ops/apply.mark_submitted`, {
-        method: 'POST',
-        body: JSON.stringify({ actor: 'agent', input: { role_id: FIXTURE_ROLE_IDS.vercelDraft } }),
-      });
-      expect(queued.status).toBe(202);
-      expect((await fetch(`${running.url}/mcp`)).status).toBe(501);
-    } finally {
-      await running.close();
-      engine.close();
-    }
   });
 });

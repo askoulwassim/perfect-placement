@@ -1,5 +1,5 @@
 import {
-  EventRow,
+  type EventRow,
   type Impact,
   LEARNING_EVENTS,
   type OpContext,
@@ -12,18 +12,19 @@ import { impactForComponent } from './components.js';
 import type { ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
 import { deepEqual } from './json.js';
-import { applyApproved, profileProposeDiff, profileRejectDiff, routeDiff } from './profile-ops.js';
-import { getComponents, getCurrentVersion } from './store.js';
+import { routeDiff } from './profile-ops.js';
+import { getComponents, getCurrentVersion } from './versions.js';
 
 /*
- * Learn loop (blueprint.md):
+ * Learn loop (blueprint.md), every write an op (nested in `profile.learn`):
  *   event -> resolver Noulli x 11 "does this change <component>?" (profile.learn, low)
- *         -> for each yes: LLM drafts a diff with evidence -> profile.propose_diff (pending)
- *         -> policy via resolver (profile.apply_diff, impact by component kind):
- *              filters + dealbreakers: high -> always human (never auto-applied)
- *              weighted: medium -> auto + 24h undo when confident, else human
- *              assets: low -> auto (or auto after second backend), else human
- *         -> applied diffs create profile v+1 and return roles to rescore.
+ *         -> for each yes: the writing model drafts a diff with evidence -> op profile.propose_diff
+ *            (no writing model in the engine: the learn skill drafts and calls profile.propose_diff)
+ *         -> policy via resolver (profile.apply_diff, impact by component kind, #14 / #24):
+ *              Dealbreakers, a comp floor change: hard exclusion, always a human
+ *              other filters: high -> auto + undo only when confident, else human
+ *              weighted + assets: medium -> auto + 24h undo when confident (config), else human
+ *         -> op profile.apply_diff (v+1, rescore of affected roles) or op profile.reject_diff.
  * The model supplies judgment (yes/no + drafted diff); this file is mechanics only.
  */
 
@@ -55,9 +56,16 @@ const LABEL: Record<ProfileComponentKey, string> = {
 };
 
 function loadEvent(deps: ProfileDeps, eventId: string): EventRow {
-  const row = deps.db.prepare('SELECT * FROM event WHERE id = ?').get(eventId) as Record<string, unknown> | undefined;
+  const row = deps.repos.event.get(eventId);
   if (!row) throw new OpError('not_found', `event ${eventId} not found`);
-  return EventRow.parse({ ...row, payload_json: JSON.parse(String(row.payload_json ?? '{}')) });
+  return row;
+}
+
+/** Unwrap a nested op's outcome; `requires_human` and errors surface as OpError / null. */
+function okOrNull<T>(o: Awaited<ReturnType<NonNullable<ProfileDeps['runOp']>>>): T | null {
+  if (o.status === 'ok') return o.output as T;
+  if (o.status === 'requires_human') return null;
+  throw new OpError(o.code, o.message, o.issues);
 }
 
 function truncate(s: string, n = 600): string {
@@ -66,7 +74,8 @@ function truncate(s: string, n = 600): string {
 
 export async function learnFromEvent(deps: ProfileDeps, eventId: string, ctx: OpContext): Promise<LearnResult> {
   if (!deps.ask) throw new OpError('backend_unavailable', 'resolver not configured');
-  if (!deps.llm) throw new OpError('backend_unavailable', 'LLM not configured');
+  const runOp = deps.runOp;
+  if (!runOp) throw new OpError('internal', 'the learn loop runs inside runOp');
   const event = loadEvent(deps, eventId);
   const result: LearnResult = {
     event_id: event.id,
@@ -80,9 +89,9 @@ export async function learnFromEvent(deps: ProfileDeps, eventId: string, ctx: Op
   };
   if (!(LEARNING_EVENTS as readonly string[]).includes(event.type)) return result;
 
-  const version = getCurrentVersion(deps.db);
+  const version = getCurrentVersion(deps.repos);
   if (!version) throw new OpError('not_found', 'no profile yet');
-  const comps = getComponents(deps.db, version.id);
+  const comps = getComponents(deps.repos, version.id);
 
   const state: Record<string, string> = {
     event: `${event.type} on ${event.subject_type} ${event.subject_id}`,
@@ -103,7 +112,6 @@ export async function learnFromEvent(deps: ProfileDeps, eventId: string, ctx: Op
     subject: { type: 'profile', id: version.id },
   });
 
-  const childCtx: OpContext = { ...ctx };
   for (let i = 0; i < ask.answers.length; i++) {
     const a = ask.answers[i];
     const outcome = ask.outcomes[i];
@@ -116,7 +124,9 @@ export async function learnFromEvent(deps: ProfileDeps, eventId: string, ctx: Op
     }
     result.changed.push(key);
 
-    const cur = getComponents(deps.db, getCurrentVersion(deps.db)?.id ?? version.id).find((c) => c.key === key);
+    // No writing model in the engine: the learn skill (agent session) drafts and calls profile.propose_diff.
+    if (!deps.llm) continue;
+    const cur = getComponents(deps.repos, getCurrentVersion(deps.repos)?.id ?? version.id).find((c) => c.key === key);
     if (!cur) continue;
     const draft = await deps.llm.draftDiff({
       component: key,
@@ -137,26 +147,30 @@ export async function learnFromEvent(deps: ProfileDeps, eventId: string, ctx: Op
     if (deepEqual(before, draft.after)) continue;
     const evidence = draft.evidence.length ? draft.evidence : [`${event.type} ${event.subject_id}`];
 
-    const { output } = profileProposeDiff(deps, { component: key, before, after: draft.after, evidence, event_id: event.id }, childCtx);
-    const diff = output.diff;
+    const proposed = okOrNull<{ diff: ProfileDiff }>(
+      await runOp('profile.propose_diff', { component: key, before, after: draft.after, evidence, event_id: event.id }, ctx),
+    );
+    if (!proposed) continue;
+    const diff = proposed.diff;
     result.proposed.push(diff);
 
     const impact = impactForComponent(key);
-    const routed = await routeDiff(deps, diff, childCtx);
-    if (impact !== 'high' && routed.outcome !== 'human' && routed.value === true) {
-      const applied = await applyApproved(
-        deps,
-        { ...diff, decision_id: routed.decisionId },
-        { ...childCtx, decisionId: routed.decisionId },
+    const routed = await routeDiff(deps, diff, ctx);
+    if (routed.outcome !== 'human' && routed.value === true) {
+      const applied = okOrNull<{ version: { id: string }; rescored_role_ids: string[] }>(
+        await runOp('profile.apply_diff', { diff_id: diff.id }, { ...ctx, decisionId: routed.decisionId }),
       );
-      result.applied.push({
-        diff_id: diff.id,
-        version_id: applied.output.version.id,
-        impact,
-        rescored_role_ids: applied.output.rescored_role_ids,
-      });
-    } else if (impact !== 'high' && routed.outcome !== 'human' && routed.value === false) {
-      profileRejectDiff(deps, { diff_id: diff.id, reason: 'resolver: confident no' }, { ...childCtx, decisionId: routed.decisionId });
+      if (applied)
+        result.applied.push({ diff_id: diff.id, version_id: applied.version.id, impact, rescored_role_ids: applied.rescored_role_ids });
+      else result.queued.push({ diff_id: diff.id, decision_id: routed.decisionId, impact });
+    } else if (routed.outcome !== 'human' && routed.value === false) {
+      okOrNull(
+        await runOp(
+          'profile.reject_diff',
+          { diff_id: diff.id, reason: 'resolver: confident no' },
+          { ...ctx, decisionId: routed.decisionId },
+        ),
+      );
       result.rejected.push(diff.id);
     } else {
       result.queued.push({ diff_id: diff.id, decision_id: routed.decisionId, impact });

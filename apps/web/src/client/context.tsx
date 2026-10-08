@@ -1,6 +1,14 @@
-import { DEFAULT_CONFIG, OPS, type OpName, type OpOutcome, type PolicyConfig, type Thresholds } from '@perfect-placement/contracts';
+import {
+  DEFAULT_CONFIG,
+  OPS,
+  type OpName,
+  type OpOutcome,
+  type PolicyConfig,
+  type Run,
+  type Thresholds,
+} from '@perfect-placement/contracts';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { type AnyOpName, type In, isShim, type OpClient, type Out } from './types';
+import type { In, OpClient, Out } from './types';
 
 interface Ctx {
   client: OpClient;
@@ -14,11 +22,24 @@ interface Ctx {
   setThresholds: (t: Thresholds) => void;
   toast: string | null;
   showToast: (t: string) => void;
+  /**
+   * Follow a run started with `runs.start` (the headless agent does the work out of process):
+   * polls `runs.get` until it leaves `running`, then refreshes every read and calls `onDone`.
+   */
+  watchRun: (runId: string, onDone?: (run: Run) => void) => void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
 
-export function ClientProvider({ client, now, children }: { client: OpClient; now?: () => Date; children: ReactNode }) {
+export interface ClientProviderProps {
+  client: OpClient;
+  now?: () => Date;
+  /** Run polling interval (ms). */
+  pollMs?: number;
+  children: ReactNode;
+}
+
+export function ClientProvider({ client, now, pollMs = 2000, children }: ClientProviderProps) {
   const [version, setVersion] = useState(0);
   const [config, setConfig] = useState<PolicyConfig>(DEFAULT_CONFIG);
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_CONFIG.policy);
@@ -30,6 +51,34 @@ export function ClientProvider({ client, now, children }: { client: OpClient; no
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(null), 2400);
   }, []);
+
+  const watched = useRef(new Map<string, ((run: Run) => void) | undefined>());
+  const [watching, setWatching] = useState(0);
+  const watchRun = useCallback((runId: string, onDone?: (run: Run) => void) => {
+    watched.current.set(runId, onDone);
+    setWatching(watched.current.size);
+  }, []);
+  useEffect(() => {
+    if (!watching) return;
+    let busy = false;
+    const id = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        for (const [runId, onDone] of [...watched.current]) {
+          const o = await client.run('runs.get', { run_id: runId });
+          if (o.status === 'ok' && o.output.run.status === 'running') continue;
+          watched.current.delete(runId);
+          bump();
+          if (o.status === 'ok') onDone?.(o.output.run);
+        }
+      } finally {
+        busy = false;
+        setWatching(watched.current.size);
+      }
+    }, pollMs);
+    return () => clearInterval(id);
+  }, [watching, client, pollMs, bump]);
 
   useEffect(() => {
     void version;
@@ -46,8 +95,8 @@ export function ClientProvider({ client, now, children }: { client: OpClient; no
   }, [client, version]);
 
   const value = useMemo<Ctx>(
-    () => ({ client, version, bump, now: now ?? (() => new Date()), config, thresholds, setThresholds, toast, showToast }),
-    [client, version, bump, now, config, thresholds, toast, showToast],
+    () => ({ client, version, bump, now: now ?? (() => new Date()), config, thresholds, setThresholds, toast, showToast, watchRun }),
+    [client, version, bump, now, config, thresholds, toast, showToast, watchRun],
   );
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
@@ -65,7 +114,7 @@ export interface OpState<T> {
 }
 
 /** Read op, refetched after every write. Pass `null` as input to skip. */
-export function useOp<N extends AnyOpName>(name: N, input: In<N> | null): OpState<Out<N>> {
+export function useOp<N extends OpName>(name: N, input: In<N> | null): OpState<Out<N>> {
   const { client, version } = useApp();
   const key = input === null ? null : JSON.stringify(input);
   const [state, setState] = useState<OpState<Out<N>>>({ data: undefined, error: null, loading: key !== null });
@@ -86,7 +135,7 @@ export function useOp<N extends AnyOpName>(name: N, input: In<N> | null): OpStat
   return state;
 }
 
-const TOAST_FOR: Record<string, string> = {
+export const TOAST_FOR: Record<string, string> = {
   requires_human: 'Queued for you',
   forbidden_transition: 'Not allowed',
   human_only: 'Yours to do',
@@ -94,14 +143,16 @@ const TOAST_FOR: Record<string, string> = {
   backend_unavailable: 'Offline',
 };
 
-/** Write op. One call per button. Refreshes reads and toasts non-ok outcomes. */
+/**
+ * Write op. One call per button. Refreshes every read after a write (so the Needs-you badge and
+ * queue pick up a `requires_human` decision) and toasts non-ok outcomes.
+ */
 export function useAct() {
   const { client, bump, showToast } = useApp();
   return useCallback(
-    async <N extends AnyOpName>(name: N, input: In<N>): Promise<OpOutcome<Out<N>>> => {
+    async <N extends OpName>(name: N, input: In<N>): Promise<OpOutcome<Out<N>>> => {
       const o = await client.run(name, input);
-      const readOnly = isShim(name) || OPS[name as OpName]?.readOnly;
-      if (!readOnly) bump();
+      if (!OPS[name]?.readOnly || o.status === 'requires_human') bump();
       if (o.status === 'requires_human') showToast(TOAST_FOR.requires_human as string);
       if (o.status === 'error') showToast(TOAST_FOR[o.code] ?? 'Failed');
       return o;

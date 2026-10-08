@@ -3,12 +3,16 @@ import { dirname, join } from 'node:path';
 import {
   type APPLICATION_FILES,
   type ArchiveReason,
+  DREAM_AFFINITY,
   type Frontmatter,
+  PROFILE_COMPONENT_KEYS,
+  PROFILE_COMPONENT_KIND,
   ROLE_STATUSES,
   type RoleStatus,
   type TableName,
   vaultPath,
 } from '@perfect-placement/contracts';
+import { convertV1Profile, V1_FILES, type V1Inputs, type V1Source } from '../../profile/convert-v1.js';
 import { type Db, openDb } from '../connection.js';
 import { countsByStatus } from '../doctor.js';
 import { newId, nowIso, roleId, slugify } from '../ids.js';
@@ -19,6 +23,7 @@ import {
   dayIso,
   dayMs,
   flagKey,
+  GREEN_ARCHIVED_BASIS,
   inferArchiveReason,
   intOrNull,
   isDate,
@@ -34,7 +39,17 @@ import {
   type V1Score,
   validUrl,
 } from './map.js';
-import { stubComponents, type V1Rubric } from './profile.js';
+
+/** v1 `00_System/rubric.json` (only the keys the importer reads). */
+interface V1Rubric {
+  version?: string;
+  updated?: string;
+  weights?: Record<string, number>;
+  criteria?: Record<string, string>;
+  bands?: Record<string, unknown>;
+  dream_companies?: string[];
+  [k: string]: unknown;
+}
 
 /*
  * `pp migrate --from <v1 repo>`: import a v1 Perfect Placement folder into a PP_HOME vault + pp.db.
@@ -165,6 +180,10 @@ export function planV1Import(from: string): V1Plan {
     }
   }
 
+  // Dream companies get the default affinity nudge (wave1-decisions #10; capped, no dealbreaker bypass).
+  const dream = new Set((rubric?.dream_companies ?? []).map((d) => slugify(d)));
+  for (const c of companies.values()) if (dream.has(c.slug) || dream.has(slugify(c.name))) c.affinity = DREAM_AFFINITY;
+
   // --- roles ----------------------------------------------------------------
   const roles: Row<'role'>[] = [];
   const events: Row<'event'>[] = [];
@@ -220,6 +239,10 @@ export function planV1Import(from: string): V1Plan {
       const inf = inferArchiveReason(r, latest, greenMin);
       archive_reason = inf.reason;
       flags.archive_basis = inf.basis;
+      // wave1-decisions #20: a green score v1 archived without confirmed remote stays archived as a
+      // dealbreaker, tagged so the approved v2 rescore can revisit it.
+      if (inf.reason === 'dealbreaker' && inf.basis === GREEN_ARCHIVED_BASIS && mapRemoteOk(r.remote_ok) !== true)
+        flags.verify_remote = true;
       archiveReasons[inf.reason] = (archiveReasons[inf.reason] ?? 0) + 1;
     }
     const comp_min = intOrNull(r.comp_min);
@@ -402,20 +425,35 @@ export function planV1Import(from: string): V1Plan {
     files.push({ rel, kind: 'md', fm: { id, type: 'run' }, body: readText(join(from, '02_Pipeline/runs', name)) ?? '' });
   }
 
-  // --- profile (lane E shim) ------------------------------------------------
+  // --- profile (lane E converter) -------------------------------------------
   const profileVersions: Row<'profile_version'>[] = [];
   const components: Row<'profile_component'>[] = [];
-  const hasProfile = isDir(join(from, '01_Profile')) || rubric !== null;
-  if (hasProfile) {
+  const inputs: V1Inputs = {};
+  for (const [k, rel] of Object.entries(V1_FILES) as Array<[V1Source, string]>) {
+    const text = readText(join(from, rel));
+    if (text !== null) inputs[k] = text;
+  }
+  if (Object.keys(inputs).length) {
     const pDate = isDate(rubric?.updated) ? rubric.updated : fallbackDate;
+    const conv = convertV1Profile(inputs, new Date(dayMs(pDate)));
     const pv = newId('profile_version', dayMs(pDate), 'v1:profile_version');
-    profileVersions.push({ id: pv, created_at: dayIso(pDate), parent_id: null, reason: 'v1 migration', event_id: null });
-    for (const c of stubComponents((rel) => readText(join(from, rel)), rubric)) {
-      const id = newId('profile_component', dayMs(pDate), `v1:profile_component:${c.key}`);
-      const md_path = c.body === null ? null : vaultPath.profileComponent(c.key);
-      components.push({ id, version_id: pv, key: c.key, kind: c.kind, confidence: c.confidence, weight: null, data_json: c.data, md_path });
-      if (md_path && c.body !== null)
-        files.push({ rel: md_path, kind: 'md', fm: { id, type: 'profile_component', key: c.key }, body: c.body });
+    profileVersions.push({ id: pv, created_at: dayIso(pDate), parent_id: null, reason: conv.version_reason, event_id: null });
+    for (const key of PROFILE_COMPONENT_KEYS) {
+      const c = conv.components[key];
+      const id = newId('profile_component', dayMs(pDate), `v1:profile_component:${key}`);
+      const md_path = c.markdown === null ? null : vaultPath.profileComponent(key);
+      components.push({
+        id,
+        version_id: pv,
+        key,
+        kind: PROFILE_COMPONENT_KIND[key],
+        confidence: c.confidence,
+        weight: c.weight,
+        data_json: c.data_json,
+        md_path,
+      });
+      if (md_path && c.markdown !== null)
+        files.push({ rel: md_path, kind: 'md', fm: { id, type: 'profile_component', key }, body: c.markdown });
     }
   }
   for (const pdf of listDir(from).filter((n) => /\.pdf$/i.test(n)))

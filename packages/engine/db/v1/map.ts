@@ -184,6 +184,9 @@ export function flagKey(f: string): string {
   return f.replace(/[^a-zA-Z0-9]+/g, '_').toLowerCase();
 }
 
+/** Basis of a green score the v1 scorer archived (its remote / dream-company dealbreaker rule). */
+export const GREEN_ARCHIVED_BASIS = 'green score archived by the v1 scorer';
+
 export interface ArchiveInference {
   reason: ArchiveReason;
   basis: string;
@@ -210,7 +213,7 @@ export function inferArchiveReason(
   const band = latest?.band ?? (typeof role.band === 'string' ? role.band : undefined);
   if ((total !== undefined && total < greenMin) || (band !== undefined && band !== 'green'))
     return { reason: 'below_threshold', basis: `score ${total ?? '?'} ${band ?? ''}`.trim() };
-  if (latest?.decision === 'archived') return { reason: 'dealbreaker', basis: 'green score archived by the v1 scorer' };
+  if (latest?.decision === 'archived') return { reason: 'dealbreaker', basis: GREEN_ARCHIVED_BASIS };
   if (text) return { reason: 'passed', basis: 'green role parked with a reason' };
   return { reason: 'legacy', basis: 'no signal' };
 }

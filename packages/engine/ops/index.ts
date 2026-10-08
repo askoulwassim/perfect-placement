@@ -1,28 +1,41 @@
 import { join } from 'node:path';
 import { DB_FILE } from '@perfect-placement/contracts';
-import { openDb } from './_shim/db.js';
-import { LANE_B_HANDLERS } from './handlers/index.js';
-import type { DecisionPort } from './ports.js';
+import { openDb } from '../db/connection.js';
+import { initVault } from '../db/vault.js';
+import { ALL_HANDLERS } from './registry.js';
 import { createEngine, type Engine, type HandlerMap } from './runtime.js';
+import type { EngineServices } from './services.js';
 import { resolveHome } from './vault.js';
 
 /*
- * Lane B: the ops runtime (`runOp`) and every lane B handler.
- * Other lanes plug in with `engine.register(name, handler)` (see runtime.ts OpHandler).
+ * The ops runtime (`runOp`) and every handler. `openEngine()` is the one factory the surfaces
+ * (pp CLI, `pp up` HTTP API, MCP stdio/HTTP, schedules) call.
  */
 
 export const OWNER_LANE = 'B' as const;
 
-export { applyMigrations, openDb } from './_shim/db.js';
-export { shimDecide, shimDecisions } from './_shim/decisions.js';
-export { EXTRA_OPS, type ExtraOpName, runsFinish as runsFinishOp } from './_shim/extra-ops.js';
+export { createDecisionStore } from './decision-store.js';
 export * from './dedupe.js';
 export { notFound, OpError } from './errors.js';
 export { INBOX_TARGET } from './handlers/inbox.js';
-export { LANE_B_HANDLERS, NOT_LANE_B } from './handlers/index.js';
-export { appendRoleLog, latestScore, type MoveOptions, moveRole, promoteHeld, upsertApplication } from './handlers/shared.js';
+export { LANE_B_HANDLERS } from './handlers/index.js';
+export { appendRoleLog, latestScore, type MoveOptions, moveRole, undoMove, upsertApplication } from './handlers/shared.js';
 export { newId, roleIdFor, slugify, ulid } from './ids.js';
-export type { DecisionAction, DecisionPort, RecordDecisionRequest, RecordDecisionResult } from './ports.js';
+export { backendStatus } from './lanes/decisions.js';
+export { rebalance, scoringStore } from './lanes/scoring.js';
+export { changedKeys, hardHumanHint } from './policy.js';
+export { ALL_HANDLERS } from './registry.js';
+export {
+  buildRunnerSpec,
+  createSpawnLauncher,
+  DEFAULT_SKILLS_DIR,
+  defaultMcpServer,
+  MCP_SERVER_NAME,
+  type McpServerSpec,
+  type RunnerLauncher,
+  type RunnerSpec,
+  skillPrompt,
+} from './runner.js';
 export {
   ALL_OPS,
   type AnyOpName,
@@ -40,25 +53,23 @@ export {
   type RunLogEntry,
   requiresHuman,
 } from './runtime.js';
+export type { EngineServices } from './services.js';
 export { deepMerge, readConfig, renderMarkdown, resolveHome, stripFrontmatter, VaultTx } from './vault.js';
 
 export interface OpenEngineOptions {
   /** Vault root. Defaults to PP_HOME / ~/.perfect-placement. */
   home?: string;
-  decisions?: DecisionPort;
-  /** Extra handlers (other lanes) layered over lane B's. */
+  /** Network adapters, resolver backends, runner launcher (defaults: real ones). */
+  services?: EngineServices;
+  /** Extra or replacement handlers layered over ALL_HANDLERS (tests). */
   handlers?: HandlerMap;
 }
 
-/** Open `$PP_HOME/pp.db` (applying pending migrations) and build an engine with lane B handlers. */
+/** Open `$PP_HOME/pp.db` (creating the vault and applying pending migrations) and build the engine. */
 export function openEngine(opts: OpenEngineOptions = {}): Engine & { close(): void } {
   const home = opts.home ?? resolveHome();
+  initVault(home);
   const db = openDb(join(home, DB_FILE));
-  const engine = createEngine({
-    db,
-    home,
-    handlers: { ...LANE_B_HANDLERS, ...(opts.handlers ?? {}) },
-    ...(opts.decisions ? { decisions: opts.decisions } : {}),
-  });
+  const engine = createEngine({ db, home, handlers: { ...ALL_HANDLERS, ...(opts.handlers ?? {}) }, services: opts.services ?? {} });
   return Object.assign(engine, { close: () => db.close() });
 }

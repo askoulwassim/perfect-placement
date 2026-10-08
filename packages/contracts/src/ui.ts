@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { OpName } from './ops/registry.js';
 
 /*
@@ -75,6 +76,8 @@ export type Screen = (typeof SCREENS)[number];
 /**
  * The one primary action per screen and the op it calls. `null` = navigation only
  * (Review N, Open portal opens the external URL; the app never submits).
+ * Labels with `<...>` are templates the UI fills (e.g. `Draft for <first name>`).
+ * Order within a screen = the state progression (only one shows at a time).
  */
 export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: OpName | null }>> = {
   now: [
@@ -84,6 +87,8 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
   'needs-you': [
     { label: 'Accept', op: 'decisions.resolve' },
     { label: 'Open portal', op: null },
+    /** Queue clear. */
+    { label: 'Back to Now', op: null },
   ],
   river: [{ label: 'Scout now', op: 'runs.start' }],
   role: [
@@ -92,15 +97,22 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
     { label: 'Connect', op: 'runs.start' },
     { label: 'Fill', op: 'runs.start' },
     { label: 'Open portal', op: null },
+    /** Once applied. */
+    { label: 'Open River', op: null },
   ],
-  people: [{ label: 'Draft', op: 'runs.start' }],
+  people: [{ label: 'Draft for <first name>', op: 'runs.start' }],
   'outreach-draft': [{ label: 'Create Gmail draft', op: 'outreach.to_gmail' }],
   you: [
     { label: 'Review diff', op: null },
     { label: 'Accept diff', op: 'profile.apply_diff' },
     { label: 'Recalibrate', op: null },
   ],
+  /**
+   * `Next` calls `onboard.answer` on the Interview step only; on Resume and Calibrate it navigates
+   * (those steps call `onboard.ingest_resume` and `onboard.calibrate` from the drop zone and N/M/Y).
+   */
   onboarding: [
+    { label: 'Next', op: null },
     { label: 'Next', op: 'onboard.answer' },
     { label: 'Start', op: 'onboard.confirm' },
   ],
@@ -114,3 +126,15 @@ export const MOBILE_TABS = ['now', 'river', 'you', 'ask'] as const satisfies rea
 
 /** Labels that must never appear on a button (design.md non-negotiables). */
 export const FORBIDDEN_BUTTON_LABELS = ['Send', 'Submit', 'Apply now'] as const;
+
+/**
+ * Generated-UI card props (lane J, OpenUI). Id-only: cards fetch their data through ops.
+ * Key order is part of the contract (OpenUI maps positional args by key order).
+ */
+export const GENUI_PROPS = {
+  RoleCard: z.object({ roleId: z.string() }),
+  ScoreRadar: z.object({ roleId: z.string() }),
+  ContactCard: z.object({ contactId: z.string(), roleId: z.string().optional() }),
+  ProfileDiff: z.object({ diffId: z.string() }),
+} as const;
+export type GenuiCard = keyof typeof GENUI_PROPS;

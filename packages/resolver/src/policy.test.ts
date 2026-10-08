@@ -15,17 +15,21 @@ import {
   effectiveImpact,
   effectiveThresholds,
   finalOutcome,
+  policyOutcome,
   secondOpinionAgrees,
   undoUntil,
 } from './policy.js';
 
 const T: Thresholds = DEFAULT_CONFIG.policy; // auto 0.90, second_opinion 0.70, undo 24h
 
-/** The locked grid, written out by hand (decisions.md), so the test does not just echo POLICY_GRID. */
+/**
+ * The wave1-decisions #24 grid, written out by hand, so the test does not just echo POLICY_GRID.
+ * High row: auto + undo when confident; hard exclusions (isHardHuman) are applied by `policyOutcome`.
+ */
 const EXPECTED: Record<Impact, { confident: PolicyOutcome; middle: PolicyOutcome; low: PolicyOutcome }> = {
-  low: { confident: 'auto', middle: 'auto_second', low: 'human' },
-  medium: { confident: 'auto_undo', middle: 'human', low: 'human' },
-  high: { confident: 'human', middle: 'human', low: 'human' },
+  low: { confident: 'auto', middle: 'auto', low: 'auto_undo' },
+  medium: { confident: 'auto', middle: 'auto_second', low: 'human' },
+  high: { confident: 'auto_undo', middle: 'human', low: 'human' },
 };
 
 /** Representative p per band, including both edges of each band. */
@@ -54,22 +58,37 @@ describe('thresholds and overrides', () => {
   it('per-kind override from config (freshness.closed auto = 0.92)', () => {
     const t = effectiveThresholds(DEFAULT_CONFIG, 'freshness.closed');
     expect(t.auto).toBe(0.92);
-    expect(decide({ p: 0.91 }, 'medium', t)).toBe('human');
-    expect(decide({ p: 0.91 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'inbox.classify'))).toBe('auto_undo');
-    expect(decide({ p: 0.92 }, 'medium', t)).toBe('auto_undo');
+    expect(decide({ p: 0.91 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.91 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'inbox.classify'))).toBe('auto');
+    expect(decide({ p: 0.92 }, 'medium', t)).toBe('auto');
   });
 
   it('per-call override wins over the kind override', () => {
     const t = effectiveThresholds(DEFAULT_CONFIG, 'freshness.closed', { auto: 0.99, second_opinion: 0.5 });
     expect(t).toEqual({ auto: 0.99, second_opinion: 0.5, undo_hours: 24 });
-    expect(decide({ p: 0.95 }, 'low', t)).toBe('auto_second');
-    expect(decide({ p: 0.55 }, 'low', t)).toBe('auto_second');
-    expect(decide({ p: 0.49 }, 'low', t)).toBe('human');
+    expect(decide({ p: 0.95 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.55 }, 'medium', t)).toBe('auto_second');
+    expect(decide({ p: 0.49 }, 'medium', t)).toBe('human');
   });
 
-  it('high impact is human even with thresholds of zero', () => {
+  it('hard exclusions are human whatever the thresholds', () => {
     const t = { auto: 0, second_opinion: 0, undo_hours: 1 };
-    expect(decide({ p: 1 }, 'high', t)).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'high', t, { kind: 'apply.submit' })).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'high', t, { op: 'outreach.send' })).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'low', t, { op: 'roles.delete' })).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'high', t, { component: 'dealbreakers' })).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'high', t, { component: 'terms', changedKeys: ['comp_floor'] })).toBe('human');
+    expect(policyOutcome({ p: 1 }, 'high', t, { component: 'terms', changedKeys: ['equity'] })).toBe('auto_undo');
+    expect(policyOutcome({ p: 1 }, 'high', t, { component: 'work_mode' })).toBe('auto_undo');
+  });
+
+  it('confident_outcome turns a confident plain auto into auto + undo', () => {
+    const t = effectiveThresholds(DEFAULT_CONFIG, 'inbox.classify');
+    expect(t.confident_outcome).toBe('auto_undo');
+    expect(policyOutcome({ p: 0.95 }, 'medium', t)).toBe('auto_undo');
+    expect(policyOutcome({ p: 0.8 }, 'medium', t)).toBe('auto_second');
+    expect(policyOutcome({ p: 0.95 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'roles.move'))).toBe('auto');
+    expect(policyOutcome({ p: 0.95 }, 'medium', effectiveThresholds(DEFAULT_CONFIG, 'freshness.closed'))).toBe('auto');
   });
 
   it.each([

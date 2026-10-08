@@ -1,16 +1,9 @@
-import type { OpErrorCode, OpOutcome } from '@perfect-placement/contracts';
+import type { OpOutcome } from '@perfect-placement/contracts';
 import { ZodError } from 'zod';
+import { OpError } from '../ops/errors.js';
 
-/** Thrown inside lane E handlers; converted to an OpOutcome error at the boundary. */
-export class OpError extends Error {
-  constructor(
-    readonly code: OpErrorCode,
-    message: string,
-    readonly issues?: unknown,
-  ) {
-    super(message);
-  }
-}
+/** Lane E throws the engine's OpError; runOp turns it into `{ status: 'error' }` and rolls back. */
+export { OpError };
 
 /** Signals that policy routed the action to a human. */
 export class RequiresHuman extends Error {

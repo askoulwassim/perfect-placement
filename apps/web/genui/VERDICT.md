@@ -1,5 +1,7 @@
 # OpenUI verdict (lane J spike, 2026-10-08)
 
+> Wave 2 status: adopted as planned below. genui is folded into `apps/web` (one build, one test run, no own lockfile); the stand-ins are replaced by lane D's components; cards hydrate through ops; Ask replies render in the CommandBar with OpButton actions. The spike's measurement harness (`measure.ts`, js-tiktoken) and demo page were removed with the standalone package; the numbers below are the spike's.
+
 **Verdict: ADAPT.** Use `@openuidev/react-lang` + `@openuidev/lang-core` (MIT, 0.3.2, pinned exact) as the parser, prompt generator and streaming `<Renderer>` for Ask replies, with **our components only, id-only props, our own prompt rules, telemetry and devtools switched off**. Do not adopt `@openuidev/react-ui` (its chat layouts and built-in component library fight `design.md`).
 
 ## What was tested

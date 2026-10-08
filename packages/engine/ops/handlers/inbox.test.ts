@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { okOut } from '../_shim/assert.js';
-import { ctxAt, type FixtureEngine, openFixtureEngine } from '../_shim/testing.js';
+import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../../testing/index.js';
 
 let e: FixtureEngine;
 beforeEach(() => {
@@ -25,7 +24,7 @@ const status = (id: string) =>
 const count = (sql: string, ...p: unknown[]) => (e.db.prepare(sql).get(...p) as { n: number }).n;
 
 describe('inbox.ingest', () => {
-  it('confident confirmation: auto + undo, moves draft-ready to applied, records applied_at', async () => {
+  it('confident confirmation: auto + undo (config confident_outcome, #16), moves draft-ready to applied, records applied_at', async () => {
     const id = FIXTURE_ROLE_IDS.linearDraft;
     const out = okOut(await e.runOp('inbox.ingest', { messages: [msg('m1', id, 'confirmation')] }, ctxAt('schedule')));
     expect(out).toEqual({ applied: [{ message_id: 'm1', role_id: id, to: 'applied' }], queued: [], ignored: [] });
@@ -35,6 +34,7 @@ describe('inbox.ingest', () => {
       string
     >;
     expect(d).toMatchObject({ policy_outcome: 'auto_undo', status: 'applied', undo_until: '2026-10-09T12:00:00.000Z' });
+    expect(JSON.parse(d.action_json as string).undo).toEqual({ op: 'roles.move', input: { role_id: id, to: 'draft-ready' } });
     const ev = e.db.prepare(`SELECT decision_id FROM event WHERE type = 'role_moved' AND subject_id = ?`).get(id) as {
       decision_id: string;
     };

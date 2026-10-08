@@ -47,7 +47,9 @@ export type MoveVia =
   /** roles.score (lane F): active, held or archived from a score row. */
   | 'score'
   /** Automatic held -> active when a company slot frees. */
-  | 'promote';
+  | 'promote'
+  /** `decisions.undo` of an auto + undo decision: restore the exact prior status (and archive reason). */
+  | 'undo';
 
 export interface TransitionRequest {
   from: RoleStatus;
@@ -87,7 +89,7 @@ export function checkTransition(req: TransitionRequest): TransitionCheck {
   const { from, to, actor, via } = req;
   if (from === to) return { ok: false, code: 'conflict', message: `role is already ${to}` };
   if (to === 'archived' && !req.archiveReason) return no('archiving requires a reason');
-  if (to === 'held' && via !== 'score') return no('held is set by the company cap only');
+  if (to === 'held' && via !== 'score' && via !== 'undo') return no('held is set by the company cap only');
 
   switch (via) {
     case 'move': {
@@ -135,6 +137,9 @@ export function checkTransition(req: TransitionRequest): TransitionCheck {
     }
     case 'promote':
       return from === 'held' && to === 'active' ? ok : no('promotion is held -> active only');
+    case 'undo':
+      // Authorized by the decision being undone (inside its window); restores what was there before.
+      return ok;
   }
 }
 

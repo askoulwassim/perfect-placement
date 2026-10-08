@@ -23,7 +23,7 @@ export const SYNTHETIC_V1 = {
   pipeline: {
     meta: {
       generated: '2026-01-10',
-      counts: { active: 1, 'on-deck': 1, 'draft-ready': 0, applied: 1, interviews: 0, offers: 0, archived: 5 },
+      counts: { active: 1, 'on-deck': 1, 'draft-ready': 0, applied: 1, interviews: 0, offers: 0, archived: 6 },
     },
     roles: [
       {
@@ -76,6 +76,16 @@ export const SYNTHETIC_V1 = {
       },
       { id: 'initech_staff-pm-old', company: 'Initech', role: 'Staff PM', status: 'archived', flags: ['closed'] },
       { id: 'umbrella_gpm', company: 'Umbrella', role: 'GPM', status: 'archived', reason: 'Parked for later' },
+      // A green score the v1 scorer archived: remote not confirmed (wave1-decisions #20).
+      {
+        id: 'hooli_staff-pm-data',
+        company: 'Hooli',
+        role: 'Staff PM, Data',
+        status: 'archived',
+        workplace: 'Hybrid (Springfield)',
+        remote_ok: 'verify',
+        url: 'https://jobs.lever.co/hooli/0f0e0d0c-0b0a-4908-8706-050403020100',
+      },
       {
         id: 'umbrella_head-of-product',
         company: 'Umbrella',
@@ -108,6 +118,7 @@ export const SYNTHETIC_V1 = {
     { id: 'initech-director-data', scored: '2026-01-05', total: 66, band: 'yellow', decision: 'archived', c: [3, 3, 4, 3, 3, 3, 4, 3, 3] },
     { id: 'initech_staff-pm-old', scored: '2026-01-05', total: 78, band: 'green', decision: 'active', c: [4, 4, 4, 4, 4, 4, 3, 4, 4] },
     { id: 'umbrella_gpm', scored: '2026-01-05', total: 80, band: 'green', decision: 'active', c: [4, 4, 4, 4, 4, 4, 4, 4, 4] },
+    { id: 'hooli_staff-pm-data', scored: '2026-01-05', total: 82, band: 'green', decision: 'archived', c: [4, 4, 4, 5, 4, 4, 4, 4, 4] },
   ],
   /** Expected v2 outcome per v1 id. */
   expected: {
@@ -118,6 +129,7 @@ export const SYNTHETIC_V1 = {
     'initech-director-data': { id: 'initech_director-data', status: 'archived', reason: 'dealbreaker' },
     'initech_staff-pm-old': { id: 'initech_staff-pm-old', status: 'archived', reason: 'closed' },
     umbrella_gpm: { id: 'umbrella_gpm', status: 'archived', reason: 'passed' },
+    'hooli_staff-pm-data': { id: 'hooli_staff-pm-data', status: 'archived', reason: 'dealbreaker' },
     'umbrella_head-of-product': { id: 'umbrella_head-of-product', status: 'archived', reason: 'legacy' },
   },
 } as const;
@@ -161,6 +173,7 @@ export function writeSyntheticV1(dir: string): void {
   put('02_Pipeline/archive/2026-01-05_initech_director-data.md', role('Director, Data', 'Initech'));
   put('02_Pipeline/archive/2026-01-04_initech_staff-pm-old.md', role('Staff PM', 'Initech'));
   put('02_Pipeline/archive/2026-01-05_umbrella_gpm.md', role('GPM', 'Umbrella'));
+  put('02_Pipeline/archive/2026-01-05_hooli_staff-pm-data.md', role('Staff PM, Data', 'Hooli'));
   put('02_Pipeline/archive/2026-01-05_zzz-corp_orphan-role.md', role('Orphan', 'Zzz Corp'));
   put('02_Pipeline/archive/.gitkeep', '');
   put('02_Pipeline/runs/README.md', '# Runs\n');

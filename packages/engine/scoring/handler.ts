@@ -150,7 +150,12 @@ export function rolesScoreHandler(rawInput: OpInput<'roles.score'> | unknown, ct
 
   const nextStatus: RoleStatus = movable ? decision : role.status;
   const eventIds: string[] = [];
-  const output: OpOutput<'roles.score'> = { score, status: nextStatus, held: nextStatus === 'held' };
+  const output: OpOutput<'roles.score'> = {
+    score,
+    status: nextStatus,
+    held: nextStatus === 'held',
+    cap: cap.map(({ role_id, from, to }) => ({ role_id, from, to })),
+  };
   if (ctx.dryRun) return { output, eventIds, cap };
 
   store.transaction(() => {
@@ -188,7 +193,7 @@ export function rolesScoreHandler(rawInput: OpInput<'roles.score'> | unknown, ct
 
 /**
  * Re-apply the per-company cap after something outside scoring frees or takes a slot
- * (roles.move / roles.archive / freshness close). WAVE 2: lane B calls this from those handlers.
+ * (roles.move / roles.archive / freshness close / inbox moves). Lane B's `moveRole` calls it after every move.
  */
 export function rebalanceCompany(companyId: string, ctx: OpContext, deps: ScoringDeps): { cap: CapTransition[]; eventIds: string[] } {
   const pool = deps.store.companyPool(companyId);

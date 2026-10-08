@@ -1,7 +1,7 @@
-import { type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
+import { type HardHumanSubject, isHardHuman, type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
-import { BackendCard, PolicyGrid, ScheduleRow } from '../components/shell';
+import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
 
@@ -11,6 +11,16 @@ const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
   ['freshness', 'Freshness'],
   ['scout_score', 'Scout + score'],
 ];
+/** Hard exclusions (wave1-decisions #24): shown locked as "you"; each is checked against the contract. */
+const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
+  ['Submit application', { kind: 'apply.submit' }],
+  ['Send email', { op: 'outreach.send' }],
+  ['Delete anything', { op: 'roles.delete' }],
+  ['Dealbreakers', { component: 'dealbreakers' }],
+  ['Comp floor', { component: 'terms', changedKeys: ['comp_floor'] }],
+];
+export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
+
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
 
@@ -71,14 +81,17 @@ export function Settings() {
         <div>
           <div style={{ ...eyebrow(), marginBottom: 14 }}>Backends</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 16 }}>
-            {backends.data?.items.map((b) => (
-              <BackendCard key={b.name} name={cap(b.name)} mode={b.mode} status={b.status} latencyMs={b.latencyMs} />
-            ))}
+            {backends.data?.items
+              .filter((b) => b.name !== 'rule')
+              .map((b) => (
+                <BackendCard key={b.name} name={cap(b.name)} mode={b.mode} status={b.status} latencyMs={b.latencyMs} />
+              ))}
           </div>
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 14 }}>Policy</div>
           <PolicyGrid thresholds={thresholds} onChange={(x) => setThresholds({ ...thresholds, ...x })} />
+          <HardExclusions items={LOCKED_LABELS} />
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 6 }}>Schedules</div>

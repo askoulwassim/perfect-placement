@@ -1,4 +1,13 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test", "dist", "node_modules"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test",
+    "genui/src/**/*.test.ts",
+    "genui/src/**/*.test.tsx",
+    "genui/src/**/*.test-fixtures.ts",
+    "dist",
+    "node_modules"
+  ]
 }

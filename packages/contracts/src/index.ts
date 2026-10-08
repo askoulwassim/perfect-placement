@@ -5,6 +5,7 @@ export * from './ops/define.js';
 export * from './ops/registry.js';
 export * from './policy.js';
 export * from './primitives.js';
+export * from './profile-data.js';
 export * from './resolver.js';
 export * from './schema.js';
 export * from './tokens.js';

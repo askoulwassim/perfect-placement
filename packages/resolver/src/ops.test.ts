@@ -1,8 +1,8 @@
 import { FIXTURE_NOW } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDecisionOps } from './ops.js';
-import { createSqliteDecisionStore, type DecisionStore } from './store.js';
-import { fakeRunOp, tempDb } from './test-helpers.js';
+import type { DecisionStore } from './store.js';
+import { createSqliteDecisionStore, fakeRunOp, tempDb } from './test-helpers.js';
 
 let h: ReturnType<typeof tempDb>;
 let store: DecisionStore;

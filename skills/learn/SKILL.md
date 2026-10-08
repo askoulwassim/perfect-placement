@@ -23,17 +23,21 @@ Wave 2); this skill is the judgment the loop asks for when an LLM backend is an 
      `before` from the data anyway).
    - `evidence`: short factual lines pointing at the event(s): role id, stage, quoted feedback. No speculation.
    - Return nothing when on reflection nothing should change.
-   - Keep the component's schema (see `packages/engine/profile/components.ts`). Never change `criteria_weights` by more
+   - Keep the component's schema (see `packages/engine/profile/components.ts`). Never change `criterion_weights` by more
      than 3 points per criterion from one event.
-3. Then call `profile.propose_diff` `{ component, before, after, evidence, event_id }`. Do not call
-   `profile.apply_diff` yourself: routing is policy.
+3. Then call `profile.propose_diff` `{ component, before, after, evidence, event_id }`, and `profile.apply_diff { diff_id }`
+   with your confidence: routing is policy, never your call.
 
 ## Policy (mechanics, for reference)
 
-| Component kind | Impact | Outcome |
+| Component kind | Impact | Outcome (#14, #24) |
 | --- | --- | --- |
-| Work mode, Terms, Dealbreakers (filters) | high | always the user, in Needs you |
-| Craft, Domain, Company, Team, Growth (weighted) | medium | auto + 24h undo when p >= 0.90, else the user |
-| Story, Voice, Network (assets) | low | auto when confident, else the user |
+| Dealbreakers; Terms when the comp floor changes | hard exclusion | always the user, in Needs you |
+| Work mode, other Terms changes (filters) | high | auto + 24h undo when p >= 0.90, else the user |
+| Craft, Domain, Company, Team, Growth (weighted) | medium | auto + 24h undo when p >= 0.90; 0.70 to 0.90 only if a second opinion agrees; else the user |
+| Story, Voice, Network (assets) | medium | same as weighted |
 
-Applied weighted and filter changes create profile v+1 and trigger a rescore of unapplied roles.
+`profile.learn { event_id }` runs the loop: it asks the 11 yes/no questions through the resolver. When the engine has no
+writing model (the default), you draft each diff and call `profile.propose_diff`; then call `profile.apply_diff` with your
+confidence in the op context, and the policy decides. Applied weighted and filter changes create profile v+1 and rescore
+the movable roles (inbox, active, held; never a role the user picked).

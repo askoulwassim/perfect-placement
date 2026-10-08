@@ -1,7 +1,6 @@
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { okOut } from './_shim/assert.js';
-import { ctxAt, type FixtureEngine, openFixtureEngine } from './_shim/testing.js';
+import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
 
 /*
  * Done-when (lane B brief): a fixture role goes inbox -> active -> draft-ready ->
