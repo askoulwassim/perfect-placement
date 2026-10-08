@@ -258,4 +258,40 @@ _None yet._
 - Change: add `skipped: z.array(Id).default([])`: requested `role_ids` that were not checked because they are outside `FRESHNESS_SCOPE` (applied or later, archived, inbox) or unknown.
 - Why: a caller passing an applied role id today gets silently fewer results; the UI and agents should see "skipped, out of scope" rather than infer it.
 - Shim: `checkFreshness()` returns `skipped` next to `output`; the handler drops it to match the frozen schema.
+## Lane H requests
+
+### people.find: skill hints + LinkedIn company slug
+- Lane: H
+- Date: 2026-10-08
+- Contract: packages/contracts/src/ops/registry.ts `peopleFind.input`
+- Change: add `hints: z.array(z.object({ name, headline?: string|null, linkedin_url?: url|null, email?: email|null, source: 'jd'|'company_site'|'manual' })).max(20).optional()` and `linkedin_company_slug: z.string().regex(/^[a-z0-9-]+$/).optional()`.
+- Why: the blueprint lists the JD and company team page as people sources, but no op can create a contact other than people.find, and people.link needs an existing contact_id. The LinkedIn vanity slug often differs from the PP company slug.
+- Shim: `PeopleFindInput` in packages/engine/people/find.ts extends the contract input with both fields.
+- Status: open
+
+### people.classify: say whether the tier was applied
+- Lane: H
+- Date: 2026-10-08
+- Contract: `peopleClassify.output`
+- Change: add `outcome: PolicyOutcome` (or `applied: boolean`).
+- Why: when the resolver routes to `human`, the link keeps its provisional tier and the decision waits in Needs you; callers (skill, UI) cannot tell this from the output today.
+- Shim: callers read `decision.policy_outcome` by `decision_id`.
+- Status: open
+
+### people.classify decision action
+- Lane: H
+- Date: 2026-10-08
+- Contract: decision `action_json` convention (lane I) for kind `people.classify`
+- Change: when a human resolves a people.classify decision, apply it via `people.link { contact_id, role_id, degree, tier, is_hiring_team, via_contact_id, company_id }` built from the chosen role. Lane I's resolver should set `action_json` accordingly, or decisions.resolve should call a lane H helper.
+- Why: otherwise the human pick never reaches contact_link.
+- Shim: none; tests assert the decision stays pending with the provisional tier.
+- Status: open
+
+### config.linkedin: mode, driver, per-run caps
+- Lane: H
+- Date: 2026-10-08
+- Contract: `PolicyConfig.linkedin` / `DEFAULT_CONFIG.linkedin`
+- Change: add `mode: 'off'|'dry-run'|'live'` (default `'off'`), `driver: 'playwright'|'claude-in-chrome'` , `max_pages_per_run: 6`, `max_mutual_expansions: 3`.
+- Why: live LinkedIn reads must be opt-in per install; per-run caps are hard-coded defaults in the adapter today.
+- Shim: adapter options + defaults in packages/engine/integrations/linkedin/index.ts; deps decide whether a LinkedIn source is injected.
 - Status: open

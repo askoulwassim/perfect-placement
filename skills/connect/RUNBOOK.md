@@ -1,0 +1,39 @@
+# Connect: first live run (Wave 2, Wassim present)
+
+Lane H "done when": on one real picked role, correct tiers and four drafts in Gmail drafts. Wave 1 shipped everything in dry-run only. This is the exact live procedure. Nothing here runs without Wassim at the keyboard.
+
+## Before (decide with Wassim)
+
+1. **Role.** One role Wassim picked (status `on-deck` or `draft-ready`), at a company where he expects at least one 1st-degree connection.
+2. **Browser driver** (implements `LinkedInDriver`: `open(url)` + `readPeopleCards()` only):
+   - **A. Playwright** `chromium.launchPersistentContext(<copy of Wassim's Chrome profile dir>, { headless: false, channel: 'chrome' })`. Uses his signed-in session. Chrome must be closed (profile lock), or use a dedicated profile he signs into once.
+   - **B. Claude in Chrome** (extension in his own Chrome). Driver = an agent loop that calls `navigate` + `get_page_text` and parses cards. No profile copy, but slower and needs site permission for linkedin.com.
+3. **Gmail auth.** `GmailDraftClient` with one method, `createDraft`:
+   - **A. Gmail REST** (`createGmailApiClient`): OAuth client in Google Cloud, scope `gmail.compose` only, token stored outside the repo (keychain or `$PP_HOME/.secrets`, never committed).
+   - **B. Gmail MCP connector** `create_draft` behind the same interface. No new OAuth app.
+4. **Caps for the first run.** `config.linkedin.max_profiles_per_day: 40` (default), `min_delay_s: 20`. Per call: max 6 pages, max 3 mutual expansions. Expected: 3 to 6 page loads over 1 to 4 minutes.
+
+## Run
+
+1. `pp doctor` passes; `PP_HOME` is the real vault (never the repo).
+2. Dry preview: `people.find { role_id, dry_run: true }` with the live driver. Wassim eyeballs the list. Nothing is written.
+3. `people.find { role_id }`. Reads, in order:
+   - `linkedin.com/search/results/people/?keywords=<Company>&network=["F"]` (1st-degree connections)
+   - `linkedin.com/company/<slug>/people/?keywords=<title keywords>` (People page)
+   - up to 3 "mutual connections" lists for 2nd-degree people
+   Stored per person: name, headline, profile URL, degree, via mutual. Nothing else.
+4. `people.classify` for each contact. Wassim resolves any Needs-you picks.
+5. Wassim confirms the tiers are right (the "correct tiers" check).
+6. For the best contact in each of warm_hiring, warm_other, bridge, cold_hiring (where one exists): skill writes Hook / Proof / Ask from Story + Voice, `outreach.draft`, Wassim reads the vault file.
+7. `outreach.to_gmail` for each. Four Gmail drafts. Wassim opens Gmail, checks To (bridge = the mutual), edits if needed, sends himself or deletes.
+
+## Stop conditions
+
+- Any LinkedIn checkpoint, captcha, "unusual activity" or sign-in wall: stop, do not retry that day.
+- `LinkedInGuardError`: stop and file a bug; never widen the allowlist to get past it.
+- `capped: true`: stop for the day.
+
+## After
+
+- Record the run (`run` row is written automatically) and any selector fixes in `packages/engine/integrations/linkedin/README.md`.
+- No screenshots, names or URLs from the live run go into the repo.
