@@ -26,9 +26,36 @@ export {
   outreachToGmailHandler,
   readOutreachSections,
   renderOutreachMd,
+  resolveDraft,
 } from './outreach.js';
 export { isPicked, linkedinReadsOn, PICKED_STATUSES } from './queries.js';
-export { BRIDGE_ASK_MAX, checkDraft, composeBody, LIMITS, type StyleIssue } from './style.js';
-export { buildWriterPrompt, type DraftContext, TIER_TEMPLATES, type TierTemplate, templateDraft } from './templates.js';
+export {
+  BRIDGE_ASK_MAX,
+  type CheckOptions,
+  checkDraft,
+  composeBody,
+  defaultSignoff,
+  LIMITS,
+  PROOF_MAX_SENTENCES,
+  type StyleIssue,
+  sentenceCount,
+  splitGreeting,
+} from './style.js';
+export {
+  buildWriterPrompt,
+  DOSSIER_MAX_CHARS,
+  type DraftContext,
+  dossierHighlights,
+  JD_MAX_CHARS,
+  jdExcerpt,
+  jdTheme,
+  storyProof,
+  TIER_TEMPLATES,
+  type TierTemplate,
+  templateDraft,
+  userName,
+  voiceNotes,
+  voiceSamples,
+} from './templates.js';
 export { HIRING_TEAM_ROLES, isHiringTeam, TIER_PRIORITY, tierFor } from './tier.js';
 export type { DraftText, Handler, OutreachWriter, PeopleDeps, WriterPrompt } from './types.js';

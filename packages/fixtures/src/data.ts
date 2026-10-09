@@ -69,6 +69,7 @@ const COMPONENT_DATA: Record<ProfileComponentKey, { confidence: number; data: Re
   story: {
     confidence: 0.9,
     data: {
+      name: 'Sam Fixture',
       headline: 'Data platform product lead',
       years: 12,
       wins: ['Launched a self-serve analytics product to 400 teams', 'Cut pipeline cost 38% with a usage-based redesign'],
@@ -91,7 +92,18 @@ const COMPONENT_DATA: Record<ProfileComponentKey, { confidence: number; data: Re
   team: { confidence: 0.5, data: { proximity: 'reports to VP or above', prefers_small_teams: true } },
   growth: { confidence: 0.55, data: { scope_ceiling: 'head of product', trajectory: 'up' } },
   dealbreakers: { confidence: 1, data: { hard_nos: ['onsite only', 'ad tech', 'below comp floor'] } },
-  voice: { confidence: 0.75, data: { style: 'punchy', rules: ['no em dashes', 'hook, reframe, close'] } },
+  voice: {
+    confidence: 0.75,
+    data: {
+      style: 'punchy',
+      rules: ['no em dashes', 'hook, reframe, close'],
+      // Synthetic writing samples (style exemplars only; their facts are never reused).
+      samples: [
+        'Short version: the dashboard was fine, the questions were wrong. We fixed the questions first.',
+        'Happy to dig in. Two things stood out, and one of them is a quick win.',
+      ],
+    },
+  },
   network: { confidence: 0.4, data: { warm_companies: ['stripe', 'datadog', 'ramp'] } },
 };
 

@@ -151,6 +151,14 @@ const OnboardState = z.object({
       max: z.number().optional(),
       /** Slider step (Wave 2, lane D request). */
       step: z.number().optional(),
+      /**
+       * Added (outreach voice): a text question that keeps a list (voice.sample). A string answer appends
+       * one item; a string[] answer replaces the list (removes items). Up to `max_items` of `max_chars`.
+       */
+      max_items: z.number().int().positive().optional(),
+      max_chars: z.number().int().positive().optional(),
+      /** The list kept so far (list questions only), so the UI can show and remove items. */
+      items: z.array(z.string()).optional(),
     })
     .nullable(),
 });
@@ -531,7 +539,7 @@ export const peopleClassify = defineOp({
 
 export const outreachDraft = defineOp({
   name: 'outreach.draft',
-  description: 'Write an outreach draft (Hook, Proof, Ask) to the vault.',
+  description: 'Write an outreach draft (Hook, Proof, Ask, optional sign-off) to the vault.',
   input: z.object({
     contact_id: Id,
     role_id: Id,
@@ -540,6 +548,8 @@ export const outreachDraft = defineOp({
     proof: z.string().min(1),
     ask: z.string().min(1),
     subject: z.string().optional(),
+    /** Added (outreach voice): sign-off in the user's voice. Default: Voice `signoff`, else "Thanks," + first name. */
+    signoff: z.string().min(1).optional(),
   }),
   output: z.object({ outreach: Outreach }),
   impact: 'low',
@@ -561,6 +571,10 @@ export const outreachGet = defineOp({
     outreach: Outreach,
     contact: Contact,
     subject: z.string().nullable(),
+    /** Added (outreach voice): the stored sign-off (or the default one). */
+    signoff: z.string(),
+    /** Added (outreach voice): the Gmail body as a natural email (greeting, Hook, Proof, Ask, sign-off). */
+    body: z.string(),
     /** One per OUTREACH_TONES entry, same order. */
     variants: z.array(DraftText).length(OUTREACH_TONES.length),
   }),

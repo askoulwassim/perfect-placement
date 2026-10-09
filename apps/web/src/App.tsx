@@ -126,7 +126,7 @@ function ScreenFor({ route }: { route: Route }) {
     case 'outreach-draft':
       return <OutreachScreen key={route.outreachId} outreachId={route.outreachId} />;
     case 'you':
-      return <You />;
+      return <You component={route.component} />;
     case 'onboarding':
       return <Onboarding key={route.calibrate ? 'cal' : 'ob'} calibrate={route.calibrate} />;
     case 'settings':

@@ -494,3 +494,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: wave1-decisions #5 and #9: the Gmail connector exists only inside an agent session; the engine has no Gmail client and no OAuth app. Smallest change: one optional field per op, no new op.
 - Shim: none (both fields optional; an injected `EngineServices.gmail` still works without the id).
 - Status: accepted
+
+## Outreach voice
+
+### Natural-email outreach: sign-off, composed body, several voice samples
+- Lane: outreach-voice (H, E, D)
+- Date: 2026-10-08
+- Contract: registry `outreachDraft.input`, `outreachGet.output`, `OnboardState.next_question`; profile-data `voice` (`signoff`), `VOICE_SAMPLES_MAX`, `VOICE_SAMPLE_MAX_CHARS`
+- Change: `outreach.draft` gains optional `signoff` (default: Voice `signoff`, else "Thanks," plus the Story first name), stored as a `## Sign-off` section of the vault draft. `outreach.get` gains `signoff: string` (stored or default) and `body: string`, the Gmail body exactly as `outreach.to_gmail` composes it (greeting line, Hook, Proof, Ask, sign-off); the agent's Gmail draft step uses `body`. `next_question` gains optional `max_items`, `max_chars` and `items` for list text questions: `voice.sample` keeps up to `VOICE_SAMPLES_MAX` (5) samples of at most `VOICE_SAMPLE_MAX_CHARS` (1500); a string answer appends one, a string[] answer replaces the list (removes items); `items` is the list kept so far. Voice data gains `signoff?: string` (`samples` unchanged, still a loose string list).
+- Why: drafts read as bare fragments; Wassim wants real emails grounded in his Story, the role and the company, in his own voice, with several writing samples as style exemplars.
+- Shim: none (all additions optional on input; older drafts without a sign-off get the default).
+- Status: accepted

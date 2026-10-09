@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine, tickingClock } from '../testing/index.js';
 import { type CalibrationSample, deriveWeights } from './calibration.js';
 import { rubricWeights } from './components.js';
+import { nextSamples } from './questions.js';
 import { parseResumeHeuristic } from './resume.js';
 import { SYNTH_RESUME } from './synthetic.js';
 
@@ -177,6 +178,45 @@ describe('onboarding end to end via ops', () => {
     const prev = await comps('pv_0002');
     for (const c of p.components.filter((x) => x.key !== 'growth'))
       expect(c.data_json).toEqual(prev.components.find((x) => x.key === c.key)?.data_json);
+  });
+
+  it('voice samples: several kept; a string appends, a list replaces (remove one), capped', async () => {
+    expect(nextSamples(['a'], 'b')).toEqual(['a', 'b']);
+    expect(nextSamples(['a', 'b'], 'a')).toEqual(['a', 'b']);
+    expect(nextSamples(['a', 'b', 'c'], ['a', 'c'])).toEqual(['a', 'c']);
+    expect(() => nextSamples(['1', '2', '3', '4', '5'], '6')).toThrow(/at most 5/);
+    expect(() => nextSamples([], 'x'.repeat(1501))).toThrow(/over 1500/);
+
+    const reinterview = async (value: string | string[]) => {
+      let state = (await op('onboard.start', { components: ['voice'] })) as State;
+      expect(state.next_question?.id).toBe('voice.style');
+      state = (await op('onboard.answer', { question_id: 'voice.style', value: 'warm' })) as State;
+      const q = state.next_question;
+      expect(q).toMatchObject({ id: 'voice.sample', answer_type: 'text', max_items: 5, max_chars: 1500 });
+      const before = q?.items ?? [];
+      state = (await op('onboard.answer', { question_id: 'voice.sample', value })) as State;
+      expect(state.step).toBe('confirm');
+      await op('onboard.confirm', {});
+      const voice = (await comps()).components.find((c) => c.key === 'voice');
+      return { before, voice };
+    };
+
+    e = openFixtureEngine();
+    // Append: the fixture's two samples stay, a third is added.
+    const a = await reinterview('Third sample, plain and short.');
+    expect(a.before).toHaveLength(2);
+    expect(a.voice?.data_json.samples).toEqual([...a.before, 'Third sample, plain and short.']);
+    const md = readFileSync(join((e as FixtureEngine).home, a.voice?.md_path as string), 'utf8');
+    expect(md).toContain('- Third sample, plain and short.');
+    // Remove one: the UI sends the list it keeps.
+    const b = await reinterview([a.before[0] as string, 'Third sample, plain and short.']);
+    expect(b.before).toHaveLength(3);
+    expect(b.voice?.data_json.samples).toEqual([a.before[0], 'Third sample, plain and short.']);
+    expect(await (e as FixtureEngine).runOp('onboard.start', { components: ['voice'] }, ctx())).toMatchObject({ status: 'ok' });
+    await op('onboard.answer', { question_id: 'voice.style', value: 'warm' });
+    expect(
+      await (e as FixtureEngine).runOp('onboard.answer', { question_id: 'voice.sample', value: ['1', '2', '3', '4', '5', '6'] }, ctx()),
+    ).toMatchObject({ status: 'error', code: 'invalid_input' });
   });
 
   it('fixtures: an agent re-onboarding cannot write filters; they become pending high diffs (via profile.propose_diff)', async () => {

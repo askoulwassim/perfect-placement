@@ -9,13 +9,13 @@ import { COMPONENT_NAME, chipText } from '../lib/profile';
 import { timeline } from '../lib/view';
 import { go } from '../router';
 
-export function You() {
+export function You({ component }: { component?: ProfileComponentKey } = {}) {
   const { mobile } = useLayout();
   const { showToast } = useApp();
   const act = useAct();
   const profile = useOp('profile.get', {});
   const history = useOp('profile.history', {});
-  const [selected, setSelected] = useState<ProfileComponentKey | null>(null);
+  const [selected, setSelected] = useState<ProfileComponentKey | null>(component ?? null);
 
   const comps = profile.data?.components ?? [];
   const diffs = [...(profile.data?.pending_diffs ?? [])].sort(

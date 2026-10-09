@@ -186,7 +186,9 @@ function readOp(
       );
       const md = read(outreach.md_path) ?? '';
       const text = { hook: section(md, 'Hook'), proof: section(md, 'Proof'), ask: section(md, 'Ask') };
-      return ok({ outreach, contact, subject: null, ...text, variants: OUTREACH_TONES.map(() => text) });
+      const signoff = section(md, 'Sign-off') || 'Thanks,';
+      const body = `Hi ${contact.name.split(/\s+/)[0]},\n\n${[text.hook, text.proof, text.ask].join('\n\n')}\n\n${signoff}\n`;
+      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text) });
     }
     case 'contacts.get': {
       const contact = must(

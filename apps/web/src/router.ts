@@ -1,8 +1,10 @@
-import type { Screen } from '@perfect-placement/contracts';
+import { PROFILE_COMPONENT_KEYS, type ProfileComponentKey, type Screen } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 
 export type Route =
-  | { screen: 'now' | 'needs-you' | 'river' | 'you' | 'settings' }
+  | { screen: 'now' | 'needs-you' | 'river' | 'settings' }
+  /** `component`: open You with that component selected (after a re-interview). */
+  | { screen: 'you'; component?: ProfileComponentKey }
   | { screen: 'onboarding'; calibrate?: boolean }
   | { screen: 'role'; roleId: string }
   | { screen: 'people'; roleId: string }
@@ -13,9 +15,12 @@ export function parseRoute(hash: string): Route {
   switch (head) {
     case 'needs-you':
     case 'river':
-    case 'you':
     case 'settings':
       return { screen: head };
+    case 'you':
+      return arg && (PROFILE_COMPONENT_KEYS as readonly string[]).includes(arg)
+        ? { screen: 'you', component: arg as ProfileComponentKey }
+        : { screen: 'you' };
     case 'onboarding':
       return arg === 'calibrate' ? { screen: 'onboarding', calibrate: true } : { screen: 'onboarding' };
     case 'role':
@@ -37,6 +42,8 @@ export function href(r: Route): string {
       return `#/people/${encodeURIComponent(r.roleId)}`;
     case 'outreach-draft':
       return `#/outreach/${encodeURIComponent(r.outreachId)}`;
+    case 'you':
+      return r.component ? `#/you/${r.component}` : '#/you';
     case 'onboarding':
       return r.calibrate ? '#/onboarding/calibrate' : '#/onboarding';
     default:

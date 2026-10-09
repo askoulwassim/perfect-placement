@@ -51,6 +51,10 @@ export const StoryItem = z.looseObject({
   confirm: Text.optional(),
 });
 
+/** Voice writing samples kept by onboarding (outreach voice). */
+export const VOICE_SAMPLES_MAX = 5;
+export const VOICE_SAMPLE_MAX_CHARS = 1500;
+
 export const COMPONENT_DATA_SCHEMAS = {
   story: z.looseObject({
     ...common,
@@ -139,7 +143,13 @@ export const COMPONENT_DATA_SCHEMAS = {
     proof_points: z.array(z.looseObject({ claim: Text, evidence: Text })).optional(),
     pitches: z.record(z.string(), z.string()).optional(),
     standard_answers: z.record(z.string(), z.string()).optional(),
+    /**
+     * Writing samples (style exemplars for the outreach writer: tone, rhythm, phrasing; never facts).
+     * Onboarding appends (voice.sample), up to VOICE_SAMPLES_MAX of at most VOICE_SAMPLE_MAX_CHARS each.
+     */
     samples: TextList.optional(),
+    /** Email sign-off in the user's voice, e.g. "Thanks,\nAlex". Default: "Thanks," plus the first name. */
+    signoff: Text.optional(),
   }),
   network: z.looseObject({
     ...common,

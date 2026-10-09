@@ -1,4 +1,4 @@
-import type { ProfileComponentKey } from '@perfect-placement/contracts';
+import { type ProfileComponentKey, VOICE_SAMPLE_MAX_CHARS, VOICE_SAMPLES_MAX } from '@perfect-placement/contracts';
 
 /*
  * Onboarding question bank: two to four adaptive questions per component, chips or
@@ -22,6 +22,11 @@ export interface QuestionDef {
   options?: string[];
   min?: number;
   max?: number;
+  /** List text question: a string answer appends one item, a string[] answer replaces the list. */
+  max_items?: number;
+  max_chars?: number;
+  /** The list kept so far (list questions). */
+  items?: (d: Draft) => string[];
   /** Already answered by the draft (resume, earlier answer, current profile). */
   known: (d: Draft) => boolean;
   /** Only ask when this holds (adaptive follow-ups). */
@@ -60,6 +65,22 @@ const set =
     comp(d, k)[f] = conv(v);
   };
 const known = (k: ProfileComponentKey, f: string) => (d: Draft) => has(d, k, f);
+
+const voiceSamplesOf = (d: Draft): string[] =>
+  Array.isArray(d.voice?.samples) ? (d.voice.samples as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+
+/**
+ * Voice samples after an answer: a string appends one sample (a duplicate is ignored), a string[]
+ * replaces the list (so the UI can remove one). Capped at VOICE_SAMPLES_MAX of VOICE_SAMPLE_MAX_CHARS.
+ */
+export function nextSamples(current: readonly string[], v: AnswerValue): string[] {
+  const incoming = (Array.isArray(v) ? v : [String(v)]).map((s) => String(s).trim()).filter(Boolean);
+  for (const s of incoming)
+    if (s.length > VOICE_SAMPLE_MAX_CHARS) throw new Error(`voice.sample: a sample is over ${VOICE_SAMPLE_MAX_CHARS} chars`);
+  const list = Array.isArray(v) ? [...new Set(incoming)] : current.includes(incoming[0] ?? '') ? [...current] : [...current, ...incoming];
+  if (list.length > VOICE_SAMPLES_MAX) throw new Error(`voice.sample: at most ${VOICE_SAMPLES_MAX} samples`);
+  return list;
+}
 
 export const QUESTION_BANK: QuestionDef[] = [
   // Story: the resume normally answers these.
@@ -305,11 +326,14 @@ export const QUESTION_BANK: QuestionDef[] = [
   {
     id: 'voice.sample',
     component: 'voice',
-    label: 'Writing sample',
+    label: 'Writing samples',
     answer_type: 'text',
+    max_items: VOICE_SAMPLES_MAX,
+    max_chars: VOICE_SAMPLE_MAX_CHARS,
+    items: (d) => voiceSamplesOf(d),
     known: known('voice', 'samples'),
     apply: (d, v) => {
-      comp(d, 'voice').samples = [asStr(v)];
+      comp(d, 'voice').samples = nextSamples(voiceSamplesOf(d), v);
     },
   },
   // Network (LinkedIn fills this later; one optional seed question)
@@ -356,6 +380,12 @@ export function checkAnswer(q: QuestionDef, v: AnswerValue): void {
     const list = asList(v);
     if (!list.length) throw new Error(`${q.id}: pick at least one`);
     if (q.options) for (const x of list) if (!q.options.includes(x)) throw new Error(`${q.id}: unknown option '${x}'`);
+    return;
+  }
+  if (q.max_items) {
+    // A list (possibly empty: every sample removed) replaces what is kept; a string appends one item.
+    if (Array.isArray(v) && v.length > q.max_items) throw new Error(`${q.id}: at most ${q.max_items}`);
+    if (!Array.isArray(v) && !asStr(v)) throw new Error(`${q.id}: empty answer`);
     return;
   }
   if (!asStr(v)) throw new Error(`${q.id}: empty answer`);

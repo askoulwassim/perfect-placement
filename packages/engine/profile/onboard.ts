@@ -97,6 +97,9 @@ export function stateOf(s: OnboardSession): OnboardState {
           ...(q.options ? { options: q.options } : {}),
           ...(q.min != null ? { min: q.min } : {}),
           ...(q.max != null ? { max: q.max } : {}),
+          ...(q.max_items != null ? { max_items: q.max_items } : {}),
+          ...(q.max_chars != null ? { max_chars: q.max_chars } : {}),
+          ...(q.items ? { items: q.items(s.draft) } : {}),
         }
       : null,
   };

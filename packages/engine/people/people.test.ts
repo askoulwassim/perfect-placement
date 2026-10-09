@@ -318,7 +318,7 @@ describe('outreach', () => {
     expect(out.gmail_draft_id).toBe('dryrun-1');
     expect(out.outreach.status).toBe('in_gmail');
     expect(gmail.drafts[0]?.body).toBe(
-      'Your insights team is shipping fast.\n\nI built a self-serve analytics product 400 teams use.\n\n20 minutes next week?\n',
+      'Hi Maya,\n\nYour insights team is shipping fast.\n\nI built a self-serve analytics product 400 teams use.\n\n20 minutes next week?\n\nThanks,\nSam\n',
     );
     const again = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human')));
     expect(again.gmail_draft_id).toBe('dryrun-1');
