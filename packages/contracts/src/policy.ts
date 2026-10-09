@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DecisionKind, type Impact, type PolicyOutcome, type ProfileComponentKey } from './enums.js';
+import { DecisionKind, EmailVerifierProvider, type Impact, type PolicyOutcome, type ProfileComponentKey } from './enums.js';
 
 /*
  * Confidence x impact policy (decisions.md #4, replaced by wave1-decisions #24).
@@ -124,6 +124,29 @@ export const GuideState = z.object({
 export type GuideState = z.infer<typeof GuideState>;
 export const DEFAULT_GUIDE: GuideState = { policy: false, review: false, done: false };
 
+/**
+ * Added (#99): the email check run before a guessed address goes to Needs you. The domain's MX record is
+ * always checked (DNS, never SMTP); with a provider, each candidate is verified by that service using the
+ * key in the environment variable `keyEnv` (the key itself is never stored in config or the db).
+ */
+export const EmailVerifierConfig = z.object({
+  provider: EmailVerifierProvider.default('none'),
+  /** Environment variable holding the provider key (e.g. `NEVERBOUNCE_API_KEY`). */
+  keyEnv: z
+    .string()
+    .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+    .max(64)
+    .optional(),
+});
+export type EmailVerifierConfig = z.infer<typeof EmailVerifierConfig>;
+
+/** The environment variable a provider's key is read from when `keyEnv` is not set. */
+export const EMAIL_VERIFIER_KEY_ENV: Record<Exclude<EmailVerifierProvider, 'none'>, string> = {
+  neverbounce: 'NEVERBOUNCE_API_KEY',
+  zerobounce: 'ZEROBOUNCE_API_KEY',
+  hunter: 'HUNTER_API_KEY',
+};
+
 export const PolicyConfig = z.object({
   policy: Thresholds,
   /** Per decision-kind threshold overrides. */
@@ -181,6 +204,8 @@ export const PolicyConfig = z.object({
    * Optional: older config.json files (including ones with the retired `cues_seen`) parse unchanged.
    */
   ui: z.object({ guide: GuideState.default(DEFAULT_GUIDE) }).optional(),
+  /** Added (#99): the email check (MX always; a verification provider with the user's own key). Optional: older config.json files parse. */
+  email_verifier: EmailVerifierConfig.optional(),
 });
 /** Shape of `$PP_HOME/config.json`. */
 export type PolicyConfig = z.infer<typeof PolicyConfig>;

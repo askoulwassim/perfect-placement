@@ -180,6 +180,7 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
     status: 'drafted',
     md_path: prev?.md_path ?? vaultPath.outreach(recipientId, input.role_id, aboutId),
     about_contact_id: aboutId,
+    gmail_to: null,
   };
   if (ctx.dryRun) return { status: 'ok', output: { outreach }, eventIds: [] };
 
@@ -207,6 +208,10 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
  * Idempotent: an outreach already in Gmail returns its existing draft id.
  * Recipient: the contact, or the mutual for bridge drafts. To is set only when the address is confirmed
  * or at the `people.email` policy threshold (#37); otherwise the draft has no To and `to_reason` says why.
+ * #99: while the address is a guess waiting in Needs you, the engine creates no draft (`conflict`); the
+ * Gmail step is queued once it is confirmed. A draft the agent already made is still recorded (no To),
+ * so the confirmation can fill its To. The To used is kept on `gmail_to`. Recording the same draft id
+ * again on an `in_gmail` draft with no To (the To update step) stores the now confirmed To.
  */
 export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, ctx, deps) => {
   const parsed = outreachToGmail.input.safeParse(raw);
@@ -214,8 +219,20 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const { repos: db } = deps;
   const o = getOutreach(db, parsed.data.outreach_id);
   if (!o) return err('not_found', `outreach ${parsed.data.outreach_id}`);
-  if (o.gmail_draft_id && o.status !== 'drafted')
-    return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id, to: null, to_reason: null }, eventIds: [] };
+  if (o.gmail_draft_id && o.status !== 'drafted') {
+    // #99: the To update step re-records the same draft once its address is confirmed.
+    const given = parsed.data.gmail_draft_id;
+    if (given === o.gmail_draft_id && !o.gmail_to && o.status === 'in_gmail') {
+      const recipient = gmailRecipient(deps, o);
+      const to = recipient ? draftRecipient(deps, recipient) : null;
+      if (to?.email) {
+        const next: Outreach = { ...o, gmail_to: to.email };
+        if (!ctx.dryRun) upsertOutreach(db, next, true);
+        return { status: 'ok', output: { outreach: next, gmail_draft_id: given, to: to.email, to_reason: null }, eventIds: [] };
+      }
+    }
+    return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id, to: o.gmail_to, to_reason: null }, eventIds: [] };
+  }
   if (!o.md_path) return err('not_found', `outreach ${o.id} has no vault draft`);
   const md = readVault(deps, o.md_path);
   if (!md) return err('not_found', `vault draft ${o.md_path}`);
@@ -229,6 +246,12 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
 
   const given = parsed.data.gmail_draft_id;
   const to = draftRecipient(deps, recipient);
+  // #99: never create a Gmail draft while its address is a guess waiting in Needs you.
+  if (to.decision_id && !given)
+    return err(
+      'conflict',
+      `${recipient.name}'s address is an unconfirmed guess (decision ${to.decision_id}): confirm it in Needs you; the Gmail draft is queued then`,
+    );
   const toOut = { to: to.email, to_reason: to.reason };
   if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: given ?? 'dry-run', ...toOut }, eventIds: [] };
 
@@ -246,11 +269,19 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
       return err('backend_unavailable', `gmail: ${(e as Error).message}`);
     }
   }
-  const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail' };
+  const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail', gmail_to: to.email };
   upsertOutreach(db, next, true);
   advanceConnectToFill(db, o.role_id);
   return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId, ...toOut }, eventIds: [] };
 };
+
+/** The person an outreach is addressed to (the recipient row; an old bridge row: the link's mutual). */
+export function gmailRecipient(deps: PeopleDeps, o: Outreach): Contact | undefined {
+  const { repos: db } = deps;
+  const legacy = TIER_TEMPLATES[o.tier].recipient === 'via' && !o.about_contact_id;
+  const id = legacy ? getLinkForRole(db, o.contact_id, o.role_id)?.via_contact_id : o.contact_id;
+  return id ? getContact(db, id) : undefined;
+}
 
 /**
  * The stored draft as it goes to Gmail: sections from the vault (the human may have edited them),
@@ -276,9 +307,7 @@ export function resolveDraft(
   };
   // #98: the outreach is filed under its recipient; a bridge intro names its target in about_contact_id.
   // A bridge row with no about is an old one filed under the target: its recipient is the link's mutual.
-  const legacy = TIER_TEMPLATES[o.tier].recipient === 'via' && !o.about_contact_id;
-  const recipientId = legacy ? getLinkForRole(db, o.contact_id, o.role_id)?.via_contact_id : o.contact_id;
-  const recipient = recipientId ? getContact(db, recipientId) : undefined;
+  const recipient = gmailRecipient(deps, o);
   if (!recipient) return { error: `recipient for outreach ${o.id}` };
   const targetId = o.about_contact_id ?? o.contact_id;
   const target = getContact(db, targetId);

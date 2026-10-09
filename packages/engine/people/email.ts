@@ -11,6 +11,7 @@ import {
 import { z } from 'zod';
 import { getCompany, getContact, getRole, readVault, stripFrontmatter } from './queries.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
+import { verifyCandidates } from './verify.js';
 
 /*
  * Contact emails (#37). Known addresses first (the contact's own; hints the agent found in Gmail,
@@ -287,25 +288,40 @@ export function cleanDomain(d: string | null | undefined): string | null {
 
 export const isKnownSource = (s: EmailSource | null): boolean => s !== null && s !== 'pattern' && s !== 'provider';
 
+/** The pending `people.email` decision on a contact (other than `except`, the one being resolved now), or null. */
+export function pendingEmailDecision(deps: Pick<PeopleDeps, 'repos'>, contactId: string, except?: string): string | null {
+  const rows = deps.repos.decision.select(
+    `kind = 'people.email' AND status = 'pending' AND subject_type = 'contact' AND subject_id = ? AND id <> ? LIMIT 1`,
+    [contactId, except ?? ''],
+  );
+  return rows[0]?.id ?? null;
+}
+
 /**
  * Should this contact's address go in a Gmail draft's To? Yes when confirmed (manual, or confidence at
  * the `people.email` auto threshold) and no `people.email` decision is waiting on it. A legacy address
- * with no source counts as known.
+ * with no source counts as known. `except`: a decision being resolved right now (its action runs while
+ * it is still pending), which no longer counts as waiting. `decision_id` (#99): the waiting decision;
+ * while set, no Gmail draft is created.
  */
 export function draftRecipient(
   deps: Pick<PeopleDeps, 'repos' | 'config'>,
   c: Contact,
-): { email: string | null; guess: string | null; reason: string | null; confirmed: boolean } {
-  if (!c.email) return { email: null, guess: null, reason: 'no email found', confirmed: false };
-  const pending = deps.repos.decision.select(
-    `kind = 'people.email' AND status = 'pending' AND subject_type = 'contact' AND subject_id = ? LIMIT 1`,
-    [c.id],
-  ).length;
+  opts: { except?: string | undefined } = {},
+): { email: string | null; guess: string | null; reason: string | null; confirmed: boolean; decision_id: string | null } {
+  if (!c.email) return { email: null, guess: null, reason: 'no email found', confirmed: false, decision_id: null };
+  const pending = pendingEmailDecision(deps, c.id, opts.except);
   const auto = thresholdsFor(deps.config, 'people.email').auto;
   const confident = c.email_source === null || c.email_source === 'manual' || (c.email_confidence ?? 0) >= auto;
-  if (confident && !pending) return { email: c.email, guess: c.email, reason: null, confirmed: true };
+  if (confident && !pending) return { email: c.email, guess: c.email, reason: null, confirmed: true, decision_id: null };
   const pct = Math.round((c.email_confidence ?? 0) * 100);
-  return { email: null, guess: c.email, reason: `unconfirmed guess (${pct}%): confirm it in Needs you`, confirmed: false };
+  return {
+    email: null,
+    guess: c.email,
+    reason: pending ? `unconfirmed guess (${pct}%): confirm it in Needs you` : `unconfirmed guess (${pct}%)`,
+    confirmed: false,
+    decision_id: pending,
+  };
 }
 
 // ------------------------------------------------------------------ people.find_email
@@ -325,6 +341,7 @@ type Output = {
   mx: boolean | null;
   pattern: string | null;
   candidates: EmailCandidate[];
+  dropped: string[];
   decision_id: string | null;
   outcome: PolicyOutcome | null;
   reason: string | null;
@@ -368,7 +385,7 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
     return next;
   };
   const result = (c: Contact, extra: Partial<Output> = {}): Output => {
-    const r = draftRecipient(deps, c);
+    const r = draftRecipient(deps, c, { except: ctx.decisionId });
     return {
       contact: c,
       email: c.email,
@@ -379,6 +396,7 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
       mx: null,
       pattern: null,
       candidates: [],
+      dropped: [],
       decision_id: null,
       outcome: null,
       reason: r.reason,
@@ -485,9 +503,25 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
       // A provider failure leaves the pattern guess.
     }
   }
+  // #99: the email check (MX above; the provider per candidate) before anyone is asked.
+  const checked = await verifyCandidates(candidates, mx, deps.verifier);
+  candidates = checked.candidates;
+  const dropped = checked.dropped;
   const top = candidates[0];
-  const extra = { domain, mx, pattern: learned.pattern, candidates };
-  if (!top) return { status: 'ok', output: result(contact, extra), eventIds: [] };
+  const extra = { domain, mx, pattern: learned.pattern, candidates, dropped };
+  if (!top) {
+    // Every candidate is undeliverable: no guess to keep or ask about.
+    if (ctx.dryRun)
+      return { status: 'ok', output: result(contact, { ...extra, reason: 'every candidate is undeliverable' }), eventIds: [] };
+    const now = ctx.now().toISOString();
+    for (const d of db.decision.select(`kind = 'people.email' AND status = 'pending' AND subject_type = 'contact' AND subject_id = ?`, [
+      contact.id,
+    ]))
+      db.decision.update(d.id, { status: 'expired', resolved_at: now });
+    const guessed = contact.email && dropped.includes(contact.email.toLowerCase());
+    const next = guessed ? set(null, null, null) : contact;
+    return { status: 'ok', output: result(next, { ...extra, reason: 'every candidate is undeliverable' }), eventIds: [] };
+  }
   const source: EmailSource = top.pattern === 'provider' ? 'provider' : 'pattern';
   if (ctx.dryRun) {
     const guess = { ...contact, email: top.email, email_source: source, email_confidence: top.p };
@@ -519,6 +553,7 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
         pattern: learned.pattern,
         examples: learned.examples,
         candidates: candidates.slice(0, MAX_OPTIONS),
+        ...(dropped.length ? { dropped } : {}),
       },
       answer: { id: 'email', value: top.email, p: top.p },
       backend: 'rule',

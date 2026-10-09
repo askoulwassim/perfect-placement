@@ -265,6 +265,59 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
+  it('Needs you: each email candidate shows its check; an undeliverable one is gone (#99)', async () => {
+    const answers: Record<string, string> = {
+      'maya.rivera@linear.example': 'catch_all',
+      'mrivera@linear.example': 'undeliverable',
+      'maya@linear.example': 'risky',
+    };
+    const emailVerifier = { name: 'hunter', verify: async (e: string) => (answers[e] ?? 'unknown') as never };
+    const { container } = await boot(
+      '#/needs-you',
+      async (l) => {
+        l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
+        l.engine.db.prepare(`UPDATE contact SET name = 'Maya Rivera' WHERE id = 'ct_0001'`).run();
+        return l.as('agent', 'people.find_email', { contact_id: 'ct_0001', role_id: R.linearDraft });
+      },
+      { services: { emailVerifier, mx: async () => true } },
+    );
+    const want = 'Use maya.rivera@linear.example?';
+    for (let i = 0; i < 8 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    fireEvent.click(within($(container, '.decision')).getByText('Check'));
+    await waitFor(() => expect($(container, '.decision').textContent).toContain('Catch-all · Hunter'));
+    fireEvent.keyDown(window, { key: 'c' });
+    const alts = await waitFor(() => $(container, '.decision__alts'));
+    const labels = within(alts)
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+    // The undeliverable address is gone; the others carry their check.
+    expect(labels.slice(0, 2)).toEqual(['maya@linear.example · Risky · Hunter', 'm.rivera@linear.example · Unknown · Hunter']);
+    expect(labels.join(' ')).not.toContain('mrivera@linear.example');
+    assertButtons(container);
+  });
+
+  it('Settings: Email check picks the provider and the key variable; Save sends both in one config.update (#99)', async () => {
+    const { container } = await boot('#/settings');
+    const box = await waitFor(() => $(container, '.settings-email'));
+    expect(box.querySelector('input')).toBeNull();
+    fireEvent.click(within(box).getByText('Hunter'));
+    const input = $<HTMLInputElement>(box, 'input[name="email_verifier_key_env"]');
+    expect(input.placeholder).toBe('HUNTER_API_KEY');
+    fireEvent.change(input, { target: { value: 'MY_HUNTER_KEY' } });
+    fireEvent.click(primary(container));
+    await waitFor(async () => {
+      const c = await live?.client.run('config.get', {});
+      expect(c?.status === 'ok' && c.output.email_verifier).toEqual({ provider: 'hunter', keyEnv: 'MY_HUNTER_KEY' });
+    });
+    expect(live?.calls.filter((c) => c.name === 'config.update')).toHaveLength(1);
+    assertButtons(container);
+  });
+
   it('You -> Terms: Application defaults save once with one op (#42)', async () => {
     const { container } = await boot('#/you/terms');
     const box = await waitFor(() => $(container, '.app-defaults'));

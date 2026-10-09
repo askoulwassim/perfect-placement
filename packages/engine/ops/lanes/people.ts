@@ -1,14 +1,16 @@
-import { type ContactTier, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
+import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
+import { defaultFetch } from '../../integrations/ats/http.js';
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { defaultMx } from '../../people/dns.js';
 import { draftRecipient, findEmail } from '../../people/email.js';
 import { fallbackPeople } from '../../people/fallback.js';
 import { findPeople } from '../../people/find.js';
-import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import { draftOutreach, gmailRecipient, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
 import { setPath } from '../../people/path.js';
 import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
+import { createEmailVerifier } from '../../people/verify.js';
 import { notFound, OpError } from '../errors.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
 
@@ -33,7 +35,37 @@ export function peopleDeps(h: HandlerContext): PeopleDeps {
     ...(h.services.outreachWriter ? { writer: h.services.outreachWriter } : {}),
     mx: h.services.mx ?? defaultMx,
     ...(h.services.emailProvider ? { emailProvider: h.services.emailProvider } : {}),
+    // #99: the verification provider from config + the user's key in the environment (never stored).
+    verifier:
+      h.services.emailVerifier !== undefined
+        ? h.services.emailVerifier
+        : createEmailVerifier(h.config.email_verifier, h.services.env ?? process.env, h.services.fetch ?? defaultFetch()),
   };
+}
+
+/**
+ * #99: once a recipient's address turns confirmed (a Needs you pick, or a confident or verified guess),
+ * queue the Gmail step for each of their drafts: a `drafted` one gets its Gmail draft (it waited for the
+ * address), an `in_gmail` one with no To gets the To update step. `except`: the decision being resolved.
+ */
+async function queueGmailSteps(h: HandlerContext, contactId: string): Promise<string[]> {
+  const queued: string[] = [];
+  const ctx: OpContext = {
+    actor: h.ctx.actor === 'agent' ? 'schedule' : h.ctx.actor,
+    now: h.ctx.now,
+    ...(h.ctx.decisionId ? { decisionId: h.ctx.decisionId } : {}),
+    ...(h.ctx.runId ? { runId: h.ctx.runId } : {}),
+  };
+  const deps = peopleDeps(h);
+  for (const o of h.repos.outreach.select('status IN (?, ?) ORDER BY id', ['drafted', 'in_gmail'])) {
+    if (gmailRecipient(deps, o)?.id !== contactId) continue;
+    const create = o.status === 'drafted';
+    const fillTo = o.status === 'in_gmail' && Boolean(o.gmail_draft_id) && !o.gmail_to;
+    if (!create && !fillTo) continue;
+    const r = await h.runOp('runs.start', { skill: 'connect', outreach_id: o.id }, ctx);
+    if (r.status === 'ok') queued.push(o.id);
+  }
+  return queued;
 }
 
 function unwrap<O>(o: OpOutcome<O>) {
@@ -54,7 +86,17 @@ export const LANE_H_HANDLERS = {
   'people.find': defineHandler('people.find', { run: async (i, h) => unwrap(await findPeople(i, h.ctx, peopleDeps(h))) }),
   'people.link': defineHandler('people.link', { run: async (i, h) => unwrap(await linkContact(i, h.ctx, peopleDeps(h))) }),
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
-  'people.find_email': defineHandler('people.find_email', { run: async (i, h) => unwrap(await findEmail(i, h.ctx, peopleDeps(h))) }),
+  'people.find_email': defineHandler('people.find_email', {
+    async run(i, h) {
+      const deps = peopleDeps(h);
+      const before = h.repos.contact.get(i.contact_id);
+      const was = before ? draftRecipient(deps, before, { except: h.ctx.decisionId }).confirmed : false;
+      const o = await findEmail(i, h.ctx, deps);
+      // #99: the address just turned confirmed: the drafts that waited for it go to Gmail now.
+      if (o.status === 'ok' && !h.ctx.dryRun && o.output.confirmed && !was) await queueGmailSteps(h, o.output.contact.id);
+      return unwrap(o);
+    },
+  }),
   'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
   'people.set_path': defineHandler('people.set_path', { run: async (i, h) => unwrap(await setPath(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
@@ -93,6 +135,7 @@ export const LANE_H_HANDLERS = {
         email_confidence: rc.email_confidence,
         guess: r.guess,
         reason: r.reason,
+        decision_id: r.decision_id,
       };
       // #98: the target a bridge intro is about (the outreach itself is filed under its recipient).
       const about = outreach.about_contact_id ? (h.repos.contact.get(outreach.about_contact_id) ?? null) : null;

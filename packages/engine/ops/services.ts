@@ -5,6 +5,7 @@ import type { GmailContactsSource, GmailDraftClient } from '../integrations/gmai
 import type { LinkedInSource } from '../integrations/linkedin/index.js';
 import type { EmailProvider, MxResolver } from '../people/email.js';
 import type { OutreachWriter } from '../people/types.js';
+import type { EmailVerifier } from '../people/verify.js';
 import type { ProfileLlm } from '../profile/deps.js';
 import type { RunnerLauncher } from './runner.js';
 
@@ -41,6 +42,11 @@ export interface EngineServices {
   mx?: MxResolver;
   /** Email finder (Hunter, Apollo, ...) behind the user's own key (#37). Pinned: no adapter ships; absent by default. */
   emailProvider?: EmailProvider;
+  /**
+   * Email verification provider (#99). Default: built from `config.email_verifier` (NeverBounce, ZeroBounce,
+   * Hunter) with the key from `env[keyEnv]` and `fetch`; `null` = MX check only. Tests inject a fake.
+   */
+  emailVerifier?: EmailVerifier | null;
   /** Starts the headless agent runner for `runs.start`. Default: spawns `config.runner`. */
   launcher?: RunnerLauncher;
   /**

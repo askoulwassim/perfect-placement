@@ -263,6 +263,8 @@ export const Outreach = z.object({
   md_path: VaultPath.nullable(),
   /** Added (#98): the target a bridge intro is about; null when the note is to the recipient's own role. */
   about_contact_id: Id.nullable().default(null),
+  /** Added (#99): the To the Gmail draft was created or updated with; null = no To (or not in Gmail yet). */
+  gmail_to: z.string().nullable().default(null),
 });
 export type Outreach = z.infer<typeof Outreach>;
 

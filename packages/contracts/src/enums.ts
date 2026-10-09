@@ -222,6 +222,21 @@ export const EmailSource = z.enum(EMAIL_SOURCES);
 export type EmailSource = z.infer<typeof EmailSource>;
 
 /**
+ * Added (#99): what an email check says about one address. `deliverable` (the provider confirmed the
+ * mailbox), `risky` (disposable, role or spam-trap risk), `undeliverable` (the mailbox does not exist:
+ * the candidate is dropped), `catch_all` (the domain accepts everything, so nothing is proven), `unknown`
+ * (no provider, no answer, or only the domain's MX record was checked).
+ */
+export const EMAIL_VERIFY_STATUSES = ['deliverable', 'risky', 'undeliverable', 'catch_all', 'unknown'] as const;
+export const EmailVerifyStatus = z.enum(EMAIL_VERIFY_STATUSES);
+export type EmailVerifyStatus = z.infer<typeof EmailVerifyStatus>;
+
+/** Added (#99): the email verification provider behind the user's own key (`none`: MX check only). */
+export const EMAIL_VERIFIER_PROVIDERS = ['none', 'neverbounce', 'zerobounce', 'hunter'] as const;
+export const EmailVerifierProvider = z.enum(EMAIL_VERIFIER_PROVIDERS);
+export type EmailVerifierProvider = z.infer<typeof EmailVerifierProvider>;
+
+/**
  * Added (#78): the no-contact fallback Connect used for a role, in the order it tries them: a hiring-team
  * or recruiting address (`team_inbox`), a cold note to the likely hiring leader (`cold_leader`), else
  * Connect is skipped (`skipped`) and the application moves to Fill.

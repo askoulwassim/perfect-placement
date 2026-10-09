@@ -718,6 +718,7 @@ export const outreach: Outreach[] = [
     status: 'drafted',
     md_path: vaultPath.outreach('ct_0001', R.linearDraft),
     about_contact_id: null,
+    gmail_to: null,
   },
   {
     id: 'or_0002',
@@ -729,6 +730,7 @@ export const outreach: Outreach[] = [
     status: 'in_gmail',
     md_path: vaultPath.outreach('ct_0002', R.linearDraft, 'ct_0003'),
     about_contact_id: 'ct_0003',
+    gmail_to: null,
   },
   {
     id: 'or_0003',
@@ -739,6 +741,7 @@ export const outreach: Outreach[] = [
     status: 'replied',
     md_path: vaultPath.outreach('ct_0006', R.vercelDraft),
     about_contact_id: null,
+    gmail_to: null,
   },
 ];
 

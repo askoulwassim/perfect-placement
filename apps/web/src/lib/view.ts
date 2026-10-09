@@ -3,7 +3,7 @@ import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
 import type { TileData } from '../components/roles';
 import { bandColor } from '../components/theme';
-import { altsOf, DOC_NAME, emailOf, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
+import { altsOf, checkLabel, DOC_NAME, emailOf, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { ago, humanize } from './format';
 import { bestPath, initials, type Person } from './people';
 import { COMPONENT_NAME, chipsOf } from './profile';
@@ -143,10 +143,20 @@ export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
   if (em) {
     // #37: the guessed address, the other candidates, and a field to type the right one.
     const name = ctx.contact?.name ?? em.name;
+    // #99: each candidate's email check, in short labels (per address once a provider answered; MX only is
+    // the same for every address, so it shows once, on the Check row).
+    const checkOf = (email: unknown) => em.checks[String(email)];
+    const check = (email: unknown) => (checkOf(email)?.provider ? checkLabel(checkOf(email)) : null);
+    const top = checkLabel(checkOf(pick));
     return {
       ...base,
       question: `Use ${String(pick)}?`,
-      alts: base.alts.filter((a) => a.value !== 'other'),
+      alts: base.alts
+        .filter((a) => a.value !== 'other')
+        .map((a) => {
+          const c = check(a.value);
+          return c ? { ...a, label: `${a.label} · ${c}` } : a;
+        }),
       edit: String(pick ?? ''),
       ini: initials(name || '?'),
       objTitle: name || d.subject_id,
@@ -154,6 +164,7 @@ export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
       evidence: [
         { k: 'Format', d: em.pattern ? `${em.pattern} · ${em.examples} seen` : 'none seen' },
         { k: 'Domain', d: `${em.domain} · ${em.mx === true ? 'MX found' : em.mx === false ? 'no MX' : 'MX unknown'}` },
+        ...(top ? [{ k: 'Check', d: top }] : []),
       ],
     };
   }

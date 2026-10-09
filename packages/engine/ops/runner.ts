@@ -168,6 +168,15 @@ export const GMAIL_WRITE_TOOLS = [
 ].map((t) => `${GMAIL_PREFIX}${t}`);
 /** Gmail tools denied to a `connect` run and the Gmail draft step: every write but `create_draft`. */
 export const GMAIL_DENIED_TOOLS = GMAIL_WRITE_TOOLS.filter((t) => t !== GMAIL_DRAFT_TOOL);
+/**
+ * The To update step (#99, `runs.start { skill: 'connect', outreach_id }` on an in-Gmail draft with no To,
+ * once its address is confirmed): read the draft, then set its To. Only this step gets `update_draft`
+ * (not in `SKILL_TOOLS.connect`); it never gets `create_draft`, send, reply, forward, trash, delete or labels.
+ */
+export const GMAIL_UPDATE_TOOL = `${GMAIL_PREFIX}update_draft`;
+export const GMAIL_GET_DRAFT_TOOL = `${GMAIL_PREFIX}get_draft`;
+/** Gmail tools denied to the To update step: every write but `update_draft`. */
+export const GMAIL_TO_DENIED_TOOLS = GMAIL_WRITE_TOOLS.filter((t) => t !== GMAIL_UPDATE_TOOL);
 
 /** Claude Code's Claude in Chrome tool name prefix (`--chrome`). */
 export const CHROME_PREFIX = 'mcp__claude-in-chrome__';
@@ -360,11 +369,34 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
-    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.email` is null, leave To empty (`to.reason` says why: no address found, or an unconfirmed guess waiting in Needs you); never use `to.guess`.',
+    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.decision_id` is set (a guessed address waiting in Needs you) or `outreach.status` is not `drafted`, create nothing: finish ok with summary { outreach_id, skipped: "email pending" or "already in Gmail" } (the engine queues this step again once the address is confirmed). If `to.email` is null otherwise, leave To empty (`to.reason` says why); never use `to.guess`.',
     "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', section] : []),
+  ].join('\n');
+}
+
+/**
+ * The prompt for the To update step (#99): an in-Gmail draft was created with no To while its address was
+ * a guess; now the address is confirmed. Read the Gmail draft, set its To (keep subject and body exactly as
+ * they are in Gmail: the user may have edited them), record it with outreach.to_gmail. Never send.
+ */
+export function gmailToPrompt(skillsDir: string, c: { runId: string; outreachId: string; roleId: string; contactId: string }): string {
+  const file = join(skillsDir, 'connect', 'SKILL.md');
+  const md = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const m = /^## Gmail To step\b[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(md);
+  return [
+    `You are running the Perfect Placement "connect" skill headless, Gmail To step only. Every Perfect Placement read and write goes through the ${MCP_SERVER_NAME} MCP tools; never edit files or the database directly. Never send an email: only set the To of an existing Gmail DRAFT. Never submit an application.`,
+    '',
+    [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
+    '',
+    '1. Read the record: outreach_get { outreach_id }. The Gmail draft id is `outreach.gmail_draft_id`; To = `to.email` (confirmed). If `to.email` is null, change nothing and finish the run as error with a note.',
+    `2. Read the Gmail draft with ${GMAIL_GET_DRAFT_TOOL} (that id). Keep its subject and body exactly as they are in Gmail.`,
+    `3. Set its To with ${GMAIL_UPDATE_TOOL}: the same draft id, To = \`to.email\`, the subject and body you just read. Never call send, reply, forward, create_draft or delete.`,
+    `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the same draft id>", confidence: <0 to 1, how sure you are the draft now has this To> }.`,
+    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you set> } } (status "error" with a note if any step failed).`,
+    ...(m ? ['', `## Gmail To step\n${m[1]}`.trim()] : []),
   ].join('\n');
 }
 
@@ -429,6 +461,11 @@ export function buildRunnerSpec(opts: {
    */
   gmailDraft?: boolean;
   /**
+   * The To update step (#99): like the Gmail draft step, but only `get_draft` + `update_draft` next to pp,
+   * every other Gmail write (create_draft included) denied, no Chrome.
+   */
+  gmailTo?: boolean;
+  /**
    * `connect` (#82): read LinkedIn via Claude in Chrome (`--chrome` + the Chrome read tools). Default true;
    * `runs.start` passes `config.linkedin.mode === 'live'`.
    */
@@ -450,57 +487,64 @@ export function buildRunnerSpec(opts: {
           prompt,
           '--mcp-config',
           mcpConfig,
-          ...(opts.gmailDraft
-            ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
-            : opts.skill === 'connect'
-              ? // No strict MCP config: the claude.ai Gmail connector loads for search, read and create_draft
-                // (#37, #79); every other Gmail write is denied. #82: the Chrome read + navigate tools are
-                // pre-approved, every Chrome tool that clicks, types or runs script is denied, as are
-                // built-in writes; dontAsk denies anything else.
-                [
-                  '--allowedTools',
-                  skillAllowedTools('connect', { linkedin: opts.linkedin !== false }).join(','),
-                  '--disallowedTools',
-                  connectDeniedTools().join(','),
-                  '--permission-mode',
-                  'dontAsk',
-                ]
-              : usesChrome(opts.skill, opts.linkedin !== false)
-                ? // #81 (fill), #76 (voice with LinkedIn live): the portal is read through Claude in Chrome. No strict MCP config (as for connect,
-                  // so the Chrome integration loads); built-ins narrowed to the skill's web tools; the Chrome read +
-                  // navigate tools pre-approved; every acting Chrome tool (form_input, computer, javascript_tool,
-                  // file_upload, ...), every Gmail write and built-in writes denied; dontAsk denies anything else.
+          ...(opts.gmailTo
+            ? [
+                '--allowedTools',
+                `mcp__${MCP_SERVER_NAME},${GMAIL_GET_DRAFT_TOOL},${GMAIL_UPDATE_TOOL}`,
+                '--disallowedTools',
+                GMAIL_TO_DENIED_TOOLS.join(','),
+              ]
+            : opts.gmailDraft
+              ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
+              : opts.skill === 'connect'
+                ? // No strict MCP config: the claude.ai Gmail connector loads for search, read and create_draft
+                  // (#37, #79); every other Gmail write is denied. #82: the Chrome read + navigate tools are
+                  // pre-approved, every Chrome tool that clicks, types or runs script is denied, as are
+                  // built-in writes; dontAsk denies anything else.
                   [
-                    '--tools',
-                    SKILL_TOOLS[opts.skill].web.join(','),
                     '--allowedTools',
-                    skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
+                    skillAllowedTools('connect', { linkedin: opts.linkedin !== false }).join(','),
                     '--disallowedTools',
-                    chromeDeniedTools(opts.skill).join(','),
+                    connectDeniedTools().join(','),
                     '--permission-mode',
                     'dontAsk',
                   ]
-                : [
-                    // A skill with Gmail tools (inbox, #80) loads the claude.ai Gmail connector, so no strict
-                    // MCP config for it, and every Gmail write is denied outright.
-                    ...(SKILL_TOOLS[opts.skill].gmail.length ? [] : ['--strict-mcp-config']),
-                    // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
-                    // dontAsk denies anything else instead of falling back to the user's permission mode.
-                    '--tools',
-                    SKILL_TOOLS[opts.skill].web.join(','),
-                    '--allowedTools',
-                    skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
-                    ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
-                    '--permission-mode',
-                    'dontAsk',
-                  ]),
+                : usesChrome(opts.skill, opts.linkedin !== false)
+                  ? // #81 (fill), #76 (voice with LinkedIn live): the portal is read through Claude in Chrome. No strict MCP config (as for connect,
+                    // so the Chrome integration loads); built-ins narrowed to the skill's web tools; the Chrome read +
+                    // navigate tools pre-approved; every acting Chrome tool (form_input, computer, javascript_tool,
+                    // file_upload, ...), every Gmail write and built-in writes denied; dontAsk denies anything else.
+                    [
+                      '--tools',
+                      SKILL_TOOLS[opts.skill].web.join(','),
+                      '--allowedTools',
+                      skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
+                      '--disallowedTools',
+                      chromeDeniedTools(opts.skill).join(','),
+                      '--permission-mode',
+                      'dontAsk',
+                    ]
+                  : [
+                      // A skill with Gmail tools (inbox, #80) loads the claude.ai Gmail connector, so no strict
+                      // MCP config for it, and every Gmail write is denied outright.
+                      ...(SKILL_TOOLS[opts.skill].gmail.length ? [] : ['--strict-mcp-config']),
+                      // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
+                      // dontAsk denies anything else instead of falling back to the user's permission mode.
+                      '--tools',
+                      SKILL_TOOLS[opts.skill].web.join(','),
+                      '--allowedTools',
+                      skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
+                      ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
+                      '--permission-mode',
+                      'dontAsk',
+                    ]),
           '--permission-prompts',
           'none',
           '--output-format',
           'json',
           // LinkedIn people reads (wave1-decisions #4, #82) and fill's portal reads (#81) go through Claude in Chrome;
           // the Gmail step reads no LinkedIn, and config.linkedin.mode other than `live` turns it off for connect and voice.
-          ...(usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft ? ['--chrome'] : []),
+          ...(usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo ? ['--chrome'] : []),
           ...extra,
         ],
         cwd: home,

@@ -22,8 +22,15 @@ const migration = (prefix: string) =>
  * The fixture seed for a db before 009 (#98): contact links without `path` / `via_tie_json`; outreach
  * without `about_contact_id`, the bridge intro filed under its target as it was before.
  */
+/** The fixture seed for a db before 010: outreach without `gmail_to` (#99). */
+const seedBefore010 = () =>
+  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
+    /^(INSERT INTO outreach \([^)]*?), gmail_to\) VALUES (.*), (?:NULL|'[^']*')\);$/gm,
+    '$1) VALUES $2);',
+  );
+
 const seedBefore009 = () =>
-  readFileSync(FIXTURE_SEED_SQL, 'utf8')
+  seedBefore010()
     .replace(
       /^(INSERT INTO contact_link \([^)]*?), path, via_tie_json\) VALUES (.*), (?:NULL|'[^']*'), (?:NULL|'[^']*')\);$/gm,
       '$1) VALUES $2);',
@@ -353,5 +360,19 @@ describe('migration 009 (connect path, #98)', () => {
     expect(() => upd.run('email', id)).toThrow(/CHECK/);
     expect(db8.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 9 });
     db8.close();
+  });
+});
+
+describe('migration 010 (Gmail To, #99)', () => {
+  it('adds gmail_to to outreach, null on every existing draft', () => {
+    const db9 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007', '008', '009']) db9.exec(migration(v));
+    db9.exec(seedBefore010());
+    const before = db9.prepare('SELECT * FROM outreach ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db9.exec(migration('010'));
+    expect(db9.prepare('SELECT * FROM outreach ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, gmail_to: null })));
+    expect(db9.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 10 });
+    db9.close();
   });
 });

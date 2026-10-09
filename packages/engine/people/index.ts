@@ -39,6 +39,7 @@ export {
   PATTERN_PRIOR,
   PeopleFindEmailInput,
   patternsOf,
+  pendingEmailDecision,
   rankCandidates,
 } from './email.js';
 export { atDomain, fallbackPeople, pickTeamInbox, TEAM_INBOX_NAME, TEAM_MAILBOXES, teamMailboxRank } from './fallback.js';
@@ -48,6 +49,7 @@ export {
   composeAndDraft,
   draftContext,
   draftOutreach,
+  gmailRecipient,
   outreachSendHandler,
   outreachToGmailHandler,
   readOutreachSections,
@@ -115,3 +117,15 @@ export {
 } from './templates.js';
 export { HIRING_TEAM_ROLES, isHiringTeam, TIER_PRIORITY, tierFor } from './tier.js';
 export type { DraftText, Handler, OutreachWriter, PeopleDeps, WriterPrompt } from './types.js';
+export {
+  createEmailVerifier,
+  DELIVERABLE_P,
+  type EmailVerifier,
+  hunter,
+  MAX_VERIFY,
+  neverBounce,
+  VERIFY_LABEL,
+  type VerifierFetch,
+  verifyCandidates,
+  zeroBounce,
+} from './verify.js';

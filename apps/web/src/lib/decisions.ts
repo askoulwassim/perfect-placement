@@ -1,4 +1,4 @@
-import type { Decision, DecisionKind } from '@perfect-placement/contracts';
+import type { Decision, DecisionKind, EmailVerification, EmailVerifyStatus } from '@perfect-placement/contracts';
 import { humanize } from './format';
 
 /** The question in five words or fewer, per decision kind. */
@@ -75,6 +75,15 @@ export const factCheckOf = (d: Pick<Decision, 'kind' | 'question_json'>): FactCh
 };
 export const DOC_NAME: Record<FactCheckQ['doc'], string> = { resume: 'Resume', cover_letter: 'Cover letter', answers: 'Answers' };
 
+/** Short label per email check result (#99). */
+export const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
+  deliverable: 'Deliverable',
+  risky: 'Risky',
+  undeliverable: 'Undeliverable',
+  catch_all: 'Catch-all',
+  unknown: 'Unknown',
+};
+
 /** A `people.email` question (#37): whose address, the domain, its MX check and the learned format. */
 export interface EmailQ {
   name: string;
@@ -82,11 +91,33 @@ export interface EmailQ {
   mx: boolean | null;
   pattern: string | null;
   examples: number;
+  /** #99: each candidate's email check (MX only when no provider answered). */
+  checks: Record<string, EmailVerification>;
 }
+
+/** "Catch-all · Hunter", "Unknown · MX ok", "Unknown · no MX" (#99). */
+export function checkLabel(v: EmailVerification | undefined): string | null {
+  if (!v) return null;
+  const by = v.provider ? cap(v.provider) : v.mx === true ? 'MX ok' : v.mx === false ? 'no MX' : null;
+  return by ? `${VERIFY_LABEL[v.status]} · ${by}` : VERIFY_LABEL[v.status];
+}
+const cap = (s: string) =>
+  ({ neverbounce: 'NeverBounce', zerobounce: 'ZeroBounce', hunter: 'Hunter' })[s] ?? s.replace(/^./, (c) => c.toUpperCase());
 export const emailOf = (d: Pick<Decision, 'kind' | 'question_json'>): EmailQ | null => {
   if (d.kind !== 'people.email') return null;
   const q = d.question_json as Partial<EmailQ>;
   return typeof q.domain === 'string'
-    ? { name: q.name ?? '', domain: q.domain, mx: q.mx ?? null, pattern: q.pattern ?? null, examples: q.examples ?? 0 }
+    ? {
+        name: q.name ?? '',
+        domain: q.domain,
+        mx: q.mx ?? null,
+        pattern: q.pattern ?? null,
+        examples: q.examples ?? 0,
+        checks: Object.fromEntries(
+          ((q as { candidates?: Array<{ email: string; verify?: EmailVerification }> }).candidates ?? []).flatMap((c) =>
+            c.verify ? [[c.email, c.verify]] : [],
+          ),
+        ),
+      }
     : null;
 };

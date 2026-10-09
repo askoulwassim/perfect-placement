@@ -26,6 +26,7 @@ import {
   Criterion,
   DecisionStatus,
   EmailSource,
+  EmailVerifyStatus,
   Freshness,
   InboxClass,
   PolicyOutcome,
@@ -1184,11 +1185,24 @@ export const peopleClassify = defineOp({
 });
 
 /** Added (#37): one candidate address for a contact, ranked by the company's learned format. */
+/**
+ * Added (#99): one address's email check. `mx`: the domain's MX record (null: not checked or the lookup
+ * failed); `provider`: the verification service that answered (null: MX only).
+ */
+export const EmailVerification = z.object({
+  status: EmailVerifyStatus,
+  mx: z.boolean().nullable(),
+  provider: z.string().nullable(),
+});
+export type EmailVerification = z.infer<typeof EmailVerification>;
+
 export const EmailCandidate = z.object({
   email: z.string().email(),
   /** `first.last`, `flast`, `first`, `firstl`, `f.last`, `last`, or `provider`. */
   pattern: z.string(),
   p: Probability,
+  /** Added (#99): the email check for this address (deliverable raises `p`; undeliverable is dropped). */
+  verify: EmailVerification.optional(),
 });
 export type EmailCandidate = z.infer<typeof EmailCandidate>;
 
@@ -1241,6 +1255,8 @@ export const peopleFindEmail = defineOp({
     /** The learned format (null: no examples, priors only). */
     pattern: z.string().nullable(),
     candidates: z.array(EmailCandidate),
+    /** Added (#99): candidates the verification provider found undeliverable (dropped from `candidates`). */
+    dropped: z.array(z.string().email()).default([]),
     decision_id: Id.nullable(),
     outcome: PolicyOutcome.nullable(),
     /** Why there is no usable address (no domain, unconfirmed guess, ...); null when `confirmed`. */
@@ -1332,6 +1348,11 @@ export const DraftRecipient = z.object({
   /** The best address on file even when it is not used (an unconfirmed guess). */
   guess: z.string().email().nullable(),
   reason: z.string().nullable(),
+  /**
+   * Added (#99): the pending `people.email` decision on this address. While set, no Gmail draft is created
+   * (the engine queues the Gmail step once the address is confirmed).
+   */
+  decision_id: Id.nullable().default(null),
 });
 export type DraftRecipient = z.infer<typeof DraftRecipient>;
 
@@ -1433,7 +1454,13 @@ export const outreachToGmail = defineOp({
      */
     gmail_draft_id: z.string().min(1).optional(),
   }),
-  /** Added (#37): `to` = the address the draft was created with (null: no To, `to_reason` says why). */
+  /**
+   * Added (#37): `to` = the address the draft was created with (null: no To, `to_reason` says why).
+   * #99: refused (`conflict`) while the recipient's address is a guess waiting in Needs you, unless the
+   * agent already made the draft (`gmail_draft_id`: recorded with no To, filled once confirmed). The To
+   * used is kept on `outreach.gmail_to`. Recording the same `gmail_draft_id` again on an `in_gmail`
+   * draft with no To (the To update step) sets `gmail_to` to the confirmed address.
+   */
   output: z.object({
     outreach: Outreach,
     gmail_draft_id: z.string(),
@@ -1580,6 +1607,9 @@ export const runsStart = defineOp({
     /**
      * Added (Gmail via agent): `connect` only. Scopes the run to the Gmail draft step for this outreach:
      * the agent creates a Gmail draft with its own Gmail tool and records it with `outreach.to_gmail`.
+     * #99: refused while the recipient's address is a guess waiting in Needs you. For an `in_gmail` draft
+     * with no To (`gmail_to` null) and a confirmed address, the run is the To update step instead
+     * (`summary_json.step: "gmail_to"`): the agent sets the draft's To with the connector's update tool.
      */
     outreach_id: Id.optional(),
     /** Added (#30): the run that caused this one (pipeline rules, schedules). Kept as `summary_json.triggered_by`. */

@@ -141,6 +141,7 @@ export function upsertOutreach(R: Repos, o: Outreach, exists: boolean): void {
       status: o.status,
       md_path: o.md_path,
       about_contact_id: o.about_contact_id,
+      gmail_to: o.gmail_to,
     });
   else R.outreach.insert(o);
 }

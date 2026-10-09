@@ -66,9 +66,10 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const inFlight = activeRun({ skill: 'connect', outreach_id: outreach.id });
   const run = gmailRun?.status ?? null;
   const primary = {
-    label: inFlight ? activeLabel(inFlight) : 'Create Gmail draft',
+    // #99: a guessed address waiting in Needs you: the Gmail draft is queued once it is confirmed.
+    label: inFlight ? activeLabel(inFlight) : to?.decision_id ? 'Email pending' : 'Create Gmail draft',
     op: 'runs.start' as const,
-    disabled: outreach.status !== 'drafted' || !!inFlight,
+    disabled: outreach.status !== 'drafted' || !!inFlight || !!to?.decision_id,
     onClick: async () => {
       const o = await act('runs.start', { skill: 'connect', outreach_id: outreach.id });
       if (o.status !== 'ok') return;

@@ -1,8 +1,11 @@
 import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { draftRecipient } from '../../people/email.js';
+import { gmailRecipient } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
+import { peopleDeps } from '../lanes/people.js';
 import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
 import { get, insert, select, update } from '../rows.js';
 import {
@@ -13,6 +16,7 @@ import {
   deniedTools,
   deniedToolsError,
   gmailDraftPrompt,
+  gmailToPrompt,
   type RunnerExit,
   skillPrompt,
 } from '../runner.js';
@@ -32,15 +36,29 @@ import { applicationFor, getRole } from './shared.js';
 export const runsStart = defineHandler('runs.start', {
   run(raw, h) {
     let input = raw;
+    let step: 'gmail_draft' | 'gmail_to' | null = null;
     // Gmail via agent: a `connect` run scoped to one outreach draft (the Gmail draft step). Its role and
     // contact come from the outreach.
     if (raw.outreach_id) {
       if (raw.skill !== 'connect') throw new OpError('invalid_input', 'outreach_id is for skill "connect" (the Gmail draft step)');
-      const o = get(h.db, 'outreach', raw.outreach_id);
+      const o = h.repos.outreach.get(raw.outreach_id);
       if (!o) throw notFound('outreach', raw.outreach_id);
       if ((raw.role_id && raw.role_id !== o.role_id) || (raw.contact_id && raw.contact_id !== o.contact_id))
         throw new OpError('invalid_input', `outreach ${o.id} is for role ${o.role_id} and contact ${o.contact_id}`);
-      if (o.status !== 'drafted') throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
+      // #99: the To comes first. A guess waiting in Needs you gets no Gmail draft (the confirmation queues
+      // this step); an in-Gmail draft with no To gets the To update step once the address is confirmed.
+      const deps = peopleDeps(h);
+      const recipient = gmailRecipient(deps, o);
+      const to = recipient ? draftRecipient(deps, recipient, { except: h.ctx.decisionId }) : null;
+      if (o.status === 'drafted') {
+        if (to?.decision_id)
+          throw new OpError(
+            'conflict',
+            `${recipient?.name ?? 'the recipient'}'s address is an unconfirmed guess: confirm it in Needs you; the Gmail draft is queued then`,
+          );
+        step = 'gmail_draft';
+      } else if (o.status === 'in_gmail' && o.gmail_draft_id && !o.gmail_to && to?.email) step = 'gmail_to';
+      else throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
       input = { ...raw, role_id: o.role_id, contact_id: o.contact_id };
     }
     if (input.schedule && SCHEDULE_SKILL[input.schedule] !== input.skill)
@@ -86,7 +104,7 @@ export const runsStart = defineHandler('runs.start', {
         ...(input.role_id ? { role_id: input.role_id } : {}),
         ...(companyId ? { company_id: companyId } : {}),
         ...(input.contact_id ? { contact_id: input.contact_id } : {}),
-        ...(outreachId ? { outreach_id: outreachId, step: 'gmail_draft' } : {}),
+        ...(outreachId ? { outreach_id: outreachId, step: step ?? 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         ...(input.schedule ? { schedule: input.schedule } : {}),
         actor: asked ? 'ask' : h.ctx.actor,
@@ -101,7 +119,7 @@ export const runsStart = defineHandler('runs.start', {
       log_path,
       renderMarkdown(
         { id, type: 'run' },
-        `# ${date} ${input.skill}${outreachId ? ' Gmail draft' : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).`,
+        `# ${date} ${input.skill}${outreachId ? (step === 'gmail_to' ? ' Gmail To' : ' Gmail draft') : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).`,
       ),
     );
     h.emit('run_started', 'run', id, {
@@ -167,6 +185,7 @@ function launchRun(run: Run, h: HandlerContext): void {
   const skill = run.op as Skill;
   const id = run.id;
   const outreachId = s.outreach_id;
+  const fillTo = Boolean(outreachId) && (run.summary_json as { step?: string }).step === 'gmail_to';
   // #82: a connect run reads LinkedIn via Claude in Chrome only when config.linkedin.mode is `live`.
   const li = h.config.linkedin;
   const linkedin =
@@ -181,11 +200,16 @@ function launchRun(run: Run, h: HandlerContext): void {
     runId: id,
     home: h.home,
     mcp: defaultMcpServer(h.home),
-    ...(outreachId ? { gmailDraft: true } : {}),
+    ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
     ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
-        ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
+        ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
+            runId: id,
+            outreachId,
+            roleId: s.role_id,
+            contactId: s.contact_id,
+          })
         : skillPrompt(DEFAULT_SKILLS_DIR, {
             runId: id,
             skill,

@@ -208,9 +208,9 @@ INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via
 INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0006', 'ct_0006', 'vercel', 'vercel_principal-pm-data', 'cold', 'cold_hiring', NULL, 1, NULL, NULL);
 
 -- outreach (3)
-INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id) VALUES ('or_0001', 'ct_0001', 'linear_product-lead-insights', 'warm_hiring', NULL, 'drafted', 'outreach/ct_0001-linear_product-lead-insights.md', NULL);
-INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id) VALUES ('or_0002', 'ct_0002', 'linear_product-lead-insights', 'bridge', 'fixture-draft-0002', 'in_gmail', 'outreach/ct_0002-linear_product-lead-insights-about-ct_0003.md', 'ct_0003');
-INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id) VALUES ('or_0003', 'ct_0006', 'vercel_principal-pm-data', 'cold_hiring', 'fixture-draft-0003', 'replied', 'outreach/ct_0006-vercel_principal-pm-data.md', NULL);
+INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id, gmail_to) VALUES ('or_0001', 'ct_0001', 'linear_product-lead-insights', 'warm_hiring', NULL, 'drafted', 'outreach/ct_0001-linear_product-lead-insights.md', NULL, NULL);
+INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id, gmail_to) VALUES ('or_0002', 'ct_0002', 'linear_product-lead-insights', 'bridge', 'fixture-draft-0002', 'in_gmail', 'outreach/ct_0002-linear_product-lead-insights-about-ct_0003.md', 'ct_0003', NULL);
+INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id, gmail_to) VALUES ('or_0003', 'ct_0006', 'vercel_principal-pm-data', 'cold_hiring', 'fixture-draft-0003', 'replied', 'outreach/ct_0006-vercel_principal-pm-data.md', NULL, NULL);
 
 -- interview (4)
 INSERT INTO interview (id, role_id, round, at, prep_path, retro_path, outcome) VALUES ('iv_0001', 'figma_staff-pm-data-platform', 1, '2026-09-28T15:00:00.000Z', 'interviews/figma_staff-pm-data-platform/prep.md', 'interviews/figma_staff-pm-data-platform/retro-1.md', 'advanced');
