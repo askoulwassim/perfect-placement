@@ -42,6 +42,8 @@ const FS_ALLOWED = [
   'packages/engine/db/vault.ts',
   'packages/engine/ops/vault.ts',
   'packages/engine/ops/runner.ts',
+  // Ask turns (#39): Cursor's .cursor/ config in a temp dir, as the runner does. Never the vault.
+  'packages/engine/ops/ask.ts',
   // Report CLIs: write reports to --out outside the repo, never the vault.
   'packages/engine/freshness/cli.ts',
   'packages/resolver/src/eval/cli.ts',

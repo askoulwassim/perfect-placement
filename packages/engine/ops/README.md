@@ -80,4 +80,16 @@ A human or schedule `runs.start` commits the run as `queued`; the run queue (bel
 
 `config.runner.args` are appended. Tests use `fakeLauncher()`; nothing spawns in CI.
 
+## Ask agent session (`ask.ts`, #39)
+
+`pp up`'s `POST /api/ask` runs one conversational turn of `config.runner` per message (`runAsk`), with the pp MCP server (`PP_ASK=1`: `runs.start` defaults to `queue: true`, so skill work becomes a queued headless run, actor `ask`) and the system prompt `askAgentPrompt()` (act through ops, the policy, never submit or send, reply in OpenUI Lang with the genui cards; `ASK_CARD_SIGNATURES` is checked against the web library by a test). Tools: pp MCP + web search / fetch; no shell, no file reads or writes. Output is normalized by `AskStreamParser` into `AskChatEvent`s (`thread`, `text`, `tool`, `tool_result`, `run`, `error`, `done`).
+
+| Runner | Ask turn |
+| --- | --- |
+| `claude` | `claude -p <message> --append-system-prompt <prompt> --mcp-config '<json>' --strict-mcp-config --tools WebSearch,WebFetch --allowedTools mcp__pp,WebSearch,WebFetch --permission-mode dontAsk --permission-prompts none --output-format stream-json --verbose --include-partial-messages [--resume <session_id>]`, cwd `PP_HOME` (sessions are per directory). Text streams token by token. |
+| `codex` | `codex exec --json --skip-git-repo-check -c mcp_servers.pp.* -c approval_policy="never" -c sandbox_mode="read-only" -c web_search="live" <prompt>`; no resume here: the prompt replays the last turns (`replayPrompt`). Text arrives per agent message, not per token. |
+| `cursor-agent` | `cursor-agent -p <prompt> --output-format stream-json --trust --approve-mcps --force` in a temp dir with `.cursor/mcp.json` + `.cursor/cli.json` (allow `Mcp(pp:*)`, `WebFetch(*)`; deny `Shell(*)`, `Write(**)`); transcript replay as Codex. Tool call shapes are parsed best effort. |
+
+Threads (`AskThreads`) live in memory for the life of `pp up`. Errors: the runner not on PATH -> `runner_missing`; a login / API key failure -> `not_logged_in`; anything else -> `runner_failed`. The launcher is injected (`AskLauncher`; default `createAskSpawner`, attached, killed when the request closes); tests use `fakeAskLauncher` with recorded transcripts (`@perfect-placement/engine/testing`).
+
 **Gmail draft step** (`runs.start { skill: 'connect', outreach_id }`, Gmail via agent): role and contact come from the outreach (must be `drafted`); `summary_json` gets `outreach_id` + `step: 'gmail_draft'`. The prompt (`gmailDraftPrompt`) tells the agent to read `outreach.get`, create a Gmail **draft** with its own Gmail tool (never send), then call `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }` and `runs.finish`. `claude` drops `--strict-mcp-config` (so the claude.ai Gmail connector loads), allows `mcp__pp,mcp__claude_ai_Gmail__create_draft`, denies send / reply / forward / delete_draft, and skips `--chrome`. Codex and Cursor use the Gmail MCP server the user configured for them.

@@ -16,9 +16,10 @@ let engine: FixtureEngine;
 let client: Client;
 const calls: Array<{ op: string; ctx: { actor: string; confidence?: unknown; runId?: string } }> = [];
 
-async function connect(toolNames?: ToolNameStyle, runId?: string) {
+async function connect(toolNames?: ToolNameStyle, runId?: string, ask?: boolean) {
   const server = createPpMcpServer({
     ...(runId ? { runId } : {}),
+    ...(ask ? { ask } : {}),
     runOp: (op, input, ctx) => {
       calls.push({ op, ctx });
       return engine.runOp(op, input, ctx);
@@ -184,5 +185,17 @@ describe('MCP server on the real engine (fixtures vault)', () => {
       .prepare(`SELECT json_extract(payload_json, '$.run_id') run_id FROM event WHERE type = 'run_finished' AND subject_id = ?`)
       .get(runId) as { run_id: string };
     expect(ev.run_id).toBe(runId);
+  });
+
+  it('#39: an Ask session server (PP_ASK) queues the skill runs it starts; a plain agent server is the run', async () => {
+    await client.close();
+    await connect(undefined, undefined, true);
+    const asked = await call('runs_start', { skill: 'score' });
+    expect(asked.structuredContent.output.run.summary_json.actor).toBe('ask');
+    expect(engine.launcher.specs.map((s) => s.runId)).toContain(asked.structuredContent.output.run.id);
+    await client.close();
+    await connect();
+    const own = await call('runs_start', { skill: 'research', role_id: FIXTURE_ROLE_IDS.figmaIv });
+    expect(own.structuredContent.output.run).toMatchObject({ status: 'running', summary_json: { actor: 'agent' } });
   });
 });

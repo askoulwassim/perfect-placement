@@ -14,6 +14,29 @@ import { resolveHome } from './vault.js';
 
 export const OWNER_LANE = 'B' as const;
 
+export {
+  ASK_CARD_SIGNATURES,
+  ASK_REPLAY_TURNS,
+  ASK_WEB_TOOLS,
+  type AskDeps,
+  type AskLauncher,
+  type AskProcess,
+  type AskSpec,
+  AskStreamParser,
+  type AskThread,
+  AskThreads,
+  type AskTurn,
+  askAgentPrompt,
+  askAllowedTools,
+  askMessage,
+  buildAskSpec,
+  classifyAskFailure,
+  createAskSpawner,
+  findRun,
+  opOfTool,
+  replayPrompt,
+  runAsk,
+} from './ask.js';
 export { createDecisionStore } from './decision-store.js';
 export * from './dedupe.js';
 export { notFound, OpError } from './errors.js';

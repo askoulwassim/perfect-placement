@@ -99,3 +99,46 @@ describe('OpOutcome handling in the app', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Offline'));
   });
 });
+
+describe('createHttpClient().ask (#39)', () => {
+  const collect = async (it: AsyncIterable<unknown>) => {
+    const out: unknown[] = [];
+    for await (const e of it) out.push(e);
+    return out;
+  };
+
+  it('POSTs /api/ask and reads SSE events split across chunks', async () => {
+    const frames =
+      'data: {"type":"thread","thread_id":"t1","runner":"claude"}\n\ndata: {"type":"text","delta":"hi"}\n\ndata: {"type":"done"}\n\n';
+    const enc = new TextEncoder();
+    let seen: { url: string; body: unknown } | null = null;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      seen = { url: String(input), body: JSON.parse(String(init?.body)) };
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(frames.slice(0, 30)));
+          c.enqueue(enc.encode(frames.slice(30)));
+          c.close();
+        },
+      });
+      return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+    }) as typeof fetch;
+    const ask = createHttpClient('/api', fetchImpl).ask;
+    const events = await collect(ask?.({ message: 'hi', thread_id: 't0' }) ?? []);
+    expect(seen).toEqual({ url: '/api/ask', body: { message: 'hi', thread_id: 't0' } });
+    expect(events).toEqual([{ type: 'thread', thread_id: 't1', runner: 'claude' }, { type: 'text', delta: 'hi' }, { type: 'done' }]);
+  });
+
+  it('a server without /api/ask or a network failure is an unavailable error event', async () => {
+    const html = (async () => new Response('<!doctype html>', { status: 404, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+    expect(await collect(createHttpClient('/api', html).ask?.({ message: 'hi' }) ?? [])).toEqual([
+      { type: 'error', code: 'unavailable', message: 'Ask: HTTP 404' },
+    ]);
+    const down = (async () => {
+      throw new Error('connect ECONNREFUSED');
+    }) as typeof fetch;
+    expect(await collect(createHttpClient('/api', down).ask?.({ message: 'hi' }) ?? [])).toEqual([
+      { type: 'error', code: 'unavailable', message: 'connect ECONNREFUSED' },
+    ]);
+  });
+});

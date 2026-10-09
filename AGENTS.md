@@ -49,7 +49,7 @@ docs/v2/                the build brief
 ```
 ./install.sh                    # prerequisites, pnpm install + build, `pp` + `pp-mcp` launchers in ~/.local/bin (--check: report only)
 pp setup                        # vault at PP_HOME (default ~/.perfect-placement), optional Kev (offers to install uv), MCP for detected agents, schedule jobs (asks), then a pass/fail summary (--yes, --no-kev, --no-mcp, --no-schedules)
-pp up                           # API /api/ops, MCP /mcp, web UI on http://127.0.0.1:5177; starts Kev if installed (--no-kev)
+pp up                           # API /api/ops, Ask /api/ask (agent session, SSE), MCP /mcp, web UI on http://127.0.0.1:5177; starts Kev if installed (--no-kev)
 pp up --fixtures                # demo on synthetic data
 pp doctor                       # integrity checks
 pp op <name> --input '<json>'   # any op

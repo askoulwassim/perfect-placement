@@ -14,13 +14,16 @@ import {
   type Score,
 } from '@perfect-placement/contracts';
 import * as fx from '@perfect-placement/fixtures';
+import { composeReply } from '../../genui/src/compose';
+import { scriptedStream } from '../../genui/src/stream';
 import type { In, OpClient, Out } from './types';
 
 /*
  * Read-only fixtures preview (`vite --mode mock`, and unit tests of screens that only read).
  * It answers registry READ ops from the synthetic fixtures and refuses every write with
  * `unimplemented`: the mechanics (moves, decisions, runs, diffs) live in the engine only.
- * Run against `pp up` for anything interactive.
+ * Run against `pp up` for anything interactive. Ask has no agent here: it answers a few intents from
+ * fixture reads (genui/src/compose.ts), streamed at a model-like pace.
  */
 
 type Outcome<N extends OpName> = OpOutcome<Out<N>>;
@@ -43,7 +46,14 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
   const now = opts.now ?? (() => new Date(fx.FIXTURE_NOW));
   const files = new Map<string, string>(fx.vaultFiles());
   const read = (p: string | null | undefined) => (p && files.has(p) ? stripFrontmatter(files.get(p) as string) : null);
-  return {
+  const client: OpClient = {
+    async *ask(req, signal) {
+      yield { type: 'thread', thread_id: req.thread_id ?? 'mock', runner: 'mock' };
+      const text = await composeReply(req.message, { client, now: now(), roleId: req.context?.role_id ?? null });
+      for await (const delta of scriptedStream(text, { tokensPerSecond: 240, chunkTokens: 3, ...(signal ? { signal } : {}) }))
+        yield { type: 'text', delta };
+      yield { type: 'done' };
+    },
     async run<N extends OpName>(name: N, input: In<N>): Promise<Outcome<N>> {
       const def = OPS[name];
       if (!def) return err('not_found', name) as Outcome<N>;
@@ -57,6 +67,7 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
       }
     },
   };
+  return client;
 }
 
 const latestVersion = () => fx.profileVersions[fx.profileVersions.length - 1] as (typeof fx.profileVersions)[number];

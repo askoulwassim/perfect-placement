@@ -23,7 +23,8 @@ import { getRole } from './shared.js';
  * (unless an active run already has its skill and scope: that run is returned, `deduped`), and after
  * commit the queue is dispatched (`runs.dispatch`), which launches the configured headless runner
  * (`config.runner`) when a slot is free. An agent actor is already the running session: its run is
- * `running` at once and nothing is launched for it.
+ * `running` at once and nothing is launched for it, unless it passes `queue: true` (#39, the Ask agent):
+ * then the run is a queue run like a human's (`summary_json.actor: "ask"`).
  */
 export const runsStart = defineHandler('runs.start', {
   run(raw, h) {
@@ -48,7 +49,9 @@ export const runsStart = defineHandler('runs.start', {
     if (input.triggered_by && !parent) throw notFound('run', input.triggered_by);
     // Research writes one dossier per company: its scope is the company.
     const companyId = input.skill === 'research' && role ? role.company_id : undefined;
-    const agent = h.ctx.actor === 'agent';
+    // An agent is the session doing the work, unless it asks for a queued headless run (#39: Ask delegates).
+    const asked = h.ctx.actor === 'agent' && input.queue === true;
+    const agent = h.ctx.actor === 'agent' && !asked;
 
     if (!agent) {
       // A pipeline score run for the whole inbox waits behind a running one (it listed the inbox earlier).
@@ -83,14 +86,14 @@ export const runsStart = defineHandler('runs.start', {
         ...(outreachId ? { outreach_id: outreachId, step: 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         ...(input.schedule ? { schedule: input.schedule } : {}),
-        actor: h.ctx.actor,
+        actor: asked ? 'ask' : h.ctx.actor,
         runner: h.config.runner.command,
         ...(agent ? {} : { queued_at: iso }),
       },
       log_path,
     };
     insert(h.db, 'run', run);
-    const by = `${h.ctx.actor}${input.schedule ? ` (schedule ${input.schedule})` : ''}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
+    const by = `${asked ? 'agent (Ask)' : h.ctx.actor}${input.schedule ? ` (schedule ${input.schedule})` : ''}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
     h.vault.write(
       log_path,
       renderMarkdown(

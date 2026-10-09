@@ -6,7 +6,7 @@
 | --- | --- |
 | `src/library.tsx` | OpenUI library: Reply (root), Group, Text, RoleCard, ScoreRadar, ContactCard, ProfileDiff, OpButton; `askSystemPrompt()` |
 | `src/reply.tsx` | `GenuiReply`: the `<Renderer>` the Ask screen puts in the CommandBar |
-| `src/compose.ts` | Local Ask: a few keyword intents compose an id-only reply from op reads |
+| `src/compose.ts` | Read-only mock Ask (no agent): a few keyword intents compose an id-only reply from op reads. Live Ask is the agent session (`POST /api/ask`, #39) |
 | `src/stream.ts` | Paced stream of a reply (model-like token chunks) |
 | `src/devtools-stub.ts` | Empty `@openuidev/devtools` (aliased in `apps/web/vite.config.ts`) |
 | `src/genui.test.tsx` | Library, parsing, hydration through ops, OpButton, compose |

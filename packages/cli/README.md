@@ -28,6 +28,7 @@ One process on 127.0.0.1 (loopback bind and loopback `Host` header only):
 | --- | --- |
 | `POST /api/ops/:name` | body = op input JSON; `runOp(name, input, { actor: 'human' })`; returns the `OpOutcome` (200 ok, 202 requires_human, 4xx/5xx by error code). Unknown op 404, bad JSON 400. |
 | `GET /api/ops`, `GET /api/health` | op list, health |
+| `POST /api/ask` | Ask (#39): body `AskChatRequest` `{ thread_id?, message, context?: { screen?, role_id? } }`; reply `text/event-stream` of `AskChatEvent`s (`thread` first, then `text` / `tool` / `tool_result` / `run`, then `done` or `error`). One turn of `config.runner` with the pp MCP server; the runner is killed if the client disconnects. See `packages/engine/ops/README.md`, "Ask agent session". |
 | `POST /mcp` | MCP Streamable HTTP, actor `agent`, same engine |
 | `GET /*` | `apps/web/dist` (or `--web <dir>`) with SPA fallback |
 

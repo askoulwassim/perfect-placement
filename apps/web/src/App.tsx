@@ -11,7 +11,7 @@ import { CUE_TARGET, CUES, cueFor, pendingCue } from './lib/cues';
 import { activeLabel, isActive, runLabel } from './lib/runs';
 import { useMobile } from './lib/useMobile';
 import { go, href, type Route, replaceRoute, useRoute } from './router';
-import { Ask } from './screens/Ask';
+import { Ask, type AskSession, NEW_ASK } from './screens/Ask';
 import { NeedsYou } from './screens/NeedsYou';
 import { Now } from './screens/Now';
 import { Onboarding } from './screens/Onboarding';
@@ -73,6 +73,7 @@ function Shell() {
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
   const [askOpen, setAskOpen] = useState(false);
+  const [askSession, setAskSession] = useState<AskSession>(NEW_ASK);
   const [lastRole, setLastRole] = useState<string | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
 
@@ -144,7 +145,9 @@ function Shell() {
   const railActive = route.screen === 'outreach-draft' ? 'people' : route.screen;
   const onboarding = route.screen === 'onboarding';
   const shown = shownRoute(route, { mobile, fresh: fresh.now, lastFresh: fresh.last });
-  const ask = askOpen && <Ask roleId={roleId} onClose={() => setAskOpen(false)} />;
+  const ask = askOpen && (
+    <Ask roleId={roleId} screen={shown?.screen ?? null} session={askSession} onSession={setAskSession} onClose={() => setAskOpen(false)} />
+  );
   const cue = pendingCue(cueFor(shown?.screen ?? null, askOpen), cuesSeen);
   const dismissCue = useCallback(() => {
     if (cue) markCue(cue);

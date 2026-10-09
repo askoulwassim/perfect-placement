@@ -1,9 +1,11 @@
 import { FORBIDDEN_BUTTON_LABELS, OP_NAMES, OPS, type OpName } from '@perfect-placement/contracts';
+import { claudeScoreTranscript, claudeTranscript } from '@perfect-placement/engine/testing';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { composeReply } from '../genui/src';
 import { App } from './App';
-import { type Live, openLive } from './test/live';
+import { type Live, type LiveOptions, openLive } from './test/live';
 
 /*
  * The app on the live HTTP client. A fake fetch serves `POST /api/ops/:name` from a real engine
@@ -17,9 +19,9 @@ afterEach(() => {
   live = null;
 });
 
-async function boot(hash: string, before?: (l: Live) => Promise<unknown>) {
+async function boot(hash: string, before?: (l: Live) => Promise<unknown>, opts?: LiveOptions) {
   window.location.hash = hash;
-  live = openLive();
+  live = openLive(opts);
   await before?.(live);
   const utils = render(<App client={live.client} now={now} pollMs={20} />);
   return { live, ...utils };
@@ -580,13 +582,25 @@ describe('click paths', () => {
     expect(opsCalled()).toContain('onboard.confirm');
   });
 
-  it('Cmd+K from anywhere: staleness -> generated cards -> Check all', async () => {
-    const { container } = await boot('#/river');
+  it('Cmd+K from anywhere: free text goes to the agent; its cards render; Check all runs the op', async () => {
+    const { container } = await boot('#/river', undefined, {
+      // The fake agent reads the pipeline and answers with the stale roles (recorded stream-json shape).
+      askScript: async () =>
+        claudeTranscript({
+          tools: [{ name: 'mcp__pp__roles_list', result: '{"items":[]}' }],
+          reply: await composeReply('Which active roles are going stale?', { client: (live as Live).client, now: now(), roleId: null }),
+        }),
+    });
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     const input = await screen.findByRole('textbox', { name: 'Ask' });
-    fireEvent.change(input, { target: { value: 'Which active roles are going stale?' } });
+    // A suggestion only prefills the message.
+    fireEvent.click(screen.getByText('Which active roles are going stale?'));
+    expect((input as HTMLInputElement).value).toBe('Which active roles are going stale?');
+    expect(live?.ask.specs).toHaveLength(0);
     fireEvent.submit(input.closest('form') as HTMLFormElement);
     const reply = await waitFor(() => $(container, '.ask__reply[data-state="done"]'), { timeout: 4000 });
+    expect(live?.ask.specs[0]?.args[1]).toMatch(/^\[context\] screen: river[^\n]*\n\nWhich active roles are going stale\?$/);
+    expect(reply.querySelector('.ask__step[data-state="ok"]')?.textContent).toContain('roles.list');
     await waitFor(() => expect(reply.querySelectorAll('[data-genui="RoleCard"] .role-card').length).toBe(4));
     const check = await waitFor(() => within(reply).getByText('Check all'));
     expect(check.getAttribute('data-op')).toBe('roles.check_freshness');
@@ -595,6 +609,55 @@ describe('click paths', () => {
     const checked = live?.calls.find((c) => c.name === 'roles.check_freshness');
     expect((checked?.body as { role_ids?: string[] } | undefined)?.role_ids).toHaveLength(4);
     assertButtons(container);
+  });
+
+  it('Ask: "Score my inbox roles" starts a score run through the agent, links it, and the thread resumes (#39)', async () => {
+    const { container } = await boot('#/now', undefined, {
+      askScript: async (_spec, n) => {
+        if (n > 0) return claudeTranscript({ reply: 'root = Reply([t])\nt = Text("Still running")' });
+        // The agent calls runs_start through MCP; the Ask MCP server queues it (queue: true).
+        const o = await (live as Live).as('agent', 'runs.start', { skill: 'score', queue: true });
+        const run = (o as { output: { run: { id: string } } }).output.run;
+        return claudeScoreTranscript({ runId: run.id });
+      },
+    });
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const input = await screen.findByRole('textbox', { name: 'Ask' });
+    fireEvent.change(input, { target: { value: 'Score my inbox roles' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    const reply = await waitFor(() => $(container, '.ask__reply[data-state="done"]'), { timeout: 4000 });
+    const runLink = $(reply, '.ask__run');
+    expect(runLink.getAttribute('data-op')).toBe('nav');
+    const runId = runLink.getAttribute('data-run-id') as string;
+    const run = await live?.engine.runOp('runs.get', { run_id: runId }, { actor: 'human', now });
+    expect(run).toMatchObject({ status: 'ok', output: { run: { op: 'score' } } });
+    expect(reply.querySelector('.ask__note')?.textContent).toBe('Checking the inbox.');
+    expect(Array.from(reply.querySelectorAll('.ask__step')).map((s) => s.textContent)).toEqual(['✓roles.list', '✓runs.start']);
+    await waitFor(() => expect(reply.querySelector('[data-genui="Text"]')?.textContent).toBe('Score run started for 3 inbox roles'));
+
+    // Same thread: the next message resumes the Claude session.
+    fireEvent.change(input, { target: { value: 'and now?' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    await waitFor(() => expect(container.querySelectorAll('.ask__turn[data-state="done"]')).toHaveLength(2), { timeout: 4000 });
+    const args = live?.ask.specs[1]?.args ?? [];
+    expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+    fireEvent.click(runLink);
+    await waitFor(() => expect(window.location.hash).toBe(`#/runs/${runId}`));
+    assertButtons(container);
+  });
+
+  it('Ask: a missing runner shows clearly; New thread starts fresh', async () => {
+    const { container } = await boot('#/now');
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    const input = await screen.findByRole('textbox', { name: 'Ask' });
+    fireEvent.change(input, { target: { value: 'hello' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    const err = await waitFor(() => $(container, '.ask__error'));
+    expect(err.getAttribute('data-code')).toBe('runner_missing');
+    expect(err.textContent).toContain('Runner missing');
+    fireEvent.click($(container, '.ask__new'));
+    await waitFor(() => expect(container.querySelector('.ask__reply')).toBeNull());
+    expect(screen.getByText('Score my inbox roles')).toBeTruthy();
   });
 
   it('Role: each criterion shows who judged it and how sure (#40)', async () => {

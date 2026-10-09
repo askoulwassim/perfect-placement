@@ -4,7 +4,8 @@
  * and writes all happen inside runOp. The actor is always `agent`: an MCP client is never a
  * human. The optional `confidence` tool argument becomes `ctx.confidence` (backend `agent`).
  * A headless run's server is started with PP_RUN_ID (#50): every op it runs carries `ctx.runId`, so its
- * events and run logs are linked to that run.
+ * events and run logs are linked to that run. An Ask session's server (PP_ASK=1, #39) queues the skill
+ * runs it starts (`runs.start` defaults to `queue: true`).
  */
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -29,6 +30,11 @@ export interface PpMcpServerOptions {
   toolNames?: ToolNameStyle;
   /** The skill run this server works for (PP_RUN_ID from the headless runner): set as `ctx.runId` on every op. */
   runId?: string;
+  /**
+   * An Ask session's server (PP_ASK=1, #39): the chat agent delegates skill work, so `runs.start` defaults to
+   * `queue: true` (a queued headless run) instead of making the chat session the run.
+   */
+  ask?: boolean;
 }
 
 const INSTRUCTIONS = [
@@ -61,7 +67,8 @@ export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
   mcp.server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const op = byName.get(req.params.name);
     if (!op) throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${req.params.name}`);
-    const { [CONFIDENCE_ARG]: confidence, ...input } = (req.params.arguments ?? {}) as Record<string, unknown>;
+    const { [CONFIDENCE_ARG]: confidence, ...args } = (req.params.arguments ?? {}) as Record<string, unknown>;
+    const input = options.ask && op === 'runs.start' && args.queue === undefined ? { ...args, queue: true } : args;
     if (confidence !== undefined && (typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1)))
       return outcomeToToolResult(op, { status: 'error', code: 'invalid_input', message: `${CONFIDENCE_ARG} must be a number from 0 to 1` });
     try {

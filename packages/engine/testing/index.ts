@@ -171,3 +171,5 @@ export function learnKev(changes: readonly string[], applyP = 0.95): FakeScript 
     return undefined;
   };
 }
+
+export * from './ask.js';

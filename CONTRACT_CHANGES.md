@@ -622,3 +622,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: connect found people but rarely an address, so Gmail drafts had no recipient (#37).
 - Shim: none (new columns nullable, new output fields default; old contacts with an email and no source count as known).
 - Status: accepted
+
+## Ask agent session
+
+### `AskChatRequest` / `AskChatEvent`, `POST /api/ask`, `runs.start.queue` (#39)
+- Lane: ask-agent (B, D, J, CLI, MCP)
+- Date: 2026-10-09
+- Contract: new `ask.ts` (`AskChatContext`, `AskChatRequest`, `ASK_CHAT_ERROR_CODES`, `AskChatEvent`, `askChatFrame`, `parseAskChatFrames`); registry `runsStart.input.queue` (optional boolean)
+- Change: Ask (Cmd+K) is a real agent session. `pp up` serves `POST /api/ask` with `AskChatRequest { thread_id?, message, context?: { screen?, role_id? } }` and streams Server-Sent Events of `AskChatEvent` (`thread { thread_id, runner }`, `text { delta }`, `tool { id, name, op }`, `tool_result { id, ok }`, `run { run_id, skill }`, `error { code: runner_missing | not_logged_in | runner_failed | busy | invalid_input | unavailable, message }`, `done`). Each message runs one turn of `config.runner` with the pp MCP server (all pp tools, web search and fetch; no shell, no file writes) and a system prompt (act through ops, the policy, never submit or send, reply in OpenUI Lang with the id-only genui cards). Threads continue with Claude Code `--resume <session_id>`; Codex and Cursor replay the last turns. `runs.start` takes `queue: true`: an agent asks for a queued headless run instead of being the run itself (`summary_json.actor: "ask"`, a queue run like a human's); the Ask MCP server (`PP_ASK=1`) sets it by default. Not a contract: threads live in `pp up` memory; the web `OpClient` gains optional `ask()`; the mock answers Ask from fixtures with the old local compose.
+- Why: Ask built replies locally and could not run anything; "score my inbox roles" did nothing (#39).
+- Shim: none (new endpoint, new optional input; an agent without `queue` keeps today's behavior).
+- Status: accepted

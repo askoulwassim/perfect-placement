@@ -1094,6 +1094,11 @@ export const runsStart = defineOp({
      * skill must be the schedule's (`SCHEDULE_SKILL`). Kept as `summary_json.schedule`.
      */
     schedule: ScheduleKey.optional(),
+    /**
+     * Added (#39): an agent asks for a queued headless run instead of doing the skill's work itself (the Ask
+     * panel delegates). Ignored for a human or schedule (always queued). Kept as `summary_json.actor: "ask"`.
+     */
+    queue: z.boolean().optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),

@@ -8,9 +8,17 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { OP_NAMES } from '@perfect-placement/contracts';
+import { OP_NAMES, parseAskChatFrames } from '@perfect-placement/contracts';
 import { ops } from '@perfect-placement/engine';
-import { type FixtureEngine, fakeBackend, fakeLauncher, noNetwork, openFixtureEngine } from '@perfect-placement/engine/testing';
+import {
+  claudeScoreTranscript,
+  type FixtureEngine,
+  fakeAskLauncher,
+  fakeBackend,
+  fakeLauncher,
+  noNetwork,
+  openFixtureEngine,
+} from '@perfect-placement/engine/testing';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
@@ -238,6 +246,45 @@ describe('run queue (#30): pp drain and pp up launch queued runs', () => {
       expect(launcher.specs.map((s) => s.runId)).toEqual(['rn_q1', 'rn_q2']);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pp up: POST /api/ask (#39, fake runner)', () => {
+  it('streams one agent turn as SSE events and resumes the thread on the next message', async () => {
+    const launcher = fakeAskLauncher(() => claudeScoreTranscript());
+    const eng = openFixtureEngine();
+    const srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
+    try {
+      const ask = async (body: unknown) => {
+        const res = await fetch(`${srv.url}/api/ask`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        expect(res.headers.get('content-type')).toMatch(/^text\/event-stream/);
+        return parseAskChatFrames(await res.text()).events;
+      };
+      const first = await ask({ message: 'Score my inbox roles', context: { screen: 'river' } });
+      expect(first[0]).toMatchObject({ type: 'thread', runner: 'claude' });
+      expect(first).toContainEqual({ type: 'run', run_id: 'run_0001', skill: 'score' });
+      expect(first.at(-1)).toEqual({ type: 'done' });
+      // The Ask agent gets the vault's MCP server in Ask mode.
+      const spec = launcher.specs[0];
+      expect(spec?.cwd).toBe(eng.home);
+      const cfg = JSON.parse(spec?.args[spec.args.indexOf('--mcp-config') + 1] as string);
+      expect(cfg.mcpServers.pp.env).toMatchObject({ PP_HOME: eng.home, PP_ASK: '1' });
+      const thread = (first[0] as { thread_id: string }).thread_id;
+      await ask({ thread_id: thread, message: 'thanks' });
+      const args = launcher.specs[1]?.args ?? [];
+      expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+
+      expect((await ask({ message: '' }))[0]).toMatchObject({ type: 'error', code: 'invalid_input' });
+      const get = await fetch(`${srv.url}/api/ask`);
+      expect(get.status).toBe(405);
+    } finally {
+      await srv.close();
+      eng.cleanup();
     }
   });
 });
