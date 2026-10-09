@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { OP_NAMES } from '@perfect-placement/contracts';
+import { ops } from '@perfect-placement/engine';
 import { type FixtureEngine, fakeBackend, fakeLauncher, noNetwork, openFixtureEngine } from '@perfect-placement/engine/testing';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -145,5 +146,55 @@ describe('pp up command', () => {
     expect(out.at(-1)).toBe('pp up: stopped');
     const home = /fixtures demo \(synthetic data, offline\) at (\S+)/.exec(out.join('\n'))?.[1] as string;
     rmSync(dirname(home), { recursive: true, force: true });
+  });
+});
+
+describe('pp up: interrupted runs (#21)', () => {
+  it('on startup, a run left running whose runner is gone is finished as error "interrupted"', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'pp-up-stale-'));
+    const home = join(tmp, 'vault');
+    const out: string[] = [];
+    const services = {
+      fetch: noNetwork,
+      launcher: fakeLauncher(),
+      backends: { kev: fakeBackend('kev', 'down') },
+      freshnessDelayMs: 0,
+      env: {},
+    };
+    const base: Io = { env: {}, out: (l) => out.push(l), err: (l) => out.push(l), stdin: () => '', services };
+    try {
+      expect(await runCli(['init', '--home', home], base)).toBe(0);
+      // A previous pp up launched two runs an hour ago; one runner is still alive.
+      const prev = ops.openEngine({ home, services });
+      const hourAgo = () => new Date(Date.now() - 3_600_000);
+      const start = async (skill: string) => {
+        const o = await prev.runOp('runs.start', { skill }, { actor: 'human', now: hourAgo });
+        return (o as { output: { run: { id: string } } }).output.run.id;
+      };
+      const dead = await start('scout');
+      const alive = await start('inbox');
+      prev.close();
+
+      const io: Io = { ...base, runnerAlive: (id) => id === alive };
+      const statusOf = async (url: string, id: string) => {
+        const res = await fetch(`${url}/api/ops/runs.get`, { method: 'POST', body: JSON.stringify({ run_id: id }) });
+        return ((await res.json()) as { output: { run: { status: string; summary_json: { error?: string } } } }).output.run;
+      };
+      let stop: () => void = () => {};
+      const stopped = new Promise<void>((r) => {
+        stop = r;
+      });
+      const code = runCli(['up', '--home', home, '--port', '0', '--web', 'none', '--no-kev'], io, async () => {
+        const url = /pp up: (http:\/\/127\.0\.0\.1:\d+)/.exec(out.join('\n'))?.[1] as string;
+        expect(await statusOf(url, dead)).toMatchObject({ status: 'error', summary_json: { error: 'interrupted' } });
+        expect((await statusOf(url, alive)).status).toBe('running');
+        stop();
+        await stopped;
+      });
+      expect(await code).toBe(0);
+      expect(out.join('\n')).toContain(`pp up: 1 interrupted run marked error (${dead})`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

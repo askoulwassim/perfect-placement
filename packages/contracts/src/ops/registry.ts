@@ -767,13 +767,13 @@ export const runsStart = defineOp({
   owner: 'B',
 });
 
-/** Added in Wave 2 (lane B): close a run started with runs.start. */
+/** Added in Wave 2 (lane B): close a run started with runs.start (a `queued` or `running` run). */
 export const runsFinish = defineOp({
   name: 'runs.finish',
   description: 'Close a skill run started with runs.start.',
   input: z.object({
     run_id: Id,
-    status: RunStatus.exclude(['running']),
+    status: RunStatus.exclude(['queued', 'running']),
     summary: z.record(z.string(), z.unknown()).optional(),
     note: z.string().optional(),
   }),

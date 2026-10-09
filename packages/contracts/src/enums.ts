@@ -275,7 +275,10 @@ export const DECISION_KINDS = [
 export const DecisionKind = z.enum(DECISION_KINDS);
 export type DecisionKind = z.infer<typeof DecisionKind>;
 
-export const RUN_STATUSES = ['running', 'ok', 'partial', 'error'] as const;
+/** `queued`: waiting for its turn (run queue, #30); nothing launches it yet. `running`: launched. The rest are final. */
+export const RUN_STATUSES = ['queued', 'running', 'ok', 'partial', 'error'] as const;
+/** Statuses a run can still leave (shown as in progress). */
+export const RUN_ACTIVE_STATUSES = ['queued', 'running'] as const satisfies readonly (typeof RUN_STATUSES)[number][];
 export const RunStatus = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatus>;
 

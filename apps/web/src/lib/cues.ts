@@ -27,7 +27,7 @@ export const CUE_TARGET: Record<CueId, string> = Object.fromEntries(
 /** The cue for what is on screen (`shown`: the screen actually rendered), or null (Onboarding). */
 export function cueFor(shown: Route['screen'] | null, askOpen: boolean): CueId | null {
   if (askOpen) return 'ask';
-  if (!shown || shown === 'onboarding') return null;
+  if (!shown || shown === 'onboarding' || shown === 'runs') return null;
   return shown === 'outreach-draft' ? 'outreach' : shown;
 }
 

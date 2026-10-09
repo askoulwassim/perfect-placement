@@ -10,6 +10,7 @@ import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
 import { bestPath, initials } from '../lib/people';
 import { criteriaOf, freshOf } from '../lib/role';
+import { activeLabel } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
 import { type DocLine, docLines, tile } from '../lib/view';
 import { go } from '../router';
@@ -24,7 +25,7 @@ const TABS = [
 type Tab = (typeof TABS)[number][0];
 
 export function RoleScreen({ roleId }: { roleId: string }) {
-  const { now, config, showToast, watchRun } = useApp();
+  const { now, config, showToast, watchRun, activeRun } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
@@ -45,6 +46,8 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const best = bestPath(contacts);
   const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id));
   const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
+  // Connect runs are per person (People shows them); Research, Tailor and Fill are per role.
+  const inFlight = skill && skill !== 'connect' ? activeRun({ skill, role_id: role.id }) : undefined;
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';
@@ -75,15 +78,14 @@ export function RoleScreen({ roleId }: { roleId: string }) {
         }
       : skill
         ? {
-            label: STAGES[stage] as string,
+            label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
             op: 'runs.start' as const,
+            disabled: !!inFlight,
             onClick: async () => {
-              const label = STAGES[stage] as string;
               const o = await act('runs.start', { skill, role_id: role.id });
               if (o.status !== 'ok') return;
-              watchRun(o.output.run.id, (run) => showToast(run.status === 'error' ? `${label} failed` : `${label} done`));
+              watchRun(o.output.run);
               if (skill === 'connect') go({ screen: 'people', roleId: role.id });
-              else showToast(`${label} started`);
             },
           }
         : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };

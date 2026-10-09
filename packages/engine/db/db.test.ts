@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { RUN_STATUSES } from '@perfect-placement/contracts';
 import { FIXTURE_SEED_SQL } from '@perfect-placement/fixtures';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -164,6 +165,27 @@ describe('migration 003 (fresh start, #26)', () => {
     expect(indexes()).toEqual(idx002);
     expect(old.pragma('foreign_key_check')).toEqual([]);
     expect(() => old.exec(`DELETE FROM score`)).toThrow(/append-only/);
+    old.close();
+  });
+});
+
+describe('migration 004 (run status queued, #21)', () => {
+  it('accepts every contract run status, rejects others, and keeps every run', () => {
+    const old = new Database(':memory:');
+    for (const v of ['001', '002', '003']) old.exec(migration(v));
+    old.exec(readFileSync(FIXTURE_SEED_SQL, 'utf8'));
+    const before = old.prepare('SELECT * FROM run ORDER BY id').all();
+    expect(before.length).toBeGreaterThan(0);
+    const ins = old.prepare(`INSERT INTO run (id, op, started_at, status) VALUES (?, 'scout', 'x', ?)`);
+    expect(() => ins.run('tmp_q', 'queued')).toThrow(/CHECK/);
+    old.exec(migration('004'));
+    expect(old.prepare('SELECT * FROM run ORDER BY id').all()).toEqual(before);
+    old.exec('SAVEPOINT s');
+    for (const s of RUN_STATUSES) ins.run(`tmp_${s}`, s);
+    expect(() => ins.run('tmp_bad', 'nope')).toThrow(/CHECK/);
+    old.exec('ROLLBACK TO s; RELEASE s');
+    expect(old.pragma('foreign_key_check')).toEqual([]);
+    expect(old.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 4 });
     old.close();
   });
 });

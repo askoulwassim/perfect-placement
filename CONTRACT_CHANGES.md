@@ -516,3 +516,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: cues are shown once per screen and must stay dismissed across browsers and restarts, so the state lives in the vault, not localStorage.
 - Shim: none (optional; a config.json without `ui` parses as before).
 - Status: accepted
+
+## Run status
+
+### Run status `queued` (#21)
+- Lane: run-status (B, D)
+- Date: 2026-10-09
+- Contract: `RUN_STATUSES` + new `RUN_ACTIVE_STATUSES` (enums.ts); registry `runsFinish.input.status`; migration `004_run_queued.sql`
+- Change: `RUN_STATUSES` gains `queued` (first): a run waiting for its turn. `RUN_ACTIVE_STATUSES = ['queued', 'running']` (in progress). `runs.finish` takes neither `queued` nor `running` and now also closes a `queued` run (e.g. cancelled). 004 rebuilds `run` with the wider CHECK (no indexes, triggers or FKs involved; data copied as is). Nothing queues yet.
+- Why: the run queue and automatic pipeline (#30), schedules (#29) and the guided path (#24) show queued, running and done/failed per run; the UI already treats `queued` as in progress (button label "Queued", no duplicate starts).
+- Shim: none (additive; existing rows keep their status).
+- Status: accepted

@@ -108,7 +108,120 @@ export const PPMark = ({ mb = 0 }: { mb?: number }) => (
   </div>
 );
 
-export function NavRail({ active, needsBadge, onNavigate }: { active: string; needsBadge: boolean; onNavigate: (t: NavTarget) => void }) {
+// ------------------------------------------------------------ RunIndicator (#21)
+
+export type RunIndicatorState = 'idle' | 'running' | 'error';
+
+/**
+ * Global run status: pulses while a run is queued or running (with the count), coral when the latest
+ * run failed. Opens Runs. `compact` = the mobile pill ("Scouting").
+ */
+export function RunIndicator({
+  state,
+  count,
+  label,
+  active,
+  onOpen,
+  compact,
+}: {
+  state: RunIndicatorState;
+  count: number;
+  /** "Scouting", "2 runs", "Scout failed", "Runs". */
+  label: string;
+  active?: boolean;
+  onOpen: () => void;
+  compact?: boolean;
+}) {
+  const c = state === 'running' ? C.emerald : state === 'error' ? C.coral : C.muted;
+  const dot = (
+    <span
+      className={state === 'running' ? 'run-pulse' : undefined}
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: state === 'idle' ? 'transparent' : c,
+        border: `1.5px solid ${c}`,
+        flex: 'none',
+      }}
+    />
+  );
+  if (compact)
+    return (
+      <Btn
+        op={null}
+        className="run-indicator"
+        data-nav="runs"
+        data-run-state={state}
+        aria-label="Runs"
+        onClick={onOpen}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 28,
+          padding: '0 12px',
+          borderRadius: 999,
+          border: `1px solid ${state === 'idle' ? C.line : c}`,
+          background: 'transparent',
+          color: state === 'idle' ? C.muted : C.fg,
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+      >
+        {dot}
+        {label}
+      </Btn>
+    );
+  return (
+    <Btn
+      op={null}
+      className="run-indicator"
+      data-nav="runs"
+      data-run-state={state}
+      aria-label="Runs"
+      aria-current={active ? 'page' : undefined}
+      title={label}
+      onClick={onOpen}
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 10,
+        border: 0,
+        background: active ? C['panel-2'] : 'transparent',
+        color: c,
+        display: 'grid',
+        placeItems: 'center',
+        position: 'relative',
+        padding: 0,
+      }}
+    >
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <circle cx="11" cy="11" r="8" className={state === 'running' ? 'run-pulse' : undefined} />
+        <path d="M11 6.5V11l3 2" strokeLinecap="round" />
+      </svg>
+      {state === 'running' && count > 1 && (
+        <span style={{ position: 'absolute', top: 4, right: 4, ...mono(10, C.emerald), fontWeight: 700 }}>{count}</span>
+      )}
+      {state === 'error' && (
+        <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 2, background: C.coral }} />
+      )}
+    </Btn>
+  );
+}
+
+export function NavRail({
+  active,
+  needsBadge,
+  onNavigate,
+  runs,
+}: {
+  active: string;
+  needsBadge: boolean;
+  onNavigate: (t: NavTarget) => void;
+  /** The global run indicator, above Ask. */
+  runs?: ReactNode;
+}) {
   return (
     <nav
       aria-label="Main"
@@ -142,6 +255,7 @@ export function NavRail({ active, needsBadge, onNavigate }: { active: string; ne
         />
       ))}
       <div style={{ flex: 1 }} />
+      {runs}
       <Btn
         op={null}
         title="Ask (⌘K)"
@@ -751,7 +865,18 @@ export function ScheduleRow({
 
 // ------------------------------------------------------------ MobileFrame
 
-export function MobileFrame({ children, primary, tabbar }: { children: ReactNode; primary?: ReactNode; tabbar: ReactNode }) {
+export function MobileFrame({
+  children,
+  primary,
+  tabbar,
+  top,
+}: {
+  children: ReactNode;
+  primary?: ReactNode;
+  tabbar: ReactNode;
+  /** Status bar area (the run pill). */
+  top?: ReactNode;
+}) {
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
       <div
@@ -769,7 +894,9 @@ export function MobileFrame({ children, primary, tabbar }: { children: ReactNode
           flexDirection: 'column',
         }}
       >
-        <div style={{ height: 44, flex: 'none' }} />
+        <div style={{ height: 44, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 20px' }}>
+          {top}
+        </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 24px' }}>{children}</div>
         {primary && <div style={{ flex: 'none', padding: '10px 20px', borderTop: `1px solid ${C.line}`, background: C.bg }}>{primary}</div>}
         {tabbar}

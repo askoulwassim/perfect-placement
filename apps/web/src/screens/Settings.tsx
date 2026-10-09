@@ -1,11 +1,14 @@
 import { type HardHumanSubject, isHardHuman, type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
+import { Btn } from '../components/Btn';
 import { Toggle } from '../components/controls';
 import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
 import { CUE_IDS } from '../lib/cues';
+import { go } from '../router';
+import { RunRow } from './Runs';
 
 type ScheduleKey = keyof PolicyConfig['schedules'];
 const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
@@ -54,7 +57,7 @@ export const cadence = (spec: string) => {
 };
 
 export function Settings() {
-  const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues } = useApp();
+  const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues, runs } = useApp();
   // On while any cue is still to come; flipping it on shows every cue again, off retires them all.
   const cuesOn = !CUE_IDS.every((id) => cuesSeen?.includes(id));
   const act = useAct();
@@ -113,6 +116,22 @@ export function Settings() {
               />
             );
           })}
+        </div>
+        <div className="settings-runs">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={eyebrow()}>Runs</span>
+            <Btn
+              op={null}
+              onClick={() => go({ screen: 'runs' })}
+              style={{ background: 'none', border: 0, padding: 0, color: C.emerald, fontSize: 13, fontWeight: 600 }}
+            >
+              All runs
+            </Btn>
+          </div>
+          {runs.slice(0, 5).map((r) => (
+            <RunRow key={r.id} run={r} now={t} onOpen={() => go({ screen: 'runs', runId: r.id })} />
+          ))}
+          {!runs.length && <div style={{ color: C.muted, padding: '12px 4px' }}>No runs</div>}
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 6 }}>Cues</div>

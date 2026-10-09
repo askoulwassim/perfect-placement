@@ -7,6 +7,7 @@ import { ArchivedColumn, type ColumnState, RiverColumn, RiverDot, RiverTile } fr
 import { C, display, eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import type { RoleView } from '../lib/role';
+import { activeLabel } from '../lib/runs';
 import { tile } from '../lib/view';
 import { go } from '../router';
 
@@ -27,7 +28,7 @@ export const canMove = (from: RoleStatus, to: RoleStatus) => MANUAL_MOVES.some((
 type FilterKey = 'band' | 'fresh' | 'company' | 'mode';
 
 export function River() {
-  const { now, config, showToast, watchRun } = useApp();
+  const { now, config, showToast, watchRun, activeRun } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const list = useOp('roles.list', { limit: 500 });
@@ -76,14 +77,16 @@ export function River() {
   const held = live.filter((v) => v.role.status === 'held');
   const archivedCount = sum.data?.counts.archived ?? 0;
   const reasons = Object.entries(sum.data?.archived_by_reason ?? {}).filter(([, n]) => n > 0) as Array<[ArchiveReason, number]>;
+  // While a scout is queued or running the button shows it ("Scouting") instead of starting another.
+  const scouting = activeRun({ skill: 'scout' });
   const primary = {
-    label: 'Scout now',
+    label: scouting ? activeLabel(scouting) : 'Scout now',
     op: 'runs.start' as const,
+    disabled: !!scouting,
     onClick: async () => {
       const o = await act('runs.start', { skill: 'scout' });
       if (o.status !== 'ok') return;
-      showToast('role-scout queued');
-      watchRun(o.output.run.id);
+      watchRun(o.output.run);
     },
   };
 

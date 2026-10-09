@@ -3,13 +3,14 @@ import { PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
 import { eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { bestPath, initials } from '../lib/people';
+import { activeLabel } from '../lib/runs';
 import { graphLayout } from '../lib/view';
 import { go } from '../router';
 
 export function PeopleScreen({ roleId }: { roleId: string }) {
   const { mobile } = useLayout();
   const act = useAct();
-  const { showToast, watchRun } = useApp();
+  const { watchRun, activeRun } = useApp();
   const res = useOp('roles.get', { role_id: roleId });
   const drafts = useOp('outreach.list', { role_id: roleId });
 
@@ -26,17 +27,18 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   const draft = async (contactId: string) => {
     const o = await act('runs.start', { skill: 'connect', role_id: role.id, contact_id: contactId });
     if (o.status !== 'ok') return;
-    showToast('Drafting');
     // A connect run names the draft it wrote in summary_json.outreach_id.
-    watchRun(o.output.run.id, (run) => {
+    watchRun(o.output.run, (run) => {
       const id = (run.summary_json as { outreach_id?: string | null }).outreach_id;
       if (id) go({ screen: 'outreach-draft', outreachId: id });
     });
   };
+  const drafting = best && activeRun({ skill: 'connect', role_id: role.id, contact_id: best.target.contact.id });
   const primary = best
     ? {
-        label: `Draft for ${best.target.contact.name.split(' ')[0]}`,
+        label: drafting ? activeLabel(drafting) : `Draft for ${best.target.contact.name.split(' ')[0]}`,
         op: 'runs.start' as const,
+        disabled: !!drafting,
         onClick: () => void draft(best.target.contact.id),
       }
     : null;

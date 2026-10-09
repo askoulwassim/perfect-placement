@@ -8,7 +8,9 @@ export type Route =
   | { screen: 'onboarding'; calibrate?: boolean }
   | { screen: 'role'; roleId: string }
   | { screen: 'people'; roleId: string }
-  | { screen: 'outreach-draft'; outreachId: string };
+  | { screen: 'outreach-draft'; outreachId: string }
+  /** Runs (#21): the list, or one run with its log. Reached from the rail's run indicator and Settings. */
+  | { screen: 'runs'; runId?: string };
 
 export function parseRoute(hash: string): Route {
   const [head, arg] = hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
@@ -29,6 +31,8 @@ export function parseRoute(hash: string): Route {
       return arg ? { screen: 'people', roleId: arg } : { screen: 'river' };
     case 'outreach':
       return arg ? { screen: 'outreach-draft', outreachId: arg } : { screen: 'now' };
+    case 'runs':
+      return arg ? { screen: 'runs', runId: arg } : { screen: 'runs' };
     default:
       return { screen: 'now' };
   }
@@ -42,6 +46,8 @@ export function href(r: Route): string {
       return `#/people/${encodeURIComponent(r.roleId)}`;
     case 'outreach-draft':
       return `#/outreach/${encodeURIComponent(r.outreachId)}`;
+    case 'runs':
+      return r.runId ? `#/runs/${encodeURIComponent(r.runId)}` : '#/runs';
     case 'you':
       return r.component ? `#/you/${r.component}` : '#/you';
     case 'onboarding':
@@ -71,4 +77,5 @@ export function useRoute(): Route {
   return route;
 }
 
-export const screenOf = (r: Route): Screen => r.screen;
+/** The contract screen a route belongs to (Runs is part of Settings). */
+export const screenOf = (r: Route): Screen => (r.screen === 'runs' ? 'settings' : r.screen);

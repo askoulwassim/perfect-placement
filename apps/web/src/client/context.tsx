@@ -8,7 +8,28 @@ import {
   type Thresholds,
 } from '@perfect-placement/contracts';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { isActive, matches, type RunScope, runToast } from '../lib/runs';
+import { go } from '../router';
 import type { In, OpClient, Out } from './types';
+
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+export interface ToastState {
+  text: string;
+  tone: 'ok' | 'error';
+  action?: ToastAction;
+}
+export interface ToastOptions {
+  tone?: 'ok' | 'error';
+  action?: ToastAction;
+  /** How long it stays (ms). Default 2400; errors 6000. */
+  ms?: number;
+}
+
+/** Recent runs polled for the global indicator and the per-screen button states. */
+const RUNS_WINDOW = 20;
 
 interface Ctx {
   client: OpClient;
@@ -20,13 +41,21 @@ interface Ctx {
   /** Live thresholds (Settings drags recolor every ProbabilityBar before Save). */
   thresholds: Thresholds;
   setThresholds: (t: Thresholds) => void;
-  toast: string | null;
-  showToast: (t: string) => void;
+  toast: ToastState | null;
+  showToast: (t: string, opts?: ToastOptions) => void;
   /**
-   * Follow a run started with `runs.start` (the headless agent does the work out of process):
-   * polls `runs.get` until it leaves `running`, then refreshes every read and calls `onDone`.
+   * Follow a run started with `runs.start` (the headless agent does the work out of process): it shows
+   * as in progress at once, then the runs poll sees it end, refreshes every read, toasts the outcome
+   * (counts, or the failure reason with a link to its log) and calls `onDone`.
    */
-  watchRun: (runId: string, onDone?: (run: Run) => void) => void;
+  watchRun: (run: Run, onDone?: (run: Run) => void) => void;
+  /**
+   * Recent runs (newest first), polled with `runs.list`: every `pollMs` while one is queued or
+   * running, every `10 x pollMs` otherwise (runs started elsewhere: schedules, the CLI, an agent).
+   */
+  runs: readonly Run[];
+  /** The queued or running run a start button is scoped to, if any. */
+  activeRun: (scope: RunScope) => Run | undefined;
   /**
    * First-visit cues already dismissed (wave1-decisions #27), from `config.ui.cues_seen`.
    * `null` until config has loaded (no cue shows before we know).
@@ -52,42 +81,85 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
   const [version, setVersion] = useState(0);
   const [config, setConfig] = useState<PolicyConfig>(DEFAULT_CONFIG);
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_CONFIG.policy);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
-  const showToast = useCallback((t: string) => {
-    setToast(t);
+  const showToast = useCallback((t: string, opts: ToastOptions = {}) => {
+    const tone = opts.tone ?? 'ok';
+    setToast({ text: t, tone, ...(opts.action ? { action: opts.action } : {}) });
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(null), 2400);
+    timer.current = setTimeout(() => setToast(null), opts.ms ?? (tone === 'error' ? 6000 : 2400));
   }, []);
 
+  // ---- runs: one poll loop for the indicator, button states, done/failed toasts and watchers.
+  const [runs, setRuns] = useState<readonly Run[]>([]);
+  const runsRef = useRef<readonly Run[]>([]);
+  /** Runs seen queued or running (by a poll or a watchRun): their end is toasted. */
+  const inFlight = useRef(new Set<string>());
   const watched = useRef(new Map<string, ((run: Run) => void) | undefined>());
-  const [watching, setWatching] = useState(0);
-  const watchRun = useCallback((runId: string, onDone?: (run: Run) => void) => {
-    watched.current.set(runId, onDone);
-    setWatching(watched.current.size);
+  const [kick, setKick] = useState(0);
+  const putRuns = useCallback((rs: readonly Run[]) => {
+    runsRef.current = rs;
+    setRuns(rs);
   }, []);
+  const watchRun = useCallback(
+    (run: Run, onDone?: (run: Run) => void) => {
+      watched.current.set(run.id, onDone);
+      if (isActive(run.status)) inFlight.current.add(run.id);
+      putRuns([run, ...runsRef.current.filter((r) => r.id !== run.id)]);
+      setKick((k) => k + 1);
+    },
+    [putRuns],
+  );
+  const ended = useCallback(
+    (run: Run) => {
+      inFlight.current.delete(run.id);
+      const onDone = watched.current.get(run.id);
+      watched.current.delete(run.id);
+      const t = runToast(run);
+      showToast(t.text, {
+        tone: t.tone,
+        ...(t.tone === 'error' ? { action: { label: 'Log', onClick: () => go({ screen: 'runs', runId: run.id }) } } : {}),
+      });
+      onDone?.(run);
+    },
+    [showToast],
+  );
   useEffect(() => {
-    if (!watching) return;
-    let busy = false;
-    const id = setInterval(async () => {
-      if (busy) return;
-      busy = true;
-      try {
-        for (const [runId, onDone] of [...watched.current]) {
-          const o = await client.run('runs.get', { run_id: runId });
-          if (o.status === 'ok' && o.output.run.status === 'running') continue;
-          watched.current.delete(runId);
-          bump();
-          if (o.status === 'ok') onDone?.(o.output.run);
+    void kick;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      const o = await client.run('runs.list', { limit: RUNS_WINDOW });
+      if (!live) return;
+      if (o.status === 'ok') {
+        const list = [...o.output.items];
+        // A watched run outside the window (or not listed yet): fetch it on its own.
+        for (const id of watched.current.keys()) {
+          if (list.some((r) => r.id === id)) continue;
+          const g = await client.run('runs.get', { run_id: id });
+          if (!live) return;
+          if (g.status === 'ok') list.unshift(g.output.run);
+          else if (g.status === 'error' && g.code === 'not_found') watched.current.delete(id);
         }
-      } finally {
-        busy = false;
-        setWatching(watched.current.size);
+        const done = list.filter((r) => !isActive(r.status) && inFlight.current.has(r.id));
+        for (const r of list) if (isActive(r.status)) inFlight.current.add(r.id);
+        putRuns(list);
+        if (done.length) {
+          bump();
+          for (const r of done) ended(r);
+        }
       }
-    }, pollMs);
-    return () => clearInterval(id);
-  }, [watching, client, pollMs, bump]);
+      const busy = runsRef.current.some((r) => isActive(r.status)) || watched.current.size > 0;
+      timer = setTimeout(() => void tick(), busy ? pollMs : pollMs * 10);
+    };
+    void tick();
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [client, pollMs, bump, ended, putRuns, kick]);
+  const activeRun = useCallback((scope: RunScope) => runs.find((r) => isActive(r.status) && matches(r, scope)), [runs]);
 
   // Seen cues live apart from `config` so saving one never resets a screen's unsaved config edits.
   const [cuesSeen, setCuesSeen] = useState<readonly string[] | null>(null);
@@ -149,11 +221,13 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
       toast,
       showToast,
       watchRun,
+      runs,
+      activeRun,
       cuesSeen,
       markCue,
       setCues: saveSeen,
     }),
-    [client, version, bump, now, config, thresholds, toast, showToast, watchRun, cuesSeen, markCue, saveSeen],
+    [client, version, bump, now, config, thresholds, toast, showToast, watchRun, runs, activeRun, cuesSeen, markCue, saveSeen],
   );
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

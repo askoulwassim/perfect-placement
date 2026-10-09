@@ -24,7 +24,7 @@ const SUGG = [
 const PACE = { tokensPerSecond: 240, chunkTokens: 3 } as const;
 
 export function Ask({ roleId, onClose }: { roleId: string | null; onClose: () => void }) {
-  const { client, now } = useApp();
+  const { client, now, watchRun } = useApp();
   const act = useAct();
   const [query, setQuery] = useState('');
   const [reply, setReply] = useState<Reply | null>(null);
@@ -48,7 +48,8 @@ export function Ask({ roleId, onClose }: { roleId: string | null; onClose: () =>
     const ctrl = new AbortController();
     abort.current = ctrl;
     if (tx.toLowerCase().includes('scout')) {
-      await act('runs.start', { skill: 'scout' });
+      const o = await act('runs.start', { skill: 'scout' });
+      if (o.status === 'ok') watchRun(o.output.run);
       setReply({ kind: 'scout', q: tx });
       return;
     }

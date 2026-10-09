@@ -204,6 +204,8 @@ describe('compose (local Ask)', () => {
     const people = await composeReply('people', { client: live.client, now: now(), roleId: R.linearDraft });
     expect(people).toContain(`OpButton("Draft for Maya", "runs.start", ["${R.linearDraft}", "ct_0001"], "connect")`);
     // Reads only: composing never writes.
-    expect(live.calls.every((c) => ['roles.get', 'roles.list', 'profile.get', 'contacts.get', 'config.get'].includes(c.name))).toBe(true);
+    expect(
+      live.calls.every((c) => ['roles.get', 'roles.list', 'profile.get', 'contacts.get', 'config.get', 'runs.list'].includes(c.name)),
+    ).toBe(true);
   });
 });

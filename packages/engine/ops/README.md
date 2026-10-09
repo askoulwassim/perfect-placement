@@ -62,6 +62,8 @@ A human or schedule `runs.start` commits the run, then launches `config.runner` 
 
 **Fail loudly.** If the runner exits while the run is still `running`, `runs.start` finishes it as `error` with `summary_json.error` (and `denied_tools`, `runner_log`). For Claude Code the denied tools come from the result's `permission_denials`; the error names each tool and the fix (settings deny rule, or `SKILL_TOOLS` / `config.runner.args`). The prompt also tells the agent to finish with `summary.error: "tool denied: <tool>"` itself. Only observable while the launching process (`pp up`) is alive.
 
+**Interrupted runs (#21).** The spawn launcher writes `<os tmp>/pp-runs/<runId>.pid` next to the runner log (removed on exit). `pp up` calls `interruptStaleRuns` on startup and every 30 s: a `running` run that a launcher started (`summary_json.runner`, actor not `agent`), older than 60 s, whose pid is gone is finished through `runs.finish` as `error` with `summary_json.error: "interrupted"`. Agent-session runs, in-process runs and `queued` runs are left alone.
+
 | Runner | Command line (flags checked 2026-10: `claude --help` 2.1.x, Codex config reference, Cursor CLI parameters + permissions docs) |
 | --- | --- |
 | `claude` | `claude -p <prompt> --mcp-config '<json>' --strict-mcp-config --tools <web tools or ""> --allowedTools mcp__pp[,WebSearch,WebFetch] --permission-mode dontAsk --permission-prompts none --output-format json`, cwd `PP_HOME`. `--tools` limits the built-ins (MCP tools stay), `--allowedTools` pre-approves, `dontAsk` + `--permission-prompts none` deny anything else. `connect`: `--strict-mcp-config --allowedTools mcp__pp ... --chrome` as before. |

@@ -36,10 +36,13 @@ export {
   deniedToolsError,
   MCP_SERVER_NAME,
   type McpServerSpec,
+  pidAlive,
   type RunnerExit,
   type RunnerLauncher,
   type RunnerSpec,
   resolveRepoRoot,
+  runnerAlive,
+  runnerDir,
   SKILL_ASSETS,
   SKILL_TOOLS,
   skillAllowedTools,
@@ -65,6 +68,7 @@ export {
   requiresHuman,
 } from './runtime.js';
 export type { EngineServices } from './services.js';
+export { INTERRUPTED, interruptStaleRuns, type StaleRunOptions } from './stale-runs.js';
 export { deepMerge, readConfig, renderMarkdown, resolveHome, stripFrontmatter, VaultTx } from './vault.js';
 
 export interface OpenEngineOptions {

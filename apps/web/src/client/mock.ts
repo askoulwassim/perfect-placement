@@ -163,8 +163,11 @@ function readOp(
           .sort((a, b) => b.ts.localeCompare(a.ts)),
       });
     }
-    case 'runs.list':
-      return ok({ items: [...fx.runs].sort((a, b) => b.started_at.localeCompare(a.started_at)), next_cursor: null });
+    case 'runs.list': {
+      const all = [...fx.runs].filter((r) => !i.op || r.op === i.op).sort((a, b) => b.started_at.localeCompare(a.started_at));
+      const limit = (i.limit as number | undefined) ?? 50;
+      return ok({ items: all.slice(0, limit), next_cursor: all.length > limit ? String(limit) : null });
+    }
     case 'runs.get': {
       const run = must(
         fx.runs.find((r) => r.id === i.run_id),

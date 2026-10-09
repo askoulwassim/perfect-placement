@@ -4,10 +4,11 @@ import { ClientProvider, useApp, useOp } from './client/context';
 import type { OpClient } from './client/types';
 import { Cue } from './components/Cue';
 import { Toast } from './components/controls';
-import { AskPill, MobileFrame, NavRail, type NavTarget, TabBar } from './components/shell';
+import { AskPill, MobileFrame, NavRail, type NavTarget, RunIndicator, type RunIndicatorState, TabBar } from './components/shell';
 import { C, F } from './components/theme';
 import { LayoutCtx } from './layout';
 import { CUE_TARGET, CUES, cueFor, pendingCue } from './lib/cues';
+import { activeLabel, isActive, runLabel } from './lib/runs';
 import { useMobile } from './lib/useMobile';
 import { go, href, type Route, replaceRoute, useRoute } from './router';
 import { Ask } from './screens/Ask';
@@ -18,6 +19,7 @@ import { OutreachScreen } from './screens/Outreach';
 import { PeopleScreen } from './screens/People';
 import { River } from './screens/River';
 import { RoleScreen } from './screens/Role';
+import { Runs } from './screens/Runs';
 import { Settings } from './screens/Settings';
 import { You } from './screens/You';
 
@@ -66,7 +68,7 @@ export function shownRoute(route: Route, opts: { mobile: boolean; fresh: boolean
 function Shell() {
   const route = useRoute();
   const mobile = useMobile();
-  const { toast, cuesSeen, markCue } = useApp();
+  const { toast, cuesSeen, markCue, runs } = useApp();
   const fresh = useFresh();
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
@@ -116,6 +118,28 @@ function Shell() {
       replaceRoute({ screen: 'onboarding' });
   }, [fresh.now, route]);
 
+  // Global run indicator (#21): in progress, or the latest run failed (until Runs is opened).
+  const activeRuns = runs.filter((r) => isActive(r.status));
+  const latest = runs[0];
+  const [seenFail, setSeenFail] = useState<string | null>(null);
+  useEffect(() => {
+    if (route.screen === 'runs' && latest) setSeenFail(latest.id);
+  }, [route.screen, latest]);
+  const runState: RunIndicatorState = activeRuns.length
+    ? 'running'
+    : latest?.status === 'error' && latest.id !== seenFail
+      ? 'error'
+      : 'idle';
+  const runText =
+    runState === 'running'
+      ? activeRuns.length === 1
+        ? activeLabel(activeRuns[0] as (typeof runs)[number])
+        : `${activeRuns.length} runs`
+      : runState === 'error' && latest
+        ? `${runLabel(latest)} failed`
+        : 'Runs';
+  const openRuns = () => go(runState === 'error' && latest ? { screen: 'runs', runId: latest.id } : { screen: 'runs' });
+
   const need = sum.data?.needs_you ?? 0;
   const railActive = route.screen === 'outreach-draft' ? 'people' : route.screen;
   const onboarding = route.screen === 'onboarding';
@@ -132,6 +156,9 @@ function Shell() {
         {mobile ? (
           <MobileFrame
             primary={<div ref={setSlot} />}
+            top={
+              runState !== 'idle' && <RunIndicator compact state={runState} count={activeRuns.length} label={runText} onOpen={openRuns} />
+            }
             tabbar={
               <TabBar
                 active={(t) =>
@@ -149,11 +176,26 @@ function Shell() {
           </MobileFrame>
         ) : (
           <div style={{ display: 'flex', minHeight: '100vh' }}>
-            {(!onboarding || fresh.last === true) && <NavRail active={railActive} needsBadge={need > 0} onNavigate={navigate} />}
+            {(!onboarding || fresh.last === true) && (
+              <NavRail
+                active={railActive}
+                needsBadge={need > 0}
+                onNavigate={navigate}
+                runs={
+                  <RunIndicator
+                    state={runState}
+                    count={activeRuns.length}
+                    label={runText}
+                    active={route.screen === 'runs'}
+                    onOpen={openRuns}
+                  />
+                }
+              />
+            )}
             <main style={{ flex: 1, minWidth: 0, padding: '32px 48px 140px', maxWidth: 1440 }}>{shown && <ScreenFor route={shown} />}</main>
           </div>
         )}
-        <Toast text={toast} />
+        <Toast text={toast?.text ?? null} tone={toast?.tone} action={toast?.action} />
         {cue && <Cue key={cue} id={cue} label={CUES[cue]} target={CUE_TARGET[cue]} onDismiss={dismissCue} />}
         {!askOpen && !mobile && !onboarding && <AskPill onOpen={() => setAskOpen(true)} />}
         {ask}
@@ -182,5 +224,7 @@ function ScreenFor({ route }: { route: Route }) {
       return <Onboarding key={route.calibrate ? 'cal' : 'ob'} calibrate={route.calibrate} />;
     case 'settings':
       return <Settings />;
+    case 'runs':
+      return <Runs key={route.runId ?? 'list'} runId={route.runId} />;
   }
 }

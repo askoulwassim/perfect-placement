@@ -103,6 +103,9 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
   }
 }
 
+/** Stale-run sweep interval in `pp up`. */
+const SWEEP_MS = 30_000;
+
 async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForStop): Promise<number> {
   const port = Number(args.get('port') ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new CliError(`--port must be 0 to 65535, got ${args.get('port')}`);
@@ -122,6 +125,17 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
     closeEngine = () => opened.close();
   }
 
+  // Runs a previous pp up left open (their runner is gone) end as error "interrupted"; then keep sweeping
+  // for detached runners that die without runs.finish while nothing is watching them.
+  const sweepOpts = io.runnerAlive ? { isAlive: (r: { id: string }) => (io.runnerAlive as (id: string) => boolean)(r.id) } : {};
+  const sweep = async () => {
+    const ids = await ops.interruptStaleRuns(engine.runOp, sweepOpts).catch(() => []);
+    if (ids.length) io.out(`pp up: ${ids.length} interrupted run${ids.length === 1 ? '' : 's'} marked error (${ids.join(', ')})`);
+  };
+  await sweep();
+  const sweeper = setInterval(() => void sweep(), SWEEP_MS);
+  sweeper.unref();
+
   let running: Running;
   // Kev on demand: only for a real vault, only if installed and not already answering; stopped on exit only if started here.
   const stopKev = args.has('fixtures') || args.has('no-kev') ? null : await kevForUp(engine.home, io);
@@ -134,12 +148,14 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
       ...(toolNames ? { toolNames } : {}),
     });
   } catch (e) {
+    clearInterval(sweeper);
     closeEngine();
     stopKev?.();
     throw e;
   }
   io.out(`pp up: ${running.url} (api ${running.url}/api/ops, mcp ${running.url}/mcp, home ${engine.home})`);
   await waitForStop();
+  clearInterval(sweeper);
   await running.close();
   closeEngine();
   stopKev?.();

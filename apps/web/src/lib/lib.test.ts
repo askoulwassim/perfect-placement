@@ -1,9 +1,11 @@
+import type { Run } from '@perfect-placement/contracts';
 import { contactLinks, contacts, decisions } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
 import { nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, type Person } from './people';
+import { activeLabel, duration, isActive, matches, retryInput, runOutcome, runToast } from './runs';
 import { stageOf } from './stage';
 
 describe('stageOf', () => {
@@ -72,5 +74,51 @@ describe('nextRun', () => {
     expect(nextRun('fri 05:30', now)).toBe('Fri 05:30');
     expect(nextRun('mon 05:30', now)).toBe('Mon 05:30');
     expect(nextRun('off', now)).toBeNull();
+  });
+});
+
+describe('runs (#21)', () => {
+  const run = (over: Partial<Run>): Run => ({
+    id: 'rn_1',
+    op: 'scout',
+    started_at: '2026-10-08T10:00:00.000Z',
+    finished_at: null,
+    status: 'running',
+    summary_json: { skill: 'scout', actor: 'human', runner: 'claude' },
+    log_path: null,
+    ...over,
+  });
+  it('labels in-flight runs by verb, queued as Queued', () => {
+    expect(activeLabel(run({}))).toBe('Scouting');
+    expect(activeLabel(run({ status: 'queued' }))).toBe('Queued');
+    expect(activeLabel(run({ op: 'tailor' }))).toBe('Tailoring');
+    expect(isActive('queued') && isActive('running') && !isActive('ok') && !isActive('error')).toBe(true);
+  });
+  it('toasts counts on success and the one-line reason on failure', () => {
+    const ok = run({ status: 'ok', summary_json: { skill: 'scout', runner: 'claude', queries_run: 4, added: 12 } });
+    expect(runToast(ok)).toEqual({ text: 'Scout done · 12 added · 4 queries run', tone: 'ok' });
+    expect(runToast(run({ status: 'ok', op: 'research' }))).toEqual({ text: 'Research done', tone: 'ok' });
+    // No counts reported: the run's own op tallies.
+    expect(runToast(run({ status: 'ok', summary_json: { skill: 'scout', 'roles.add': { added: 3, duplicates: 0 } } })).text).toBe(
+      'Scout done · 3 added',
+    );
+    const bad = run({ status: 'error', summary_json: { error: 'interrupted\nmore' } });
+    expect(runToast(bad)).toEqual({ text: 'Scout failed · interrupted', tone: 'error' });
+    expect(runOutcome(run({ status: 'error', summary_json: {} }))).toBe('no reason given');
+  });
+  it('matches a scope and rebuilds the start input for Retry', () => {
+    const r = run({ op: 'connect', summary_json: { skill: 'connect', role_id: 'a_b', contact_id: 'ct_1' } });
+    expect(matches(r, { skill: 'connect', role_id: 'a_b' })).toBe(true);
+    expect(matches(r, { skill: 'connect', role_id: 'a_b', contact_id: 'ct_2' })).toBe(false);
+    expect(matches(r, { skill: 'scout' })).toBe(false);
+    expect(retryInput(r)).toEqual({ skill: 'connect', role_id: 'a_b', contact_id: 'ct_1' });
+    expect(retryInput(run({ op: 'connect', summary_json: { outreach_id: 'or_1', role_id: 'a_b' } }))).toEqual({
+      skill: 'connect',
+      outreach_id: 'or_1',
+    });
+  });
+  it('shows duration', () => {
+    expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');
+    expect(duration(run({}), new Date('2026-10-08T11:05:00.000Z'))).toBe('1h 5m');
   });
 });

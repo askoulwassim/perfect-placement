@@ -143,7 +143,7 @@ export const runsFinish = defineHandler('runs.finish', {
   run(input, h) {
     const run = get(h.db, 'run', input.run_id);
     if (!run) throw notFound('run', input.run_id);
-    if (run.status !== 'running') throw new OpError('conflict', `run ${run.id} is already ${run.status}`);
+    if (run.status !== 'running' && run.status !== 'queued') throw new OpError('conflict', `run ${run.id} is already ${run.status}`);
     const iso = h.nowIso();
     const patch = { finished_at: iso, status: input.status, summary_json: { ...run.summary_json, ...(input.summary ?? {}) } };
     update(h.db, 'run', run.id, patch);

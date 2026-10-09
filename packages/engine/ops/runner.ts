@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -367,9 +367,36 @@ export function buildRunnerSpec(opts: {
   }
 }
 
+/** Where the spawn launcher keeps runner output and pid files (OS temp dir, never the vault). */
+export const runnerDir = (base: string = tmpdir()) => join(base, 'pp-runs');
+
+/** `process.kill(pid, 0)`: true if the process exists (EPERM = exists, owned by someone else). */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /**
- * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault). `exit`
- * settles with the log when the runner ends, as long as this process is still alive.
+ * Is the runner for `runId` still alive? Reads the pid file the spawn launcher wrote; no file (never
+ * launched here, temp dir cleared by a reboot) = gone. The runner is detached, so it can outlive `pp up`.
+ */
+export function runnerAlive(runId: string, base: string = tmpdir()): boolean {
+  try {
+    const pid = Number.parseInt(readFileSync(join(runnerDir(base), `${runId}.pid`), 'utf8'), 10);
+    return Number.isInteger(pid) && pid > 0 && pidAlive(pid);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault), next to
+ * a `<runId>.pid` file (removed on exit) so a restarted `pp up` can tell a live runner from a dead one.
+ * `exit` settles with the log when the runner ends, as long as this process is still alive.
  */
 export function createSpawnLauncher(): RunnerLauncher {
   return {
@@ -380,7 +407,8 @@ export function createSpawnLauncher(): RunnerLauncher {
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, f.content);
       }
-      const logDir = join(tmpdir(), 'pp-runs');
+      const logDir = runnerDir();
+      const pidFile = join(logDir, `${spec.runId}.pid`);
       mkdirSync(logDir, { recursive: true });
       const logFile = join(logDir, `${spec.runId}.log`);
       const log = openSync(logFile, 'a');
@@ -393,6 +421,7 @@ export function createSpawnLauncher(): RunnerLauncher {
         });
         const exit = new Promise<RunnerExit>((done) => {
           child.once('exit', (code) => {
+            rmSync(pidFile, { force: true });
             let output = '';
             try {
               output = readFileSync(logFile, 'utf8');
@@ -408,6 +437,7 @@ export function createSpawnLauncher(): RunnerLauncher {
         });
         child.once('spawn', () => {
           closeSync(log);
+          if (child.pid !== undefined) writeFileSync(pidFile, String(child.pid));
           child.unref();
           ok(child.pid === undefined ? { exit } : { pid: child.pid, exit });
         });

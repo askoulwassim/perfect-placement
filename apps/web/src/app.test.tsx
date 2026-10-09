@@ -58,6 +58,29 @@ function assertButtons(container: HTMLElement) {
 const primary = (container: HTMLElement) => container.querySelector('.btn--primary') as HTMLButtonElement;
 const nextQ = (container: HTMLElement) => container.querySelector('.decision__q')?.textContent ?? 'clear';
 const opsCalled = () => live?.calls.map((c) => c.name) ?? [];
+const queueCalls = () => live?.calls.filter((c) => c.name === 'decisions.queue').length ?? 0;
+
+/**
+ * The decision card once it has settled (#46): it matches `ok` and stays put with no queue refetch in
+ * flight. A card can show briefly between a resolve and the refetch it triggers, so never act on the
+ * first card seen.
+ */
+async function settledQ(container: HTMLElement, ok: (q: string) => boolean): Promise<string> {
+  let seen = '';
+  await waitFor(
+    async () => {
+      const q = nextQ(container);
+      expect(ok(q), `card "${q}"`).toBe(true);
+      const n = queueCalls();
+      await new Promise((r) => setTimeout(r, 40));
+      expect(queueCalls()).toBe(n);
+      expect(nextQ(container)).toBe(q);
+      seen = q;
+    },
+    { timeout: 4000 },
+  );
+  return seen;
+}
 
 describe('screens', () => {
   const routes = [
@@ -95,11 +118,13 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).textContent).toBe('Review 7'));
     fireEvent.click(primary(container));
     const seen: string[] = [];
+    let prev = '';
     for (let i = 0; i < 7; i++) {
-      const q = (await waitFor(() => $(container, '.decision__q'))).textContent as string;
+      const before = prev;
+      const q = await settledQ(container, (x) => x !== 'clear' && x !== before);
       seen.push(q);
+      prev = q;
       fireEvent.click(primary(container));
-      await waitFor(() => expect(nextQ(container)).not.toBe(q));
     }
     expect(seen).toEqual(
       expect.arrayContaining([
@@ -123,23 +148,26 @@ describe('click paths', () => {
 
   it('Needs you keyboard: S skips, C opens change, A accepts', async () => {
     const { container } = await boot('#/needs-you');
-    const first = (await waitFor(() => $(container, '.decision__q'))).textContent;
+    // #46: every key waits for a settled card (findBy/waitFor), never a synchronous read right after a change.
+    const first = await settledQ(container, (q) => q !== 'clear');
     fireEvent.keyDown(window, { key: 's' });
-    await waitFor(() => expect(nextQ(container)).not.toBe(first));
-    const second = nextQ(container);
+    const second = await settledQ(container, (q) => q !== 'clear' && q !== first);
     fireEvent.keyDown(window, { key: 'c' });
     const alts = await waitFor(() => $(container, '.decision__alts'));
     fireEvent.click(within(alts).getAllByRole('button')[0] as HTMLElement);
-    await waitFor(() => expect(nextQ(container)).not.toBe(second));
     // Queue is newest first: the third card is the submit decision, where A opens the portal and never resolves.
-    expect(nextQ(container)).toBe('Submit this application?');
+    await settledQ(container, (q) => q === 'Submit this application?' && q !== second);
     fireEvent.keyDown(window, { key: 'a' });
-    await waitFor(() => expect(nextQ(container)).not.toBe('Submit this application?'));
-    const fourth = nextQ(container);
+    const fourth = await settledQ(container, (q) => q !== 'clear' && q !== 'Submit this application?');
     fireEvent.keyDown(window, { key: 'a' });
     await waitFor(() => expect(nextQ(container)).not.toBe(fourth));
-    const actions = live?.calls.filter((c) => c.name === 'decisions.resolve').map((c) => (c.body as { action: string }).action);
-    expect(actions).toEqual(['skip', 'change', 'accept']);
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'decisions.resolve').map((c) => (c.body as { action: string }).action)).toEqual([
+        'skip',
+        'change',
+        'accept',
+      ]),
+    );
   });
 
   it('Role -> Connect -> People -> warm hiring -> Create Gmail draft -> Role with Connect done', async () => {
@@ -177,10 +205,10 @@ describe('click paths', () => {
     ).toMatchObject({
       status: 'ok',
     });
-    // runs.get poll sees the run finish; the outreach refreshes to in_gmail and the button disables.
+    // The runs poll (runs.list) sees the run finish; the outreach refreshes to in_gmail and the button disables.
     await waitFor(() => expect(container.querySelector('[data-run]')?.getAttribute('data-run')).toBe('ok'));
     await waitFor(() => expect(primary(container).disabled).toBe(true));
-    expect(live?.calls.some((c) => c.name === 'runs.get')).toBe(true);
+    expect(live?.calls.some((c) => c.name === 'runs.list')).toBe(true);
     await go(`#/role/${R.linearDraft}`);
     await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
     const connect = Array.from(container.querySelectorAll('.stage')).find((s) => s.textContent === 'Connect');
@@ -386,6 +414,113 @@ describe('click paths', () => {
       expect(c?.status === 'ok' && c.output.policy.auto).toBe(0.89);
       expect(c?.status === 'ok' && c.output.schedules.inbox).toBe('off');
     });
+  });
+});
+
+describe('run status (#21)', () => {
+  /** The fixture vault has one open inbox run; close it so the indicator starts idle. */
+  const quiet = (l: Live) => l.as('agent', 'runs.finish', { run_id: 'rn_0003', status: 'ok' });
+  const rail = (container: HTMLElement) => $(container, '.rail .run-indicator');
+  const toast = () => screen.getByRole('status');
+  const lastRun = () => live?.engine.launcher.specs.at(-1)?.runId as string;
+
+  it('Scout now: running at once, the button says Scouting, then a toast with the count', async () => {
+    const { container } = await boot('#/river', quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Scout now'));
+    expect(rail(container).getAttribute('data-run-state')).toBe('idle');
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(primary(container).textContent).toBe('Scouting'));
+    expect(primary(container).disabled).toBe(true);
+    expect(primary(container).getAttribute('data-op')).toBe('runs.start');
+    expect(rail(container).getAttribute('data-run-state')).toBe('running');
+    expect(rail(container).getAttribute('title')).toBe('Scouting');
+    const fin = await live?.as('agent', 'runs.finish', {
+      run_id: lastRun(),
+      status: 'ok',
+      summary: { queries_run: 4, added: 12, duplicates: 3 },
+    });
+    expect(fin?.status).toBe('ok');
+    await waitFor(() => expect(toast().textContent).toBe('Scout done · 12 added · 3 duplicates'));
+    expect(toast().getAttribute('data-tone')).toBe('ok');
+    await waitFor(() => expect(primary(container).textContent).toBe('Scout now'));
+    expect(primary(container).disabled).toBe(false);
+    expect(rail(container).getAttribute('data-run-state')).toBe('idle');
+    // One start, no duplicates while it ran.
+    expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(1);
+  });
+
+  it('a failed run shows its reason without opening logs; Log opens the run with Retry', async () => {
+    const { container } = await boot('#/river', quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Scout now'));
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(primary(container).textContent).toBe('Scouting'));
+    const id = lastRun();
+    await live?.as('schedule', 'runs.finish', {
+      run_id: id,
+      status: 'error',
+      summary: { error: 'tool denied: WebSearch', denied_tools: ['WebSearch'], runner_log: '/tmp/pp-runs/x.log' },
+      note: 'tool denied: WebSearch',
+    });
+    await waitFor(() => expect(toast().textContent).toBe('Scout failed · tool denied: WebSearchLog'));
+    expect(toast().getAttribute('data-tone')).toBe('error');
+    expect(rail(container).getAttribute('data-run-state')).toBe('error');
+    fireEvent.click(within(toast()).getByText('Log'));
+    await waitFor(() => expect(window.location.hash).toBe(`#/runs/${id}`));
+    const detail = await waitFor(() => $(container, '.run-detail'));
+    expect(detail.getAttribute('data-status')).toBe('error');
+    expect($(container, '.run-outcome').textContent).toBe('tool denied: WebSearch');
+    expect(detail.textContent).toContain('WebSearch');
+    expect($(container, '.run-runner-log').textContent).toBe('/tmp/pp-runs/x.log');
+    await waitFor(() => expect($(container, '.run-log').textContent).toContain('tool denied: WebSearch'));
+    // Opening the run clears the rail's failed mark.
+    await waitFor(() => expect(rail(container).getAttribute('data-run-state')).toBe('idle'));
+    expect(primary(container).textContent).toBe('Retry');
+    expect(primary(container).getAttribute('data-op')).toBe('runs.start');
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(2));
+    expect(live?.calls.filter((c) => c.name === 'runs.start').at(-1)?.body).toEqual({ skill: 'scout' });
+    await waitFor(() => expect(window.location.hash).toBe(`#/runs/${lastRun()}`));
+    await waitFor(() => expect($(container, '.run-detail').getAttribute('data-status')).toBe('running'));
+  });
+
+  it('Role: Research shows Researching for that role until the run ends', async () => {
+    const { container } = await boot(`#/role/${R.stripeOnDeck}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(primary(container).textContent).toBe('Researching'));
+    expect(primary(container).disabled).toBe(true);
+    await live?.as('agent', 'runs.finish', { run_id: lastRun(), status: 'ok' });
+    await waitFor(() => expect(toast().textContent).toBe('Research done'));
+    await waitFor(() => expect(primary(container).textContent).not.toBe('Researching'));
+  });
+
+  it('runs started elsewhere (a schedule) show on the rail; Runs lists them, Settings shows the latest', async () => {
+    const { container } = await boot('#/settings', quiet);
+    await waitFor(() => $(container, '.settings-runs .run-row'));
+    const started = await live?.as('schedule', 'runs.start', { skill: 'inbox' });
+    expect(started?.status).toBe('ok');
+    await waitFor(() => expect(rail(container).getAttribute('data-run-state')).toBe('running'), { timeout: 3000 });
+    expect(rail(container).getAttribute('title')).toBe('Reading inbox');
+    const row = await waitFor(() => $(container, '.settings-runs .run-row[data-status="running"]'));
+    expect(row.textContent).toContain('Inbox');
+    fireEvent.click(rail(container));
+    await waitFor(() => expect(window.location.hash).toBe('#/runs'));
+    await waitFor(() => expect(container.querySelectorAll('.run-list .run-row').length).toBeGreaterThan(1));
+    expect($(container, '.run-list .run-row').getAttribute('data-status')).toBe('running');
+    assertButtons(container);
+  });
+
+  it('pp up restart: an interrupted run reads as failed with the reason', async () => {
+    const { container } = await boot('#/runs', async (l) => {
+      await quiet(l);
+      const o = await l.as('human', 'runs.start', { skill: 'tailor', role_id: R.stripeOnDeck });
+      const id = (o as { output: { run: { id: string } } }).output.run.id;
+      await l.as('schedule', 'runs.finish', { run_id: id, status: 'error', summary: { error: 'interrupted' } });
+    });
+    const row = await waitFor(() => $(container, '.run-list .run-row'));
+    expect(row.getAttribute('data-status')).toBe('error');
+    expect(row.textContent).toContain('interrupted');
   });
 });
 
