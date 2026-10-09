@@ -1,4 +1,4 @@
-import { type Run, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
 import { activeDuplicate, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
@@ -39,6 +39,8 @@ export const runsStart = defineHandler('runs.start', {
       if (o.status !== 'drafted') throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
       input = { ...raw, role_id: o.role_id, contact_id: o.contact_id };
     }
+    if (input.schedule && SCHEDULE_SKILL[input.schedule] !== input.skill)
+      throw new OpError('invalid_input', `schedule ${input.schedule} runs ${SCHEDULE_SKILL[input.schedule]}, not ${input.skill}`);
     const outreachId = input.outreach_id;
     const role = input.role_id ? getRole(h.db, input.role_id) : null;
     if (input.contact_id && !get(h.db, 'contact', input.contact_id)) throw notFound('contact', input.contact_id);
@@ -80,6 +82,7 @@ export const runsStart = defineHandler('runs.start', {
         ...(input.contact_id ? { contact_id: input.contact_id } : {}),
         ...(outreachId ? { outreach_id: outreachId, step: 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
+        ...(input.schedule ? { schedule: input.schedule } : {}),
         actor: h.ctx.actor,
         runner: h.config.runner.command,
         ...(agent ? {} : { queued_at: iso }),
@@ -87,7 +90,7 @@ export const runsStart = defineHandler('runs.start', {
       log_path,
     };
     insert(h.db, 'run', run);
-    const by = `${h.ctx.actor}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
+    const by = `${h.ctx.actor}${input.schedule ? ` (schedule ${input.schedule})` : ''}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
     h.vault.write(
       log_path,
       renderMarkdown(

@@ -21,6 +21,7 @@ export function fakeDeps(home: string, over: Partial<SystemDeps> & { bins?: stri
     arch: 'arm64',
     totalMem: 32 * 1024 ** 3,
     home,
+    uid: 501,
     appsDir: join(home, 'Applications'),
     env: {},
     nodePath: '/opt/node22/bin/node',

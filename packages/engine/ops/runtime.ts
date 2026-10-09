@@ -286,7 +286,8 @@ export function createEngine(deps: EngineDeps): Engine {
           type,
           subject_type: subjectType,
           subject_id: subjectId,
-          payload_json: payload,
+          // #50: an op inside a skill run (ctx.runId, e.g. a headless run's MCP server) links its events to the run.
+          payload_json: runCtx.runId && payload.run_id === undefined ? { ...payload, run_id: runCtx.runId } : payload,
           actor: runCtx.actor,
           decision_id: decisionId === undefined ? (runCtx.decisionId ?? null) : decisionId,
         });

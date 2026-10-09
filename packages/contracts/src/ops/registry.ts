@@ -31,8 +31,9 @@ import {
   Skill,
   Workplace,
 } from '../enums.js';
-import { PolicyConfig, ROUTABLE_BACKENDS } from '../policy.js';
+import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, VaultPath } from '../primitives.js';
+import { ScheduleJobState, ScheduleKey } from '../schedules.js';
 import { Ack, defineOp, Page } from './define.js';
 
 /*
@@ -766,6 +767,11 @@ export const runsStart = defineOp({
     outreach_id: Id.optional(),
     /** Added (#30): the run that caused this one (pipeline rules, schedules). Kept as `summary_json.triggered_by`. */
     triggered_by: Id.optional(),
+    /**
+     * Added (#29): the schedule this run is for (`pp run <skill> --schedule`, the `pp up` catch-up). Its
+     * skill must be the schedule's (`SCHEDULE_SKILL`). Kept as `summary_json.schedule`.
+     */
+    schedule: ScheduleKey.optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
@@ -806,6 +812,32 @@ export const runsFinish = defineOp({
   output: z.object({ run: Run }),
   impact: 'low',
   emits: ['run_finished'],
+  owner: 'B',
+});
+
+/**
+ * Added (#29): each schedule with its spec, next local fire time, last scheduled run and OS job state
+ * (`unknown` where the process has no view of the OS jobs). Settings and `pp schedules status` show it.
+ */
+export const ScheduleStatus = z.object({
+  key: ScheduleKey,
+  skill: Skill,
+  spec: ScheduleSpec,
+  on: z.boolean(),
+  next_run: IsoTimestamp.nullable(),
+  last_run: Run.nullable(),
+  job: ScheduleJobState,
+});
+export type ScheduleStatus = z.infer<typeof ScheduleStatus>;
+
+export const schedulesStatus = defineOp({
+  name: 'schedules.status',
+  description: 'Schedules: spec, next run, last scheduled run, OS job state.',
+  input: z.object({}),
+  output: z.object({ items: z.array(ScheduleStatus) }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
   owner: 'B',
 });
 
@@ -931,6 +963,7 @@ export const OPS = {
   'runs.start': runsStart,
   'runs.finish': runsFinish,
   'runs.dispatch': runsDispatch,
+  'schedules.status': schedulesStatus,
   'vault.read': vaultRead,
   'system.doctor': systemDoctor,
   'system.backends': systemBackends,

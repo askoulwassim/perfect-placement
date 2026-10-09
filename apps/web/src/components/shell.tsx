@@ -834,21 +834,31 @@ export function ScheduleRow({
   name,
   cadence,
   next,
+  last,
+  lastStatus,
+  job,
   on,
   onToggle,
 }: {
   name: string;
   cadence: string;
   next: string;
+  /** The last scheduled run's result ("Done", "Failed", "Never"). */
+  last: string;
+  lastStatus: string;
+  /** The OS job's state (#29). */
+  job: string;
   on: boolean;
   onToggle: (on: boolean) => void;
 }) {
   return (
     <div
       className="schedule"
+      data-last={lastStatus}
+      data-job={job}
       style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(0,1fr) 180px 110px 44px',
+        gridTemplateColumns: 'minmax(0,1fr) 180px 110px 80px 44px',
         gap: 16,
         alignItems: 'center',
         height: 60,
@@ -857,7 +867,12 @@ export function ScheduleRow({
     >
       <span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span>
       <span style={mono(12, C.muted)}>{cadence}</span>
-      <span style={mono(12, C.dim)}>{on ? next : 'off'}</span>
+      <span className="schedule__next" style={mono(12, C.dim)}>
+        {on ? next : 'off'}
+      </span>
+      <span className="schedule__last" style={mono(12, lastStatus === 'error' ? C.coral : C.dim)}>
+        {last}
+      </span>
       <Toggle on={on} label={name} onChange={onToggle} />
     </div>
   );

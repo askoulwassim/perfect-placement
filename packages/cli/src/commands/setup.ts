@@ -5,9 +5,10 @@
  *   --yes            accept every step (Kev only where supported)
  *   --no-kev / --kev skip / install Kev without asking;  --model kev-0.8b|kev-4b|...
  *   --no-mcp         skip MCP;  --mcp claude-code,codex,cursor,claude-desktop  limit to these clients
+ *   --no-schedules   skip the OS jobs for config.schedules (#29; add later: pp schedules install)
  */
 import { existsSync } from 'node:fs';
-import { db } from '@perfect-placement/engine';
+import { db, ops } from '@perfect-placement/engine';
 import type { Args } from '../args.js';
 import { CliError, confirm, type Io } from '../io.js';
 import {
@@ -21,6 +22,7 @@ import {
   registerClient,
 } from '../system/clients.js';
 import { isKevModel, KEV_MODELS, type KevModel, kevInstalled, kevSupport } from '../system/kev.js';
+import { jobManager, syncJobs } from '../system/schedules.js';
 import { init } from './init.js';
 import { configuredModel, ensureUv, kevInstall, sysOf } from './kev.js';
 
@@ -150,7 +152,10 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
     }
   }
 
-  // (d) next steps, then the summary (always the last lines)
+  // (d) schedules as OS jobs (#29), asked first
+  steps.push(await setupSchedules(args, home, io, yes));
+
+  // (e) next steps, then the summary (always the last lines)
   io.out(
     [
       '',
@@ -159,6 +164,7 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
       `  your data                 ${home} (pp.db + markdown; survives restarts)`,
       '  in your agent             restart it, then ask it to call the pp tools (roles_list, pipeline_summary)',
       '  pp setup                  rerun any time to reconnect an agent or add Kev',
+      '  pp schedules status       next and last scheduled runs',
       '  pp doctor                 integrity checks',
     ].join('\n'),
   );
@@ -194,4 +200,28 @@ async function setupKev(args: Args, home: string, io: Io, yes: boolean, model: K
     return { step, result: 'failed', detail: `not installed: ${(e as Error).message}`, fix: 'pp kev install' };
   }
   return { step, result: 'ok', detail: `installed (model ${configuredModel(home)}); the model downloads on first start` };
+}
+
+async function setupSchedules(args: Args, home: string, io: Io, yes: boolean): Promise<SetupStep> {
+  const step = 'schedules';
+  if (args.has('no-schedules')) {
+    io.out('schedules: skipped (--no-schedules)');
+    return { step, result: 'skipped', detail: '--no-schedules (add later: pp schedules install)' };
+  }
+  const d = sysOf(io);
+  const schedules = ops.readConfig(home).schedules;
+  const on = Object.entries(schedules).filter(([, v]) => v !== 'off');
+  if (!on.length) {
+    io.out('schedules: all off in config');
+    return { step, result: 'skipped', detail: 'all off in config' };
+  }
+  const list = on.map(([k, v]) => `${k} ${v}`).join(', ');
+  if (!(await confirm(io, yes, `Run schedules even when pp is closed (${list}) as ${jobManager(d)} jobs?`, true))) {
+    io.out('schedules: skipped (pp up still catches up missed runs; pp schedules install later)');
+    return { step, result: 'skipped', detail: 'declined (add later: pp schedules install)' };
+  }
+  const r = await syncJobs(home, schedules, d);
+  for (const l of r.lines) (r.ok ? io.out : io.err)(l);
+  if (!r.ok) return { step, result: 'failed', detail: 'jobs not installed (see the schedules: lines above)', fix: 'pp schedules install' };
+  return { step, result: 'ok', detail: jobManager(d) === 'cron' ? 'crontab lines printed above' : `${jobManager(d)} jobs: ${list}` };
 }

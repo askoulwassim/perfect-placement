@@ -3,6 +3,8 @@
  * `runOp(name, input, ctx)` (the engine's, see `openEngine`). Validation, policy, decisions
  * and writes all happen inside runOp. The actor is always `agent`: an MCP client is never a
  * human. The optional `confidence` tool argument becomes `ctx.confidence` (backend `agent`).
+ * A headless run's server is started with PP_RUN_ID (#50): every op it runs carries `ctx.runId`, so its
+ * events and run logs are linked to that run.
  */
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -25,6 +27,8 @@ export interface PpMcpServerOptions {
   now?: () => Date;
   /** Default `underscore` (`roles_list`); see `ToolNameStyle`. */
   toolNames?: ToolNameStyle;
+  /** The skill run this server works for (PP_RUN_ID from the headless runner): set as `ctx.runId` on every op. */
+  runId?: string;
 }
 
 const INSTRUCTIONS = [
@@ -41,6 +45,7 @@ export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
   const ctx = (confidence?: number): OpContext => ({
     actor: 'agent',
     now,
+    ...(options.runId ? { runId: options.runId } : {}),
     ...(confidence === undefined ? {} : { confidence: { p: confidence, backend: 'agent' } }),
   });
 

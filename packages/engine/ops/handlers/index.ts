@@ -5,6 +5,7 @@ import { inboxIngest } from './inbox.js';
 import { companiesGet, vaultRead } from './reads.js';
 import { pipelineSummary, rolesAdd, rolesArchive, rolesGet, rolesList, rolesMove } from './roles.js';
 import { runsDispatch, runsFinish, runsGet, runsList, runsStart } from './runs.js';
+import { schedulesStatus } from './schedules.js';
 
 /** Every handler lane B owns. */
 export const LANE_B_HANDLERS: HandlerMap = {
@@ -25,6 +26,7 @@ export const LANE_B_HANDLERS: HandlerMap = {
   'runs.start': runsStart,
   'runs.finish': runsFinish,
   'runs.dispatch': runsDispatch,
+  'schedules.status': schedulesStatus,
   'config.get': configGet,
   'config.update': configUpdate,
   'vault.read': vaultRead,

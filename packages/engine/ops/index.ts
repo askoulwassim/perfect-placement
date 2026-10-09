@@ -77,7 +77,8 @@ export {
   type RunLogEntry,
   requiresHuman,
 } from './runtime.js';
-export type { EngineServices } from './services.js';
+export { catchUpSchedules, lastScheduledRun } from './schedules.js';
+export type { EngineServices, ScheduleJobs } from './services.js';
 export { INTERRUPTED, interruptStaleRuns, type StaleRunOptions } from './stale-runs.js';
 export { deepMerge, readConfig, renderMarkdown, resolveHome, stripFrontmatter, VaultTx } from './vault.js';
 

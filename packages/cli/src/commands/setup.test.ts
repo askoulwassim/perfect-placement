@@ -63,6 +63,17 @@ describe('pp setup', () => {
     expect(text()).toContain(`vault: ${ppHome} (kept)`);
   });
 
+  it('schedules (#29): --yes installs the OS jobs (temp HOME); --no-schedules skips them', async () => {
+    expect(await runCli(['setup', '--yes', '--no-kev', '--no-mcp', '--no-schedules'], io)).toBe(0);
+    expect(text()).toMatch(/skip {2}schedules +--no-schedules/);
+    expect(existsSync(join(home, 'Library', 'LaunchAgents'))).toBe(false);
+    out.length = 0;
+    expect(await runCli(['setup', '--yes', '--no-kev', '--no-mcp'], io)).toBe(0);
+    expect(existsSync(join(home, 'Library', 'LaunchAgents', 'com.perfectplacement.scout_score.plist'))).toBe(true);
+    expect(text()).toMatch(/ok {4}schedules +launchd jobs: inbox daily 07:30, freshness daily 06:30, scout_score fri 05:30/);
+    expect(d.captures.some((c) => c.cmd === 'launchctl' && c.args[0] === 'bootstrap')).toBe(true);
+  });
+
   it('registers only detected clients, asking first for each', async () => {
     d.which = (c) => (c === 'claude' ? '/usr/bin/claude' : c === 'uv' || c === 'git' ? `/usr/bin/${c}` : null);
     d.capture = (cmd, args) => {
@@ -70,13 +81,16 @@ describe('pp setup', () => {
       return args[1] === 'get' ? { code: 1, stdout: '', stderr: 'No MCP server named "pp"' } : { code: 0, stdout: '', stderr: '' };
     };
     mkdirSync(join(home, '.cursor'));
-    answers = [false, true, false]; // Kev? no. Claude Code? yes. Cursor? no.
+    answers = [false, true, false, false]; // Kev? no. Claude Code? yes. Cursor? no. Schedules? no.
     expect(await runCli(['setup'], io)).toBe(0);
     expect(asked).toEqual([
       'Install Kev, the optional local decision model (multi-GB download)?',
       'Register pp with Claude Code?',
       'Register pp with Cursor?',
+      'Run schedules even when pp is closed (inbox daily 07:30, freshness daily 06:30, scout_score fri 05:30) as launchd jobs?',
     ]);
+    expect(text()).toContain('schedules: skipped (pp up still catches up missed runs; pp schedules install later)');
+    expect(existsSync(join(home, 'Library', 'LaunchAgents'))).toBe(false);
     expect(text()).toContain('mcp: Codex: not found (skipped)');
     expect(text()).toContain('mcp: Cursor: skipped');
     expect(text()).toMatch(/mcp: Claude Code: added server "pp" -> claude mcp add --scope user pp -e PP_HOME=.+ -- /);

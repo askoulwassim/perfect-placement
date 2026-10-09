@@ -16,6 +16,8 @@ export interface SystemDeps {
   totalMem: number;
   /** The user's home dir (agent client configs live under it). */
   home: string;
+  /** The user's uid (launchctl's `gui/<uid>` domain for schedule jobs). */
+  uid: number;
   /** Where desktop apps are installed (macOS: /Applications). */
   appsDir: string;
   env: NodeJS.ProcessEnv;
@@ -61,6 +63,7 @@ export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
     arch: process.arch,
     totalMem: totalmem(),
     home: env.HOME || homedir(),
+    uid: process.getuid?.() ?? 0,
     appsDir: '/Applications',
     env,
     nodePath: stableNodePath(env, process.execPath),

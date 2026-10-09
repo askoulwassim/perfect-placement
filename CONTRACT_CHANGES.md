@@ -538,3 +538,23 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: scouted roles sat unscored in Inbox and new companies had no dossier unless someone started each run (#30); schedules (#29) enqueue through the same entry point.
 - Shim: none (config sections default through `readConfig`; input and output fields optional).
 - Status: accepted
+
+## Schedules and run-linked ops
+
+### Schedules run as OS jobs: `runs.start.schedule`, `schedules.status`, schedule helpers (#29)
+- Lane: schedules (B, D)
+- Date: 2026-10-09
+- Contract: new `packages/contracts/src/schedules.ts` (`SCHEDULE_KEYS`, `ScheduleKey`, `SCHEDULE_SKILL`, `scheduleForSkill`, `SCHEDULE_JOB_STATES`, `ScheduleJobState`, `DAY_NAMES`, `parseSchedule`, `nextFire`, `prevFire`, `scheduleMissed`); registry `runsStart.input` (`schedule`), new op `schedules.status` + `ScheduleStatus`
+- Change: schedule specs are local wall-clock times: `daily HH:MM`, `weekdays HH:MM`, `<day> HH:MM`, `<day>,<day> HH:MM` (sun..sat), or `off` (`ScheduleSpec` itself unchanged). `runs.start` takes optional `schedule` (a schedule key whose `SCHEDULE_SKILL` is the run's skill, else `invalid_input`), kept as `summary_json.schedule`; `scout_score` enqueues scout. New read op `schedules.status {}` -> `{ items: [{ key, skill, spec, on, next_run, last_run, job }] }` (impact low, no events): next local fire time, the latest run with that `schedule`, and the OS job state (`installed | missing | stale | off | orphan | manual | unknown`). Engine (not a contract): `EngineServices.scheduleJobs { status, sync }`; `config.update` that changes `schedules` calls `sync` after commit; `catchUpSchedules` for `pp up`. CLI: `pp schedules install|remove|status`, `pp run <skill> [--schedule]`, `pp setup` asks (`--no-schedules`), `pp up --no-catch-up`, doctor check `schedule_jobs`.
+- Why: `config.schedules` was stored and shown but nothing ran it (#29). Owner picked option B (OS jobs) with `pp up` catch-up as the fallback.
+- Shim: none (additive; existing runs have no `schedule` and count as never scheduled).
+- Status: accepted
+
+### Ops in a headless run carry its run id (#50)
+- Lane: schedules (B)
+- Date: 2026-10-09
+- Contract: event `payload_json` (`run_id`), runner MCP server env (`PP_RUN_ID`)
+- Change: the runner passes `PP_RUN_ID` in the pp MCP server's env (Claude `--mcp-config`, Codex `-c mcp_servers.pp.env.PP_RUN_ID`, Cursor `.cursor/mcp.json`); `pp-mcp` sets `ctx.runId` on every op. Any op run with `ctx.runId` records `run_id` in each event payload it emits (unless the payload sets one). The #30 research rule takes a score run's roles from `role_scored` events linked to it; only an agent's own run with no linked events falls back to unlinked events since it started.
+- Why: a headless run's ops were not linked to the run, so the research rule guessed by event time and could pick up roles another session scored.
+- Shim: none (old events without `run_id` are only read by the agent-run fallback).
+- Status: accepted

@@ -5,21 +5,38 @@ import { type Args, parseArgs } from './args.js';
 import { renderDoctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
 import { kevCommand, kevForUp, sysOf } from './commands/kev.js';
+import { runCommand, schedulesCommand, servicesWithJobs } from './commands/schedules.js';
 import { setupCommand } from './commands/setup.js';
 import { fresh, inbox, op, score, scout } from './commands/skills.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
 import { kevInstalled } from './system/kev.js';
+import { scheduleJobsCheck } from './system/schedules.js';
 
-export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'drain', 'op'] as const;
+export const COMMANDS = [
+  'setup',
+  'up',
+  'init',
+  'kev',
+  'doctor',
+  'scout',
+  'score',
+  'fresh',
+  'inbox',
+  'drain',
+  'run',
+  'schedules',
+  'op',
+] as const;
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
 
-  setup    [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop]
+  setup    [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]
                                            first run: vault, optional Kev, MCP for your agents (safe to rerun)
-  up       [--port ${DEFAULT_PORT}] [--web <dir>] [--fixtures] [--no-kev] [--kev]
-                                           API /api/ops, MCP /mcp, web / on 127.0.0.1; starts Kev if installed
+  up       [--port ${DEFAULT_PORT}] [--web <dir>] [--fixtures] [--no-kev] [--kev] [--no-catch-up]
+                                           API /api/ops, MCP /mcp, web / on 127.0.0.1; starts Kev if installed;
+                                           queues schedules missed since their last run
   init                                     create an empty vault with the default config
   kev      install [--model m] [--yes] | start [--model m] [--wait] | stop | status
   scout    --in <file|-> [--note <text>]   roles.add (dedupe into inbox)
@@ -27,6 +44,10 @@ const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
   fresh    [--role <id>]...                roles.check_freshness
   inbox    --in <file|->                   inbox.ingest
   drain                                    launch queued skill runs (up to runs.max_concurrent), once
+  run      <skill> [--schedule] [--role <id>] [--no-wait]
+                                           queue a skill run, drain until it and what it triggers finish
+                                           (--schedule: actor schedule; what the OS jobs run)
+  schedules install|remove|status [--json] OS jobs for config.schedules (launchd, systemd user timers)
   op       <name> [<json>|--input <json>|--in f]  any op
   doctor   [--json]                        system.doctor`;
 
@@ -60,6 +81,8 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
         return await setupCommand(args, home, io);
       case 'kev':
         return await kevCommand(args, home, io);
+      case 'schedules':
+        return await schedulesCommand(args, home, io);
       case 'doctor': {
         if (!existsSync(db.dbPath(home))) {
           io.err(`pp doctor: no vault at ${home} (run pp init)`);
@@ -71,7 +94,12 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
           if (o.status !== 'ok') throw new Error(o.status === 'error' ? o.message : 'requires a human');
           const res = o.output as db.DoctorResult;
           // Machine checks (#33): node paths in the runner and agent MCP configs survive a brew upgrade.
-          const checks = [...res.checks, ...nodePathChecks(home, sysOf(io))];
+          // #29: the OS schedule jobs match config.schedules.
+          const checks = [
+            ...res.checks,
+            ...nodePathChecks(home, sysOf(io)),
+            scheduleJobsCheck(home, ops.readConfig(home).schedules, sysOf(io)),
+          ];
           return renderDoctor({ ...res, checks, ok: checks.every((c) => c.ok) }, home, io, args.has('json'));
         } finally {
           engine.close();
@@ -80,7 +108,8 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
       case 'up':
         return await upCommand(args, home, io, waitForStop);
     }
-    const engine = ops.openEngine({ home, ...services });
+    // `pp op config.update` keeps the OS schedule jobs in line too (#29).
+    const engine = ops.openEngine({ home, services: servicesWithJobs(io, home) });
     try {
       switch (cmd) {
         case 'scout':
@@ -93,6 +122,8 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
           return await inbox(engine, args, io);
         case 'drain':
           return await drain(engine, io);
+        case 'run':
+          return await runCommand(engine, args, io, (e) => drainQueue(e, io));
         case 'op':
           return await op(engine, args, io);
       }
@@ -145,7 +176,7 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
     closeEngine = demo.close;
     io.out(`pp up: fixtures demo (synthetic data, offline) at ${demo.home}`);
   } else {
-    const opened = ops.openEngine({ home, ...(io.services ? { services: io.services } : {}) });
+    const opened = ops.openEngine({ home, services: servicesWithJobs(io, home) });
     engine = opened;
     closeEngine = () => opened.close();
   }
@@ -159,6 +190,12 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
     if (ids.length) io.out(`pp up: ${ids.length} interrupted run${ids.length === 1 ? '' : 's'} marked error (${ids.join(', ')})`);
     if (r.launched.length) io.out(`pp up: launched ${r.launched.length} queued run${r.launched.length === 1 ? '' : 's'}`);
   };
+  // #29 fallback for the OS jobs: a schedule that fired since its last run started (machine off,
+  // no job) is queued once now. Never for the fixtures demo.
+  if (!args.has('fixtures') && !args.has('no-catch-up')) {
+    const caught = await ops.catchUpSchedules(engine.db, engine.runOp, ops.readConfig(engine.home), () => new Date()).catch(() => []);
+    if (caught.length) io.out(`pp up: caught up ${caught.map((c) => `${c.key} (${c.run_id})`).join(', ')}`);
+  }
   await sweep();
   const sweeper = setInterval(() => void sweep(), SWEEP_MS);
   sweeper.unref();

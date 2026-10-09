@@ -1,3 +1,4 @@
+import type { PolicyConfig, ScheduleJobState, ScheduleKey } from '@perfect-placement/contracts';
 import type { BackendMap } from '@perfect-placement/resolver';
 import type { FetchLike } from '../integrations/ats/index.js';
 import type { GmailContactsSource, GmailDraftClient } from '../integrations/gmail/index.js';
@@ -35,4 +36,18 @@ export interface EngineServices {
   outreachWriter?: OutreachWriter;
   /** Starts the headless agent runner for `runs.start`. Default: spawns `config.runner`. */
   launcher?: RunnerLauncher;
+  /**
+   * The OS jobs behind `config.schedules` (#29): launchd / systemd user timers, written by the CLI
+   * (`pp schedules`). `pp up` wires it in; absent = `schedules.status` reports `unknown` and
+   * `config.update` leaves the jobs alone.
+   */
+  scheduleJobs?: ScheduleJobs;
+}
+
+/** OS job manager for schedules (#29). Implemented in the CLI; tests inject a fake. */
+export interface ScheduleJobs {
+  /** Each schedule's job compared with `schedules` (file reads only, no job manager calls). */
+  status(schedules: PolicyConfig['schedules']): Record<ScheduleKey, ScheduleJobState>;
+  /** Make the jobs match `schedules`: install the ones on, remove the ones off. */
+  sync(schedules: PolicyConfig['schedules']): Promise<unknown>;
 }

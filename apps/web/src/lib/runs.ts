@@ -77,6 +77,7 @@ const META = new Set([
   'triggered_by',
   'triggered_by_skill',
   'triggered',
+  'schedule',
 ]);
 
 /** What changed, from the numbers the skill reported: "12 added · 3 duplicates". Null when it reported none. */

@@ -14,10 +14,11 @@ import type { ToolNameStyle } from './tools.js';
 
 let engine: FixtureEngine;
 let client: Client;
-const calls: Array<{ op: string; ctx: { actor: string; confidence?: unknown } }> = [];
+const calls: Array<{ op: string; ctx: { actor: string; confidence?: unknown; runId?: string } }> = [];
 
-async function connect(toolNames?: ToolNameStyle) {
+async function connect(toolNames?: ToolNameStyle, runId?: string) {
   const server = createPpMcpServer({
+    ...(runId ? { runId } : {}),
     runOp: (op, input, ctx) => {
       calls.push({ op, ctx });
       return engine.runOp(op, input, ctx);
@@ -165,5 +166,23 @@ describe('MCP server on the real engine (fixtures vault)', () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toContain('roles.list');
     expect((await call('roles.list', { limit: 2 })).structuredContent.output.items.length).toBe(2);
+  });
+
+  it('#50: a headless run server (PP_RUN_ID) puts the run id on every op; events carry it', async () => {
+    await client.close();
+    const run = await engine.runOp(
+      'runs.start',
+      { skill: 'research', role_id: FIXTURE_ROLE_IDS.figmaIv },
+      { actor: 'agent', now: () => new Date(FIXTURE_NOW) },
+    );
+    const runId = (run as { output: { run: { id: string } } }).output.run.id;
+    calls.length = 0;
+    await connect(undefined, runId);
+    await call('runs_finish', { run_id: runId, status: 'ok' });
+    expect(calls.map((c) => c.ctx.runId)).toEqual([runId]);
+    const ev = engine.db
+      .prepare(`SELECT json_extract(payload_json, '$.run_id') run_id FROM event WHERE type = 'run_finished' AND subject_id = ?`)
+      .get(runId) as { run_id: string };
+    expect(ev.run_id).toBe(runId);
   });
 });

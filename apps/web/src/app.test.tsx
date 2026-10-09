@@ -422,6 +422,26 @@ describe('click paths', () => {
   });
 });
 
+describe('schedules (#29)', () => {
+  it('Settings: each schedule shows its next run and the last scheduled run', async () => {
+    const { container } = await boot('#/settings', async (l) => {
+      await l.as('agent', 'runs.finish', { run_id: 'rn_0003', status: 'ok' });
+      const o = await l.as('schedule', 'runs.start', { skill: 'inbox', schedule: 'inbox' });
+      const id = (o as { output: { run: { id: string } } }).output.run.id;
+      await l.as('agent', 'runs.finish', { run_id: id, status: 'error', summary: { error: 'interrupted' } });
+    });
+    const rows = await waitFor(() => {
+      const r = Array.from(container.querySelectorAll<HTMLElement>('.schedule'));
+      if (r.length !== 3 || r[0]?.getAttribute('data-last') !== 'error') throw new Error('rows');
+      return r;
+    });
+    expect(rows.map((r) => r.querySelector('.schedule__last')?.textContent)).toEqual(['Failed', 'Never', 'Never']);
+    expect(rows.map((r) => r.getAttribute('data-job'))).toEqual(['unknown', 'unknown', 'unknown']);
+    expect(rows[2]?.querySelector('.schedule__next')?.textContent).toMatch(/^Fri \d\d:\d\d$/);
+    assertButtons(container);
+  });
+});
+
 describe('run status (#21)', () => {
   /** The fixture vault has one open inbox run; close it so the indicator starts idle. */
   const quiet = (l: Live) => l.as('agent', 'runs.finish', { run_id: 'rn_0003', status: 'ok' });

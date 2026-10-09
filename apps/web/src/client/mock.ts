@@ -2,12 +2,15 @@ import {
   ARCHIVE_REASONS,
   CRITERIA,
   type Criterion,
+  nextFire,
   OPS,
   type OpName,
   type OpOutcome,
   OUTREACH_TONES,
   ROLE_STATUSES,
   type Role,
+  SCHEDULE_KEYS,
+  SCHEDULE_SKILL,
   type Score,
 } from '@perfect-placement/contracts';
 import * as fx from '@perfect-placement/fixtures';
@@ -213,6 +216,25 @@ function readOp(
       });
     case 'config.get':
       return ok(fx.FIXTURE_CONFIG);
+    case 'schedules.status':
+      return ok({
+        items: SCHEDULE_KEYS.map((key) => {
+          const spec = fx.FIXTURE_CONFIG.schedules[key];
+          const next = spec === 'off' ? null : nextFire(spec, at);
+          const last = [...fx.runs]
+            .filter((r) => (r.summary_json as { schedule?: string } | null)?.schedule === key)
+            .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+          return {
+            key,
+            skill: SCHEDULE_SKILL[key],
+            spec,
+            on: spec !== 'off',
+            next_run: next ? next.toISOString() : null,
+            last_run: last ?? null,
+            job: 'unknown' as const,
+          };
+        }),
+      });
 
     default:
       return err('unimplemented', `${name}: not in the mock`);

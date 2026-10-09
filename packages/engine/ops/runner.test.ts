@@ -34,8 +34,11 @@ describe('runner command lines', () => {
     expect(s.command).toBe('claude');
     expect(s.args.slice(0, 2)).toEqual(['-p', 'P']);
     const cfg = JSON.parse(s.args[s.args.indexOf('--mcp-config') + 1] as string);
+    // #50: the MCP server gets the run id, so the ops it runs are linked to the run.
     expect(cfg).toEqual({
-      mcpServers: { [MCP_SERVER_NAME]: { command: 'node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home' } } },
+      mcpServers: {
+        [MCP_SERVER_NAME]: { command: 'node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home', PP_RUN_ID: 'rn_1' } },
+      },
     });
     expect(s.args).toEqual(
       expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__pp,WebSearch,WebFetch', '--permission-prompts', 'none']),
@@ -66,6 +69,7 @@ describe('runner command lines', () => {
         'mcp_servers.pp.command="node"',
         'mcp_servers.pp.args=["/x/mcp/dist/bin.js"]',
         'mcp_servers.pp.env.PP_HOME="/tmp/pp-home"',
+        'mcp_servers.pp.env.PP_RUN_ID="rn_1"',
         'approval_policy="never"',
         'web_search="live"',
       ]),
@@ -78,7 +82,7 @@ describe('runner command lines', () => {
     expect(s.args).toEqual(['-p', 'P', '--output-format', 'text', '--trust', '--approve-mcps', '--force']);
     expect(s.cwd).toBeNull();
     expect(s.files[0]?.path).toBe('.cursor/mcp.json');
-    expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp.command).toBe('node');
+    expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp).toMatchObject({ command: 'node', env: { PP_RUN_ID: 'rn_1' } });
     expect(s.files[1]?.path).toBe('.cursor/cli.json');
     expect(JSON.parse(s.files[1]?.content as string).permissions).toEqual({
       allow: ['Mcp(pp:*)', 'WebFetch(*)'],

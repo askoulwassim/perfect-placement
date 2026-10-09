@@ -59,7 +59,10 @@ async function main(): Promise<void> {
       close();
     }
   });
-  await serveStdio({ runOp, toolNames: style });
+  // A headless skill run (#50): the runner passes its run id; every op is linked to it.
+  const runId = process.env.PP_RUN_ID?.trim() || undefined;
+  if (runId) process.stderr.write(`pp-mcp: run ${runId}\n`);
+  await serveStdio({ runOp, toolNames: style, ...(runId ? { runId } : {}) });
 }
 
 main().catch((err: unknown) => {

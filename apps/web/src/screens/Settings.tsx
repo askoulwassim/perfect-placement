@@ -1,4 +1,14 @@
-import { type HardHumanSubject, isHardHuman, type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
+import {
+  DAY_NAMES,
+  type HardHumanSubject,
+  isHardHuman,
+  nextFire,
+  type PolicyConfig,
+  PP_HOME_DEFAULT,
+  parseSchedule,
+  type Run,
+  type ScheduleJobState,
+} from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
@@ -26,35 +36,33 @@ const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
 ];
 export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
 
-const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
+const two = (n: number) => String(n).padStart(2, '0');
+const dayName = (d: number) => cap(DAY_NAMES[d] as string);
 
-/** "daily 07:30" | "fri 05:30" -> "Fri 07:30" (next run, UTC). null when paused or unparseable. */
+/** Next run in local time (the OS job's clock), "Fri 07:30". null when off or unparseable. */
 export function nextRun(spec: string, now: Date): string | null {
-  const m = spec
-    .trim()
-    .toLowerCase()
-    .match(/^(daily|sun|mon|tue|wed|thu|fri|sat)\s+(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const [, when, hh, mm] = m;
-  const at = new Date(now);
-  at.setUTCHours(Number(hh), Number(mm), 0, 0);
-  if (when === 'daily') {
-    if (at <= now) at.setUTCDate(at.getUTCDate() + 1);
-  } else {
-    let add = (DAYS.indexOf(when as string) - at.getUTCDay() + 7) % 7;
-    if (add === 0 && at <= now) add = 7;
-    at.setUTCDate(at.getUTCDate() + add);
-  }
-  return `${cap(DAYS[at.getUTCDay()] as string)} ${(hh as string).padStart(2, '0')}:${mm}`;
+  const t = nextFire(spec, now);
+  return t ? `${dayName(t.getDay())} ${two(t.getHours())}:${two(t.getMinutes())}` : null;
 }
 
-/** "daily 07:30" -> "Daily 07:30"; "fri 05:30" -> "Weekly Fri 05:30". */
+/** "daily 07:30" -> "Daily 07:30"; "fri 05:30" -> "Weekly Fri 05:30"; "weekdays 08:00" -> "Weekdays 08:00". */
 export const cadence = (spec: string) => {
-  const [w, t] = spec.split(/\s+/);
-  if (!w || !t) return spec;
-  return w === 'daily' ? `Daily ${t}` : `Weekly ${cap(w)} ${t}`;
+  const p = parseSchedule(spec);
+  const [w, t] = spec.trim().toLowerCase().split(/\s+/);
+  if (!p || !w || !t) return spec;
+  if (p.daily) return `Daily ${t}`;
+  if (w === 'weekdays') return `Weekdays ${t}`;
+  if (p.days.length === 1) return `Weekly ${dayName(p.days[0] as number)} ${t}`;
+  return `${p.days.map(dayName).join(', ')} ${t}`;
 };
+
+/** The last scheduled run's result for its row. */
+export const lastResult = (r: Run | null | undefined): string =>
+  !r ? 'Never' : r.status === 'ok' ? 'Done' : r.status === 'error' ? 'Failed' : cap(r.status);
+
+/** OS job states that mean the schedule will not fire on its own (#29). */
+const NO_JOB: ReadonlySet<ScheduleJobState> = new Set(['missing', 'stale']);
 
 export function Settings() {
   const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues, runs } = useApp();
@@ -62,6 +70,8 @@ export function Settings() {
   const cuesOn = !CUE_IDS.every((id) => cuesSeen?.includes(id));
   const act = useAct();
   const backends = useOp('system.backends', {});
+  // Last scheduled run + OS job per schedule (#29); refetched after every write (Save syncs the jobs).
+  const status = useOp('schedules.status', {});
   const [schedules, setSchedules] = useState(config.schedules);
   const [saved, setSaved] = useState<Record<ScheduleKey, string>>(config.schedules);
   useEffect(() => {
@@ -105,12 +115,17 @@ export function Settings() {
           {SCHEDULES.map(([key, name]) => {
             const on = schedules[key] !== 'off';
             const spec = on ? schedules[key] : saved[key];
+            const st = status.data?.items.find((s) => s.key === key);
+            const noJob = on && config.schedules[key] !== 'off' && st !== undefined && NO_JOB.has(st.job);
             return (
               <ScheduleRow
                 key={key}
                 name={name}
                 cadence={cadence(spec)}
-                next={nextRun(spec, t) ?? '—'}
+                next={noJob ? 'No job' : (nextRun(spec, t) ?? '—')}
+                last={lastResult(st?.last_run)}
+                lastStatus={st?.last_run?.status ?? 'never'}
+                job={st?.job ?? 'unknown'}
                 on={on}
                 onToggle={(v) => setSchedules({ ...schedules, [key]: v ? saved[key] : 'off' })}
               />

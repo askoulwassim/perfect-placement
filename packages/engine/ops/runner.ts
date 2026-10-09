@@ -280,8 +280,9 @@ export function buildRunnerSpec(opts: {
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
+  // #50: the pp MCP server gets PP_RUN_ID too, so every op the run performs carries ctx.runId.
   const env = { ...mcp.env, PP_RUN_ID: runId };
-  const server = { command: mcp.command, args: mcp.args, env: mcp.env };
+  const server = { command: mcp.command, args: mcp.args, env };
   switch (runner.command) {
     case 'claude': {
       const mcpConfig = JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } });
@@ -323,7 +324,7 @@ export function buildRunnerSpec(opts: {
     }
     case 'codex': {
       const toml = (v: unknown) => JSON.stringify(v);
-      const envPairs = Object.entries(mcp.env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
+      const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
       return {
         runId,
         command: 'codex',

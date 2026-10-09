@@ -1,6 +1,6 @@
 import type { PolicyConfig, Run, RunStatus, Skill } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
-import { get, select } from './rows.js';
+import { get, type Row, select } from './rows.js';
 
 /*
  * The run queue and the automatic pipeline (#30). Mechanics only; the handlers in handlers/runs.ts
@@ -65,6 +65,24 @@ export function activeDuplicate(db: Database.Database, scope: RunScope, opts: { 
   return queueRuns(db, opts.queuedOnly ? ['queued'] : ['queued', 'running']).find((r) => sameScope(scopeOf(r), scope));
 }
 
+/**
+ * The role_scored events of a score run (#50): the ones linked to it (`payload_json.run_id`, set from
+ * ctx.runId; a headless run's MCP server gets it from PP_RUN_ID). A queue run uses the link only. An
+ * agent's own run from a session with no run id links nothing, so it falls back to unlinked events
+ * since it started.
+ */
+function scoredBy(db: Database.Database, run: Run): Row<'event'>[] {
+  const linked = select(db, 'event', `type = ? AND json_extract(payload_json, '$.run_id') = ? ORDER BY ts ASC, id ASC`, [
+    'role_scored',
+    run.id,
+  ]);
+  if (linked.length || isQueueRun(run)) return linked;
+  return select(db, 'event', `type = ? AND ts >= ? AND json_extract(payload_json, '$.run_id') IS NULL ORDER BY ts ASC, id ASC`, [
+    'role_scored',
+    run.started_at,
+  ]);
+}
+
 /** What `runs.finish` should enqueue next (pipeline rules), for a run that just ended with `status`. */
 export interface PipelineStart {
   skill: Skill;
@@ -74,7 +92,7 @@ export interface PipelineStart {
 /**
  * The pipeline rules (config `pipeline`):
  * - scout ended `ok` and the inbox has roles: one score run for the whole inbox (it covers the new roles).
- * - score ended `ok` or `partial`: for each role it scored that is still in the pipeline (not inbox,
+ * - score ended `ok` or `partial`: for each role it scored (`scoredBy`) that is still in the pipeline (not inbox,
  *   not archived) and whose company has no dossier, one research run per company (scoped by a role there).
  */
 export function pipelineStarts(db: Database.Database, config: PolicyConfig, run: Run, status: RunStatus): PipelineStart[] {
@@ -83,13 +101,9 @@ export function pipelineStarts(db: Database.Database, config: PolicyConfig, run:
     return inbox.length ? [{ skill: 'score' }] : [];
   }
   if (run.op === 'score' && (status === 'ok' || status === 'partial') && config.pipeline.research_after_score) {
-    // Roles this run scored: role_scored events since it started (an event that names another run is not ours).
-    const events = select(db, 'event', 'type = ? AND ts >= ? ORDER BY ts ASC, id ASC', ['role_scored', run.started_at]);
     const out: PipelineStart[] = [];
     const companies = new Set<string>();
-    for (const e of events) {
-      const by = (e.payload_json as { run_id?: unknown } | null)?.run_id;
-      if (typeof by === 'string' && by !== run.id) continue;
+    for (const e of scoredBy(db, run)) {
       const role = get(db, 'role', e.subject_id);
       if (!role || role.status === 'inbox' || role.status === 'archived' || companies.has(role.company_id)) continue;
       companies.add(role.company_id);

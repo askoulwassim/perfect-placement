@@ -2,7 +2,7 @@ import type { Run } from '@perfect-placement/contracts';
 import { contactLinks, contacts, decisions } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
-import { nextRun } from '../screens/Settings';
+import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, type Person } from './people';
 import {
@@ -86,6 +86,18 @@ describe('nextRun', () => {
     expect(nextRun('fri 05:30', now)).toBe('Fri 05:30');
     expect(nextRun('mon 05:30', now)).toBe('Mon 05:30');
     expect(nextRun('off', now)).toBeNull();
+    expect(nextRun('weekdays 08:00', new Date('2026-10-09T09:00:00.000Z'))).toBe('Mon 08:00');
+  });
+  it('labels the cadence and the last scheduled run (#29)', () => {
+    expect(cadence('daily 07:30')).toBe('Daily 07:30');
+    expect(cadence('fri 05:30')).toBe('Weekly Fri 05:30');
+    expect(cadence('weekdays 08:00')).toBe('Weekdays 08:00');
+    expect(cadence('mon,thu 08:00')).toBe('Mon, Thu 08:00');
+    expect(lastResult(null)).toBe('Never');
+    const r = { id: 'rn_1', op: 'inbox', started_at: '2026-10-08T07:30:00.000Z', finished_at: null, summary_json: {}, log_path: null };
+    expect(lastResult({ ...r, status: 'ok' })).toBe('Done');
+    expect(lastResult({ ...r, status: 'error' })).toBe('Failed');
+    expect(lastResult({ ...r, status: 'running' })).toBe('Running');
   });
 });
 

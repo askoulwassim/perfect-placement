@@ -32,6 +32,7 @@ import {
   thresholdsFor,
   tokens,
 } from './index.js';
+import { nextFire, parseSchedule, prevFire, SCHEDULE_SKILL, scheduleForSkill, scheduleMissed } from './schedules.js';
 
 /** The ops table in docs/v2/contracts.md. Every one must be in the registry. */
 const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
@@ -327,5 +328,42 @@ describe('tokens', () => {
     expect(tokens.layout.mobileBreakpoint).toBe(720);
     expect(tokens.tint.rail).toBe('rgba(9,26,45,0.6)');
     expect(tokens.shadow.ask).toBe('0 20px 60px rgba(0,0,0,0.45)');
+  });
+});
+
+describe('schedules (#29)', () => {
+  it('parses daily, weekdays, one day and day lists; off and junk are null', () => {
+    expect(parseSchedule('daily 07:30')).toEqual({ days: [0, 1, 2, 3, 4, 5, 6], hour: 7, minute: 30, daily: true });
+    expect(parseSchedule('weekdays 8:05')).toMatchObject({ days: [1, 2, 3, 4, 5], hour: 8, minute: 5, daily: false });
+    expect(parseSchedule('FRI 05:30')).toMatchObject({ days: [5], daily: false });
+    expect(parseSchedule('thu,mon 09:00')).toMatchObject({ days: [1, 4] });
+    for (const bad of ['off', 'daily', 'daily 25:00', 'friday 05:30', 'fri 5:3', '']) expect(parseSchedule(bad)).toBeNull();
+  });
+
+  it('next and previous local fire times; missed = fired since the last run started', () => {
+    const thu = new Date(2026, 9, 8, 12, 0); // Thursday, local
+    expect(nextFire('daily 07:30', thu)).toEqual(new Date(2026, 9, 9, 7, 30));
+    expect(nextFire('daily 18:00', thu)).toEqual(new Date(2026, 9, 8, 18, 0));
+    expect(nextFire('fri 05:30', thu)).toEqual(new Date(2026, 9, 9, 5, 30));
+    expect(nextFire('thu 12:00', thu)).toEqual(new Date(2026, 9, 15, 12, 0));
+    expect(nextFire('weekdays 08:00', new Date(2026, 9, 9, 9, 0))).toEqual(new Date(2026, 9, 12, 8, 0));
+    expect(nextFire('off', thu)).toBeNull();
+    expect(prevFire('fri 05:30', thu)).toEqual(new Date(2026, 9, 2, 5, 30));
+    expect(prevFire('daily 07:30', thu)).toEqual(new Date(2026, 9, 8, 7, 30));
+    const iso = (d: Date) => d.toISOString();
+    expect(scheduleMissed('daily 07:30', iso(new Date(2026, 9, 7, 7, 30)), thu)).toBe(true);
+    expect(scheduleMissed('daily 07:30', iso(new Date(2026, 9, 8, 7, 30, 4)), thu)).toBe(false);
+    expect(scheduleMissed('fri 05:30', iso(new Date(2026, 9, 2, 5, 31)), thu)).toBe(false);
+    expect(scheduleMissed('daily 07:30', null, thu)).toBe(false);
+    expect(scheduleMissed('off', iso(new Date(2020, 0, 1)), thu)).toBe(false);
+  });
+
+  it('scout_score enqueues scout; runs.start takes a schedule; schedules.status is a read', () => {
+    expect(SCHEDULE_SKILL).toEqual({ inbox: 'inbox', freshness: 'freshness', scout_score: 'scout' });
+    expect(scheduleForSkill('scout')).toBe('scout_score');
+    expect(scheduleForSkill('tailor')).toBeNull();
+    expect(OPS['runs.start'].input.parse({ skill: 'scout', schedule: 'scout_score' }).schedule).toBe('scout_score');
+    expect(OPS['runs.start'].input.safeParse({ skill: 'scout', schedule: 'weekly' }).success).toBe(false);
+    expect(OPS['schedules.status']).toMatchObject({ readOnly: true, impact: 'low', emits: [] });
   });
 });
