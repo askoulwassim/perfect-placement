@@ -122,6 +122,17 @@ COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 OPENUI_TELEMETRY_DISABLED=1
 NPM_CONFIG_UPDATE_NOTIFIER=false
 export COREPACK_ENABLE_DOWNLOAD_PROMPT OPENUI_TELEMETRY_DISABLED NPM_CONFIG_UPDATE_NOTIFIER
+# Package scripts call `pnpm` themselves (e.g. `pnpm -r build`), so without a global pnpm
+# put a temporary `pnpm` -> `corepack pnpm` shim on PATH for this script only.
+if [ "$PNPM" = "corepack pnpm" ]; then
+  PNPM_SHIM_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pp-pnpm.XXXXXX")
+  trap 'rm -rf "$PNPM_SHIM_DIR"' EXIT
+  printf '#!/bin/sh\nexec corepack pnpm "$@"\n' >"$PNPM_SHIM_DIR/pnpm"
+  chmod +x "$PNPM_SHIM_DIR/pnpm"
+  PATH="$PNPM_SHIM_DIR:$PATH"
+  export PATH
+  PNPM="pnpm"
+fi
 # $PNPM is one or two words ("pnpm" or "corepack pnpm"): split on purpose.
 # shellcheck disable=SC2086
 $PNPM install --frozen-lockfile
