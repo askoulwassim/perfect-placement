@@ -66,9 +66,9 @@ function hydrate(table: TableName, row: Record<string, unknown>) {
   return out;
 }
 
-describe('migrations 001..010', () => {
-  it('are numbered 001 to 010 and recorded', () => {
-    expect(MIGRATIONS.slice(0, 10)).toEqual([
+describe('migrations 001..011', () => {
+  it('are numbered 001 to 011 and recorded', () => {
+    expect(MIGRATIONS.slice(0, 11)).toEqual([
       '001_init.sql',
       '002_wave2.sql',
       '003_fresh_start.sql',
@@ -79,9 +79,10 @@ describe('migrations 001..010', () => {
       '008_ask_thread.sql',
       '009_connect_path.sql',
       '010_gmail_to.sql',
+      '011_fill_assist.sql',
     ]);
     const versions = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[];
-    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it('creates exactly the contract tables with exactly the contract columns', () => {
@@ -158,8 +159,9 @@ describe('migrations 001..010', () => {
   it('002 preserves rows written under 001', () => {
     const old = new Database(':memory:');
     old.exec(migration('001'));
-    // Seed as 001 would accept it: no onboard_session, no `agent` backend, no contact email source (006), no ask_thread (008), no contact_link path or outreach about (009), no outreach gmail_to (010).
+    // Seed as 001 would accept it: no onboard_session, no `agent` backend, no contact email source (006), no ask_thread (008), no contact_link path or outreach about (009), no outreach gmail_to (010), no application fill_assist_json (011).
     const seed001 = readFileSync(FIXTURE_SEED_SQL, 'utf8')
+      .replace(/^(INSERT INTO application \([^)]*?), fill_assist_json\) VALUES (.*), (?:NULL|'[^']*')\);$/gm, '$1) VALUES $2);')
       .replace(/^(INSERT INTO outreach \([^)]*?), gmail_to\) VALUES (.*), (?:NULL|'[^']*')\);$/gm, '$1) VALUES $2);')
       .replace(/^INSERT INTO (onboard_session|ask_thread) .*$/gm, '')
       .replace(

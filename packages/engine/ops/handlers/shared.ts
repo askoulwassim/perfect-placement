@@ -51,8 +51,9 @@ export function upsertApplication(h: HandlerContext, roleId: string, patch: Part
     applied_at: null,
     portal_url: null,
     package_paths_json: {},
+    fill_assist_json: null,
     ...patch,
-  };
+  } as Application;
   insert(h.db, 'application', app);
   return app;
 }

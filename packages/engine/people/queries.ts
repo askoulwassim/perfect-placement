@@ -185,6 +185,7 @@ export function skipConnect(
     applied_at: null,
     portal_url: null,
     package_paths_json: {},
+    fill_assist_json: null,
   };
   R.application.insert(created);
   return { application: created, skipped: true };

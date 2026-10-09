@@ -2,7 +2,7 @@ import { FORBIDDEN_BUTTON_LABELS, OP_NAMES, OPS, type OpName } from '@perfect-pl
 import { claudeScoreTranscript, claudeTranscript } from '@perfect-placement/engine/testing';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeReply } from '../genui/src';
 import { App } from './App';
 import { ASK_THREAD_KEY } from './screens/Ask';
@@ -423,7 +423,7 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).disabled).toBe(true));
     expect(live?.calls.some((c) => c.name === 'runs.list')).toBe(true);
     await go(`#/role/${R.linearDraft}`);
-    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
     const connect = Array.from(container.querySelectorAll('.stage')).find((s) => s.textContent === 'Connect');
     expect(connect?.getAttribute('data-state')).toBe('done');
     const o = await live?.client.run('outreach.get', { outreach_id: 'or_0001' });
@@ -1279,7 +1279,7 @@ describe('run status (#21)', () => {
       { role_id: R.linearDraft, reason: 'user' },
     ]);
     await waitFor(() => expect($(container, '[data-fallback="skipped"]').textContent).toBe('Skipped'));
-    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
     expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
   });
 
@@ -1446,6 +1446,78 @@ describe('run status (#21)', () => {
     const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Research'));
     expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
+  it('Role: Open and fill queues the fill assist; after apply.fill_done the primary is Open portal (#106)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      return l.as('human', 'apply.skip_connect', { role_id: R.linearDraft, reason: 'user' });
+    });
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'runs.start').map((c) => c.body)).toEqual([
+        { skill: 'fill', role_id: R.linearDraft, assist: true },
+      ]),
+    );
+    const spec = live?.engine.launcher.specs.at(-1);
+    expect(spec?.args).toContain('--chrome');
+    expect(spec?.args[spec.args.indexOf('--allowedTools') + 1]).toContain('mcp__claude-in-chrome__file_upload');
+    expect(spec?.args[1]).toContain('apply.fill_done');
+    await waitFor(() => expect(primary(container).disabled).toBe(true));
+    // The run answers, renders, uploads + fills in the portal tab, stops before Submit and reports.
+    await live?.as('agent', 'apply.fill', {
+      role_id: R.linearDraft,
+      answers: [{ question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' }],
+    });
+    expect(primary(container).textContent).not.toBe('Open portal');
+    await live?.as('agent', 'apply.render_documents', { role_id: R.linearDraft, formats: ['pdf'] });
+    const done = await live?.as('agent', 'apply.fill_done', { role_id: R.linearDraft, filled: ['Why Linear?'], uploaded: ['resume'] });
+    expect(done?.status).toBe('ok');
+    await live?.as('agent', 'runs.finish', { run_id: spec?.runId, status: 'ok' });
+    await waitFor(() => expect(primary(container).textContent).toBe('Open portal'));
+    expect(primary(container).getAttribute('data-op')).toBe('nav');
+    assertButtons(container);
+  });
+
+  it('Role: at Submit with no fill assist yet, the primary is Open and fill (#106)', async () => {
+    const { container } = await boot(`#/role/${R.vercelDraft}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
+  });
+
+  it('Role -> Resume / Cover: Download PDF or DOCX renders the file and downloads it from /api/files (#106)', async () => {
+    const clicked: string[] = [];
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(`${this.getAttribute('href')} ${this.download}`);
+    });
+    try {
+      const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+      await waitFor(() => expect(primary(container).textContent).toBe('Connect'));
+      // Not on the Dossier tab.
+      expect(container.querySelector('button[data-op="apply.render_documents"]')).toBeNull();
+      fireEvent.click(screen.getByRole('tab', { name: 'Resume' }));
+      const btn = (label: string) =>
+        Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-op="apply.render_documents"]')).find(
+          (b) => b.textContent === label,
+        );
+      await waitFor(() => expect(btn('PDF')).toBeTruthy());
+      expect(within($(container, '.downloads')).getByText('Download')).toBeTruthy();
+      assertButtons(container);
+      fireEvent.click(btn('PDF') as HTMLButtonElement);
+      await waitFor(() => expect(clicked).toHaveLength(1));
+      expect(live?.calls.filter((c) => c.name === 'apply.render_documents').map((c) => c.body)).toEqual([
+        { role_id: R.linearDraft, formats: ['pdf'], docs: ['resume'] },
+      ]);
+      expect(clicked[0]).toBe(`/api/files?path=${encodeURIComponent(`files/${R.linearDraft}/resume.pdf`)} resume.pdf`);
+      fireEvent.click(screen.getByRole('tab', { name: 'Cover' }));
+      await waitFor(() => expect(btn('DOCX')?.disabled).toBe(false));
+      fireEvent.click(btn('DOCX') as HTMLButtonElement);
+      await waitFor(() => expect(clicked).toHaveLength(2));
+      expect(clicked[1]).toBe(`/api/files?path=${encodeURIComponent(`files/${R.linearDraft}/cover_letter.docx`)} cover_letter.docx`);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('River: an inbox tile passes from its menu (#77)', async () => {

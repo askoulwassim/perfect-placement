@@ -109,6 +109,35 @@ describe('pp up (in-process smoke)', () => {
     expect((await fetch(`${running.url}/..%2f..%2fetc%2fpasswd`)).status).not.toBe(500);
   });
 
+  it('GET /api/files serves rendered documents an application references, and nothing else (#106)', async () => {
+    const role_id = FIXTURE_ROLE_IDS.linearDraft;
+    const out = (await (await post('/api/ops/apply.render_documents', JSON.stringify({ role_id }))).json()) as {
+      status: string;
+      output: { files: Array<{ doc: string; format: string; path: string }> };
+    };
+    expect(out.status).toBe('ok');
+    const pdf = out.output.files.find((f) => f.doc === 'resume' && f.format === 'pdf')?.path as string;
+    expect(pdf).toBe(`files/${role_id}/resume.pdf`);
+    const res = await fetch(`${running.url}/api/files?path=${encodeURIComponent(pdf)}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/pdf');
+    expect(res.headers.get('content-disposition')).toContain(`attachment; filename="${role_id}_resume.pdf"`);
+    expect(
+      Buffer.from(await res.arrayBuffer())
+        .subarray(0, 5)
+        .toString('latin1'),
+    ).toBe('%PDF-');
+    const docx = out.output.files.find((f) => f.doc === 'cover_letter' && f.format === 'docx')?.path as string;
+    expect((await fetch(`${running.url}/api/files?path=${encodeURIComponent(docx)}`)).headers.get('content-type')).toContain(
+      'wordprocessingml',
+    );
+    // Unreferenced, outside files/, markdown, traversal, absolute: all 404; writes are 405.
+    writeFileSync(join(engine.home, 'files', 'stray.pdf'), '%PDF-1.4 stray');
+    for (const bad of ['files/stray.pdf', `applications/${role_id}/resume.md`, '../pp.db', `/${pdf}`, 'files/../pp.db', 'pp.db', ''])
+      expect((await fetch(`${running.url}/api/files?path=${encodeURIComponent(bad)}`)).status, bad).toBe(404);
+    expect((await post(`/api/files?path=${encodeURIComponent(pdf)}`, '')).status).toBe(405);
+  });
+
   it('refuses non-loopback Host headers (DNS rebinding) and non-loopback binds', async () => {
     const status = await new Promise<number>((resolve, reject) => {
       const req = request(`${running.url}/api/ops/roles.list`, { method: 'POST', headers: { host: 'evil.example' } }, (res) => {

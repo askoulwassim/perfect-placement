@@ -193,14 +193,35 @@ export const EventRow = z.object({
 });
 export type EventRow = z.infer<typeof EventRow>;
 
+/** Added (#106): what a fill assist did in the portal, as the fill run reported it (`apply.fill_done`). */
+export const FillAssist = z.object({
+  at: IsoTimestamp,
+  run_id: Id.nullable(),
+  /** Labels of the fields it filled. */
+  filled: z.array(z.string()),
+  /** Documents it uploaded. */
+  uploaded: z.array(z.enum(['resume', 'cover_letter'])),
+  /** Fields it left for the human, each with a one-line reason. */
+  skipped: z.array(z.object({ label: z.string(), reason: z.string() })),
+});
+export type FillAssist = z.infer<typeof FillAssist>;
+
 export const Application = z.object({
   id: Id,
   role_id: Id,
   stage: z.enum(['research', 'tailor', 'connect', 'fill', 'submit', 'done']),
   applied_at: IsoTimestamp.nullable(),
   portal_url: z.string().url().nullable(),
-  /** `{ dossier?, resume?, cover_letter?, fit_map?, answers? }` vault paths. */
+  /**
+   * `{ dossier?, resume?, cover_letter?, fit_map?, answers? }` vault paths. #106 adds the rendered files
+   * (`resume_pdf`, `resume_docx`, `cover_letter_pdf`, `cover_letter_docx`, under `files/<role_id>/`).
+   */
   package_paths_json: z.record(z.string(), VaultPath),
+  /**
+   * Added (#106, migration 011): the last fill assist (`apply.fill_done`): the portal was opened, the documents
+   * uploaded and the answers filled, stopped before Submit. Null until then. The human submits.
+   */
+  fill_assist_json: FillAssist.nullable().default(null),
 });
 export type Application = z.infer<typeof Application>;
 

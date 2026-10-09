@@ -56,7 +56,7 @@ A human or schedule `runs.start` commits the run as `queued`; the run queue (bel
 | --- | --- | --- |
 | scout, research, freshness | pp + WebSearch + WebFetch | query boards and career pages; sourced dossier; judge live pages |
 | tailor, score | pp + WebFetch | capture the full JD when only a title is on file |
-| fill | pp + WebFetch | read the real portal questions (no browser in a headless run) |
+| fill | pp + WebFetch + Claude in Chrome read tools; with assist (#106) also `form_input` + `file_upload` | read the real portal questions; with assist upload the rendered PDFs (`apply.render_documents`) and fill the answer fields, stop before Submit, report `apply.fill_done` |
 | inbox | pp + Gmail `search_threads`, `get_thread`, `get_message` | classify replies, read-only (#80) |
 | learn, onboard | pp | ops only |
 | connect | pp + Gmail `search_threads`, `get_thread`, `get_message`, `create_draft` (+ `--chrome`) | contact emails (#37); the run finishes its own Gmail drafts (#79) |

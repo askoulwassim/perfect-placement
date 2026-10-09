@@ -16,6 +16,11 @@ export interface OpClient {
    * no agent behind this client.
    */
   ask?(req: AskChatRequest, signal?: AbortSignal): AsyncIterable<AskChatEvent>;
+  /**
+   * #106: the read-only download URL of a rendered document (`GET /api/files?path=`, a path from
+   * `apply.render_documents`). Absent = no downloads (the read-only mock).
+   */
+  fileUrl?(path: string): string;
 }
 
 /** Calibration card (`onboard.samples` item). */

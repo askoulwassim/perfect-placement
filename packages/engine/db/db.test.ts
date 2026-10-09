@@ -22,12 +22,16 @@ const migration = (prefix: string) =>
  * The fixture seed for a db before 009 (#98): contact links without `path` / `via_tie_json`; outreach
  * without `about_contact_id`, the bridge intro filed under its target as it was before.
  */
-/** The fixture seed for a db before 010: outreach without `gmail_to` (#99). */
-const seedBefore010 = () =>
+/** The fixture seed for a db before 011: applications without `fill_assist_json` (#106). */
+const seedBefore011 = () =>
   readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
-    /^(INSERT INTO outreach \([^)]*?), gmail_to\) VALUES (.*), (?:NULL|'[^']*')\);$/gm,
+    /^(INSERT INTO application \([^)]*?), fill_assist_json\) VALUES (.*), (?:NULL|'[^']*')\);$/gm,
     '$1) VALUES $2);',
   );
+
+/** The fixture seed for a db before 010: outreach without `gmail_to` (#99). */
+const seedBefore010 = () =>
+  seedBefore011().replace(/^(INSERT INTO outreach \([^)]*?), gmail_to\) VALUES (.*), (?:NULL|'[^']*')\);$/gm, '$1) VALUES $2);');
 
 const seedBefore009 = () =>
   seedBefore010()
@@ -374,5 +378,19 @@ describe('migration 010 (Gmail To, #99)', () => {
     expect(db9.prepare('SELECT * FROM outreach ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, gmail_to: null })));
     expect(db9.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 10 });
     db9.close();
+  });
+});
+
+describe('migration 011 (fill assist, #106)', () => {
+  it('adds fill_assist_json to application, null on every existing row', () => {
+    const db10 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']) db10.exec(migration(v));
+    db10.exec(seedBefore011());
+    const before = db10.prepare('SELECT * FROM application ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db10.exec(migration('011'));
+    expect(db10.prepare('SELECT * FROM application ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, fill_assist_json: null })));
+    expect(db10.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 11 });
+    db10.close();
   });
 });

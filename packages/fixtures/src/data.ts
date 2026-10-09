@@ -499,45 +499,48 @@ const pkg = (id: string, withAnswers = false) => ({
   ...(withAnswers ? { answers: vaultPath.application(id, 'answers') } : {}),
 });
 
-export const applications: Application[] = [
-  { id: 'ap_0001', role_id: R.stripeOnDeck, stage: 'research', applied_at: null, portal_url: null, package_paths_json: {} },
-  { id: 'ap_0002', role_id: R.linearDraft, stage: 'connect', applied_at: null, portal_url: null, package_paths_json: pkg(R.linearDraft) },
-  {
-    id: 'ap_0003',
-    role_id: R.vercelDraft,
-    stage: 'submit',
-    applied_at: null,
-    portal_url: 'https://boards.greenhouse.io/vercel',
-    package_paths_json: pkg(R.vercelDraft, true),
-  },
-  {
-    id: 'ap_0004',
-    role_id: R.stripeApplied,
-    stage: 'done',
-    applied_at: at(20),
-    portal_url: null,
-    package_paths_json: pkg(R.stripeApplied, true),
-  },
-  {
-    id: 'ap_0005',
-    role_id: R.notionApplied,
-    stage: 'done',
-    applied_at: at(18),
-    portal_url: null,
-    package_paths_json: pkg(R.notionApplied, true),
-  },
-  { id: 'ap_0006', role_id: R.dbxApplied, stage: 'done', applied_at: at(24), portal_url: null, package_paths_json: pkg(R.dbxApplied) },
-  { id: 'ap_0007', role_id: R.figmaIv, stage: 'done', applied_at: at(30), portal_url: null, package_paths_json: pkg(R.figmaIv, true) },
-  { id: 'ap_0008', role_id: R.rampIv, stage: 'done', applied_at: at(28), portal_url: null, package_paths_json: pkg(R.rampIv) },
-  {
-    id: 'ap_0009',
-    role_id: R.retoolOffer,
-    stage: 'done',
-    applied_at: at(40),
-    portal_url: null,
-    package_paths_json: pkg(R.retoolOffer, true),
-  },
-];
+/** #106: no fill assist ran on any fixture application (`fill_assist_json` null). */
+export const applications: Application[] = (
+  [
+    { id: 'ap_0001', role_id: R.stripeOnDeck, stage: 'research', applied_at: null, portal_url: null, package_paths_json: {} },
+    { id: 'ap_0002', role_id: R.linearDraft, stage: 'connect', applied_at: null, portal_url: null, package_paths_json: pkg(R.linearDraft) },
+    {
+      id: 'ap_0003',
+      role_id: R.vercelDraft,
+      stage: 'submit',
+      applied_at: null,
+      portal_url: 'https://boards.greenhouse.io/vercel',
+      package_paths_json: pkg(R.vercelDraft, true),
+    },
+    {
+      id: 'ap_0004',
+      role_id: R.stripeApplied,
+      stage: 'done',
+      applied_at: at(20),
+      portal_url: null,
+      package_paths_json: pkg(R.stripeApplied, true),
+    },
+    {
+      id: 'ap_0005',
+      role_id: R.notionApplied,
+      stage: 'done',
+      applied_at: at(18),
+      portal_url: null,
+      package_paths_json: pkg(R.notionApplied, true),
+    },
+    { id: 'ap_0006', role_id: R.dbxApplied, stage: 'done', applied_at: at(24), portal_url: null, package_paths_json: pkg(R.dbxApplied) },
+    { id: 'ap_0007', role_id: R.figmaIv, stage: 'done', applied_at: at(30), portal_url: null, package_paths_json: pkg(R.figmaIv, true) },
+    { id: 'ap_0008', role_id: R.rampIv, stage: 'done', applied_at: at(28), portal_url: null, package_paths_json: pkg(R.rampIv) },
+    {
+      id: 'ap_0009',
+      role_id: R.retoolOffer,
+      stage: 'done',
+      applied_at: at(40),
+      portal_url: null,
+      package_paths_json: pkg(R.retoolOffer, true),
+    },
+  ] satisfies Omit<Application, 'fill_assist_json'>[]
+).map((a) => ({ ...a, fill_assist_json: null }));
 
 export const interviews: Interview[] = [
   {

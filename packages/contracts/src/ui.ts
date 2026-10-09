@@ -103,7 +103,12 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
     { label: 'Research', op: 'runs.start' },
     { label: 'Tailor', op: 'runs.start' },
     { label: 'Connect', op: 'runs.start' },
-    { label: 'Fill', op: 'runs.start' },
+    /**
+     * #106: the fill run with assist (`runs.start { skill: 'fill', assist: true }`): answers, then the portal tab
+     * with the PDFs uploaded and the answer fields filled, stopped before Submit. Also at Submit until it ran.
+     */
+    { label: 'Open and fill', op: 'runs.start' },
+    /** After `apply.fill_done`: opens the portal; the human submits. */
     { label: 'Open portal', op: null },
     /** Once applied. */
     { label: 'Open River', op: null },

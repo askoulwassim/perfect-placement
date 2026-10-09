@@ -61,6 +61,8 @@ export const runsStart = defineHandler('runs.start', {
       else throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
       input = { ...raw, role_id: o.role_id, contact_id: o.contact_id };
     }
+    if (raw.assist && raw.skill !== 'fill') throw new OpError('invalid_input', 'assist is for skill "fill" (the fill assist)');
+    if (raw.assist && !raw.role_id) throw new OpError('invalid_input', 'assist needs role_id');
     if (input.schedule && SCHEDULE_SKILL[input.schedule] !== input.skill)
       throw new OpError('invalid_input', `schedule ${input.schedule} runs ${SCHEDULE_SKILL[input.schedule]}, not ${input.skill}`);
     const outreachId = input.outreach_id;
@@ -82,7 +84,15 @@ export const runsStart = defineHandler('runs.start', {
         { skill: input.skill, role_id: input.role_id, contact_id: input.contact_id, outreach_id: outreachId, company_id: companyId },
         { queuedOnly },
       );
-      if (dup) return { run: dup, deduped: true };
+      if (dup) {
+        // #106: Open and fill on a fill run still queued without assist turns the assist on for it.
+        if (input.skill === 'fill' && input.assist && dup.status === 'queued' && dup.summary_json.assist !== true) {
+          const summary_json = { ...dup.summary_json, assist: true };
+          update(h.db, 'run', dup.id, { summary_json });
+          return { run: { ...dup, summary_json }, deduped: true };
+        }
+        return { run: dup, deduped: true };
+      }
     }
 
     const now = h.ctx.now();
@@ -107,6 +117,7 @@ export const runsStart = defineHandler('runs.start', {
         ...(outreachId ? { outreach_id: outreachId, step: step ?? 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         ...(input.schedule ? { schedule: input.schedule } : {}),
+        ...(input.skill === 'fill' && input.assist ? { assist: true } : {}),
         actor: asked ? 'ask' : h.ctx.actor,
         runner: h.config.runner.command,
         ...(agent ? {} : { queued_at: iso }),
@@ -194,6 +205,8 @@ function launchRun(run: Run, h: HandlerContext): void {
       : undefined;
   // #81: a fill run answers the questions the user pasted (apply.set_questions) instead of reading the portal.
   const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
+  // #106: the fill assist (Open and fill) uploads the rendered PDFs and fills answer fields, stops before Submit.
+  const assist = skill === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
   const spec = buildRunnerSpec({
     runner: h.config.runner,
     skill,
@@ -202,6 +215,7 @@ function launchRun(run: Run, h: HandlerContext): void {
     mcp: defaultMcpServer(h.home),
     ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
     ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
+    ...(assist ? { assist: true } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
         ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
@@ -217,6 +231,7 @@ function launchRun(run: Run, h: HandlerContext): void {
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
             ...(linkedin ? { linkedin } : {}),
             ...(questions ? { questions } : {}),
+            ...(assist ? { assist: true } : {}),
             // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
             ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
           }),

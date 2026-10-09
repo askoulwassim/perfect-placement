@@ -22,6 +22,14 @@ export const APPLICATION_FILES = {
   questions: 'questions.md',
 } as const;
 
+/** Added (#106): the tailored documents rendered to files, and the formats. */
+export const RENDER_DOCS = ['resume', 'cover_letter'] as const;
+export type RenderDoc = (typeof RENDER_DOCS)[number];
+export const RENDER_FORMATS = ['pdf', 'docx'] as const;
+export type RenderFormat = (typeof RENDER_FORMATS)[number];
+/** The application package key a rendered file is recorded under (`resume_pdf`, `cover_letter_docx`). */
+export const renderedKey = (doc: RenderDoc, format: RenderFormat) => `${doc}_${format}` as const;
+
 /** Vault-relative path builders. Always POSIX separators. */
 export const vaultPath = {
   profileComponent: (key: string) => `profile/${key}.md`,
@@ -34,6 +42,8 @@ export const vaultPath = {
   outreach: (contactId: string, roleId: string, aboutId?: string | null) =>
     aboutId ? `outreach/${contactId}-${roleId}-about-${aboutId}.md` : `outreach/${contactId}-${roleId}.md`,
   file: (name: string) => `files/${name}`,
+  /** Added (#106): a tailored document rendered for download and upload (`files/<role_id>/resume.pdf`). */
+  rendered: (roleId: string, doc: RenderDoc, format: RenderFormat) => `files/${roleId}/${doc}.${format}`,
   /** Added (#38): a kept resume upload: its extracted text (markdown) and the original file. */
   resumeText: (stamp: string) => `files/resume-${stamp}.md`,
   resumeFile: (stamp: string, ext: string) => `files/resume-${stamp}-original.${ext}`,

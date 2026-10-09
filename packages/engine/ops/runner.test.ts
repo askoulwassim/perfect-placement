@@ -16,6 +16,8 @@ import {
   defaultMcpServer,
   deniedTools,
   deniedToolsError,
+  FILL_ASSIST_LINE,
+  FILL_ASSIST_TOOLS,
   fillLine,
   GMAIL_DENIED_TOOLS,
   GMAIL_DRAFT_TOOL,
@@ -192,6 +194,50 @@ describe('runner command lines', () => {
     expect(cursorPermissions('fill').allow).toEqual(['Mcp(pp:*)', 'WebFetch(*)']);
   });
 
+  it('fill with assist (#106): form_input + file_upload allowed; no click, key, script or batch tool', () => {
+    const { args } = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'fill',
+      home: '/h',
+      mcp,
+      assist: true,
+    });
+    expect(args).toContain('--chrome');
+    const allowed = flag(args, '--allowedTools')?.split(',') ?? [];
+    const denied = flag(args, '--disallowedTools')?.split(',') ?? [];
+    expect(allowed).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS, `${CHROME_PREFIX}form_input`, `${CHROME_PREFIX}file_upload`]);
+    for (const t of FILL_ASSIST_TOOLS) expect(denied).not.toContain(t);
+    // Nothing that can press Submit: clicks, keys (computer, shortcuts), script, batches, image uploads stay denied.
+    for (const t of ['computer', 'javascript_tool', 'browser_batch', 'shortcuts_execute', 'upload_image', 'gif_creator'])
+      expect(denied).toContain(`${CHROME_PREFIX}${t}`);
+    for (const t of [...BUILTIN_WRITE_TOOLS, ...GMAIL_WRITE_TOOLS]) expect(denied).toContain(t);
+    expect(denied).toEqual(chromeDeniedTools('fill', { assist: true }));
+    expect(flag(args, '--permission-mode')).toBe('dontAsk');
+    // Only fill can ever get them.
+    for (const skill of SKILLS.filter((x) => x !== 'fill'))
+      for (const t of FILL_ASSIST_TOOLS) {
+        expect(skillAllowedTools(skill)).not.toContain(t);
+        expect(flag(spec('claude', skill).args, '--allowedTools')?.split(',') ?? []).not.toContain(t);
+      }
+  });
+
+  it('fill prompt with assist (#106): read, then upload and fill, stop before Submit, report with apply.fill_done', () => {
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1', assist: true });
+    expect(p).toContain(fillLine(undefined, true));
+    expect(p).toContain(FILL_ASSIST_LINE);
+    expect(p).toContain('apply.render_documents');
+    expect(p).toContain('apply.fill_done { role_id, filled, uploaded, skipped }');
+    expect(p).toContain('never touch a Submit, Apply or Send control');
+    expect(p).toContain(`Tools: the pp MCP tools and WebFetch, ${[...CHROME_READ_TOOLS, ...FILL_ASSIST_TOOLS].join(', ')}, nothing else.`);
+    // Pasted questions + assist: answer those, then fill the portal.
+    const pasted = fillLine('applications/r_1/questions.md', true);
+    expect(pasted).toContain('do not read the portal for questions');
+    expect(pasted).toContain(FILL_ASSIST_LINE);
+    expect(fillLine()).not.toContain(FILL_ASSIST_LINE);
+  });
+
   it('fill prompt (#81): read the portal read-only, or answer the pasted questions', () => {
     const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1' });
     expect(p).toContain(fillLine());
@@ -303,7 +349,9 @@ describe('per-skill tools (#20)', () => {
     for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
     for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
-    expect(skillAllowedTools('fill')).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS]);
+    // #106: fill's full list includes the fill assist's form_input + file_upload; a run without assist drops them.
+    expect(skillAllowedTools('fill')).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS, ...FILL_ASSIST_TOOLS]);
+    expect(skillAllowedTools('fill', { assist: false })).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS]);
     expect(skillAllowedTools('inbox')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
     expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL, ...CHROME_READ_TOOLS]);
   });
@@ -312,7 +360,8 @@ describe('per-skill tools (#20)', () => {
     for (const skill of SKILLS) {
       if (skill === 'connect') continue;
       const { args } = spec('claude', skill);
-      expect(flag(args, '--allowedTools')).toBe(skillAllowedTools(skill).join(','));
+      // #106: a fill run without assist (the default) gets fill's list minus the fill assist tools.
+      expect(flag(args, '--allowedTools')).toBe(skillAllowedTools(skill, skill === 'fill' ? { assist: false } : {}).join(','));
       expect(flag(args, '--tools')).toBe(SKILL_TOOLS[skill].web.join(','));
       expect(flag(args, '--permission-mode')).toBe('dontAsk');
       expect(flag(args, '--permission-prompts')).toBe('none');
@@ -625,6 +674,43 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     expect(off?.args).not.toContain('--chrome');
     expect(flag(off?.args ?? [], '--allowedTools')).not.toContain(CHROME_PREFIX);
     expect(off?.args[1]).toContain('LinkedIn: off for this run');
+  });
+
+  it('runs.start { skill: fill, assist } (#106): the fill assist run gets form_input + file_upload and the assist prompt (fake launcher)', async () => {
+    e = openFixtureEngine({ config: { runs: { max_concurrent: 1 } } });
+    const role_id = 'linear_product-lead-insights';
+    // A research run holds the only slot, so the fill run waits queued.
+    okOut(await e.runOp('runs.start', { skill: 'research', role_id: 'vercel_principal-pm-data' }, ctxAt('human')));
+    const plain = okOut(await e.runOp('runs.start', { skill: 'fill', role_id }, ctxAt('human'))).run;
+    expect(plain.status).toBe('queued');
+    expect(plain.summary_json.assist).toBeUndefined();
+    // Open and fill on the queued plain run turns its assist on (same run, deduped).
+    const asked = okOut(await e.runOp('runs.start', { skill: 'fill', role_id, assist: true }, ctxAt('human')));
+    expect(asked).toMatchObject({ deduped: true, run: { id: plain.id, summary_json: { assist: true } } });
+    const research = e.launcher.specs.length;
+    const first = (okOut(await e.runOp('runs.list', {}, ctxAt('human'))).items.find((r) => r.op === 'research') as { id: string }).id;
+    okOut(await e.runOp('runs.finish', { run_id: first, status: 'ok' }, ctxAt('agent')));
+    await new Promise((r) => setTimeout(r, 0));
+    const spec = e.launcher.specs[research];
+    expect(spec?.args).toContain('--chrome');
+    expect(flag(spec?.args ?? [], '--allowedTools')?.split(',')).toEqual(expect.arrayContaining(FILL_ASSIST_TOOLS));
+    expect(spec?.args[1]).toContain(FILL_ASSIST_LINE);
+    // assist is for fill, with a role.
+    expect(await e.runOp('runs.start', { skill: 'tailor', role_id, assist: true }, ctxAt('human'))).toMatchObject({
+      code: 'invalid_input',
+    });
+    expect(await e.runOp('runs.start', { skill: 'fill', assist: true }, ctxAt('human'))).toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('runs.start { skill: fill } without assist stays read-only (fake launcher)', async () => {
+    e = openFixtureEngine();
+    okOut(await e.runOp('runs.start', { skill: 'fill', role_id: 'linear_product-lead-insights' }, ctxAt('human')));
+    const spec = e.launcher.specs[0];
+    for (const t of FILL_ASSIST_TOOLS) {
+      expect(flag(spec?.args ?? [], '--allowedTools')?.split(',')).not.toContain(t);
+      expect(flag(spec?.args ?? [], '--disallowedTools')?.split(',')).toContain(t);
+    }
+    expect(spec?.args[1]).not.toContain(FILL_ASSIST_LINE);
   });
 
   it('refuses outreach_id on another skill, an unknown outreach, a mismatched role, or a draft already in Gmail', async () => {

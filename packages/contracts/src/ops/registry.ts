@@ -44,6 +44,7 @@ import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
 import { ApplicationDefaults, FILL_KINDS } from '../profile-data.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
+import { RENDER_DOCS, RENDER_FORMATS } from '../vault.js';
 import { Ack, defineOp, Page } from './define.js';
 
 /*
@@ -1058,6 +1059,73 @@ export const applySkipConnect = defineOp({
   owner: 'B',
 });
 
+/**
+ * Added (#106): render the tailored resume and cover letter (markdown) to PDF and DOCX with a clean,
+ * ATS-friendly template (pure JS). Files go to the vault at `files/<role_id>/<doc>.<format>` and are recorded
+ * on the application (`package_paths_json.resume_pdf`, ...); the UI downloads them through `GET /api/files`,
+ * the fill assist uploads the PDFs (`abs_path`). Rendering again overwrites (the files follow the markdown).
+ */
+export const applyRenderDocuments = defineOp({
+  name: 'apply.render_documents',
+  description:
+    'Render the tailored resume and cover letter to PDF and DOCX (files/<role_id>/), record them on the application, and return their paths for download or upload.',
+  input: z.object({
+    role_id: Id,
+    formats: z.array(z.enum(RENDER_FORMATS)).min(1).default(['pdf', 'docx']),
+    docs: z.array(z.enum(RENDER_DOCS)).min(1).default(['resume', 'cover_letter']),
+  }),
+  output: z.object({
+    application: Application,
+    files: z.array(
+      z.object({
+        doc: z.enum(RENDER_DOCS),
+        format: z.enum(RENDER_FORMATS),
+        /** Vault-relative (download route). */
+        path: VaultPath,
+        /** Absolute path on this machine (the fill assist uploads it with Claude in Chrome). */
+        abs_path: z.string(),
+        bytes: z.number().int().min(1),
+      }),
+    ),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added (#106): a control label a fill assist must never act on (the whole label: "Submit", "Apply now",
+ * "Send application"; a question that merely mentions applying is not one). The fill run has no click tool;
+ * `apply.fill_done` refuses a report that says it filled one of these.
+ */
+export const SUBMIT_LIKE =
+  /^\s*(?:review and submit|submit|apply|send|finish|complete)(?:\s+(?:now|application|my application|for this (?:job|role|position)))?\s*[.!>»→]*\s*$/i;
+export const isSubmitLike = (label: string): boolean => SUBMIT_LIKE.test(label);
+
+/**
+ * Added (#106): a fill assist run reports what it did in the portal (uploaded the rendered PDFs, filled the
+ * answer fields from Answers, stopped before Submit). Recorded as `application.fill_assist_json`; the Role
+ * screen's primary becomes Open portal. A `filled` label that looks like submit / apply / send is refused
+ * (`invalid_input`): the human submits.
+ */
+export const applyFillDone = defineOp({
+  name: 'apply.fill_done',
+  description:
+    'Record a fill assist: the portal is open with the documents uploaded and the answer fields filled, stopped before Submit (the human submits).',
+  input: z.object({
+    role_id: Id,
+    /** Labels of the fields filled (never a submit / apply / send control). */
+    filled: z.array(z.string().trim().min(1)).default([]),
+    uploaded: z.array(z.enum(RENDER_DOCS)).default([]),
+    /** Fields left for the human, each with a one-line reason. */
+    skipped: z.array(z.object({ label: z.string().trim().min(1), reason: z.string().trim().min(1) })).default([]),
+  }),
+  output: z.object({ application: Application }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
 // ------------------------------------------------------------------ people (H)
 
 /**
@@ -1679,6 +1747,13 @@ export const runsStart = defineOp({
      * panel delegates). Ignored for a human or schedule (always queued). Kept as `summary_json.actor: "ask"`.
      */
     queue: z.boolean().optional(),
+    /**
+     * Added (#106): `fill` only. The fill assist: after the answers, the run uploads the rendered resume and cover
+     * letter PDFs and fills the answer fields in the portal tab (Claude in Chrome `file_upload` + `form_input`),
+     * stops before Submit and reports with `apply.fill_done`. Without it a fill run only reads the portal. Kept as
+     * `summary_json.assist`.
+     */
+    assist: z.boolean().optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
@@ -1863,6 +1938,8 @@ export const OPS = {
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
   'apply.skip_connect': applySkipConnect,
+  'apply.render_documents': applyRenderDocuments,
+  'apply.fill_done': applyFillDone,
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,

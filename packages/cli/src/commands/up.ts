@@ -11,6 +11,7 @@ import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp
  *   POST /api/ops/:name   runOp(name, <JSON body = op input>, { actor: 'human' }) -> OpOutcome JSON
  *   GET  /api/ops         op list
  *   GET  /api/health
+ *   GET  /api/files?path= a rendered PDF / DOCX (#106) as a download, only files an application references
  *   POST /api/ask         Ask (#39): one agent turn (config.runner + pp MCP), streamed as SSE AskChatEvents;
  *                         threads kept in the vault's ask_thread table (#69), so `thread_id` survives a restart
  *   POST /mcp             MCP Streamable HTTP (actor agent), same engine
@@ -193,6 +194,23 @@ export function up(opts: UpOptions): Promise<Running> {
         if (url.pathname === m.prefix || url.pathname.startsWith(`${m.prefix}/`)) return void (await m.handle(req, res));
 
       if (url.pathname === '/api/health') return json(res, 200, { ok: true, home: engine.home });
+      if (url.pathname === '/api/files') {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          res.setHeader('allow', 'GET');
+          return fail(res, 405, 'method_not_allowed', 'GET /api/files');
+        }
+        // Read-only (#106): a rendered document the db references, nothing else in the vault.
+        const file = ops.downloadableFile(engine.db, engine.home, url.searchParams.get('path') ?? '');
+        if (!file) return fail(res, 404, 'not_found', 'no rendered document at that path');
+        res.writeHead(200, {
+          'content-type': file.contentType,
+          'content-length': String(file.bytes),
+          'content-disposition': `attachment; filename="${file.name.replace(/[^\w.-]/g, '_')}"`,
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        });
+        return void res.end(req.method === 'HEAD' ? undefined : readFileSync(file.abs));
+      }
       if (url.pathname === '/api/ask') {
         if (req.method !== 'POST') {
           res.setHeader('allow', 'POST');

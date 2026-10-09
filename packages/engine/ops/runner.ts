@@ -120,6 +120,8 @@ export interface PromptContext {
   linkedin?: PolicyConfig['linkedin'] & { budget_left: number };
   /** `fill` (#81): the vault path of questions the user pasted (`apply.set_questions`); answer those, no portal read. */
   questions?: string;
+  /** `fill` (#106): the fill assist (Open and fill): upload the PDFs and fill the answer fields, stop before Submit. */
+  assist?: boolean;
   /** `voice` (#76): whether LinkedIn posts may be read (config.linkedin.mode is `live`) and the page cap. */
   voice?: { linkedin: boolean; max_pages: number };
 }
@@ -190,9 +192,10 @@ export const CHROME_READ_TOOLS = ['tabs_context_mcp', 'tabs_create_mcp', 'naviga
   (t) => `${CHROME_PREFIX}${t}`,
 );
 /**
- * Claude in Chrome tools that act on a page (or batch actions), always denied to every run that could load
- * them: `computer` clicks and types (its screenshot action rides on it, so it goes too). With no safe click
- * tool, a fill run reaches other tabs and steps by navigating to their URLs (#81).
+ * Claude in Chrome tools that act on a page (or batch actions), denied to every run that could load them:
+ * `computer` clicks and types (its screenshot action rides on it, so it goes too). With no safe click
+ * tool, a fill run reaches other tabs and steps by navigating to their URLs (#81). The one exception is a
+ * fill run with assist (#106): `FILL_ASSIST_TOOLS` only.
  */
 export const CHROME_WRITE_TOOLS = [
   'computer',
@@ -204,6 +207,13 @@ export const CHROME_WRITE_TOOLS = [
   'shortcuts_execute',
   'gif_creator',
 ].map((t) => `${CHROME_PREFIX}${t}`);
+/**
+ * The fill assist (#106, `runs.start { skill: 'fill', assist: true }`): set a field's value (`form_input`) and
+ * upload the rendered PDFs (`file_upload`). Neither clicks, presses a key or runs script, so neither can press
+ * Submit; `computer`, `javascript_tool`, `browser_batch` and `shortcuts_execute` stay denied, and
+ * `apply.fill_done` refuses a report that filled a submit-like control. Granted to `fill` only.
+ */
+export const FILL_ASSIST_TOOLS = ['form_input', 'file_upload'].map((t) => `${CHROME_PREFIX}${t}`);
 /** Built-in tools a Chrome run denies outright (`connect`'s built-ins are not narrowed with `--tools`). */
 export const BUILTIN_WRITE_TOOLS = ['Bash', 'Write', 'Edit', 'NotebookEdit'] as const;
 
@@ -225,8 +235,8 @@ export const SKILL_TOOLS: Readonly<
   fill: {
     web: ['WebFetch'],
     gmail: [],
-    chrome: CHROME_READ_TOOLS,
-    why: 'reads the real portal questions on every tab and step via Claude in Chrome (--chrome, read + navigate tools only, #81); WebFetch for a plain posting page',
+    chrome: [...CHROME_READ_TOOLS, ...FILL_ASSIST_TOOLS],
+    why: 'reads the real portal questions on every tab and step via Claude in Chrome (--chrome, read + navigate tools, #81); with assist (#106) uploads the rendered PDFs and fills answer fields (form_input, file_upload; no click, key or script), stops before Submit; WebFetch for a plain posting page',
   },
   inbox: { web: [], gmail: GMAIL_READ_TOOLS, why: 'Gmail search + read (read-only) to classify replies, plus ops' },
   learn: { web: [], gmail: [], why: 'ops only' },
@@ -251,11 +261,18 @@ export const SKILL_TOOLS: Readonly<
 
 /**
  * Claude Code tool names a skill's headless run pre-approves. For `connect` and `voice`, `linkedin: false`
- * (config.linkedin.mode is not `live`) drops the Chrome tools.
+ * (config.linkedin.mode is not `live`) drops the Chrome tools. For `fill`, `assist: false` (a run without the
+ * fill assist, #106) drops `FILL_ASSIST_TOOLS`: it only reads the portal. Default: the skill's full list.
  */
-export function skillAllowedTools(skill: Skill, opts: { linkedin?: boolean } = {}): string[] {
+export function skillAllowedTools(skill: Skill, opts: { linkedin?: boolean; assist?: boolean } = {}): string[] {
   const t = SKILL_TOOLS[skill];
-  return [`mcp__${MCP_SERVER_NAME}`, ...t.web, ...t.gmail, ...(usesChrome(skill, opts.linkedin !== false) ? (t.chrome ?? []) : [])];
+  const chrome = usesChrome(skill, opts.linkedin !== false) ? (t.chrome ?? []) : [];
+  return [
+    `mcp__${MCP_SERVER_NAME}`,
+    ...t.web,
+    ...t.gmail,
+    ...(opts.assist === false ? chrome.filter((x) => !FILL_ASSIST_TOOLS.includes(x)) : chrome),
+  ];
 }
 
 /** Skills whose Chrome use is reading LinkedIn: on only when config.linkedin.mode is `live` (#82, #76). */
@@ -265,9 +282,13 @@ export const LINKEDIN_SKILLS: readonly Skill[] = ['connect', 'voice'];
 export const usesChrome = (skill: Skill, linkedin = true): boolean =>
   (!LINKEDIN_SKILLS.includes(skill) || linkedin) && (SKILL_TOOLS[skill].chrome?.length ?? 0) > 0;
 
-/** Everything a Chrome skill's run denies: Gmail writes it is not granted, every acting Chrome tool, built-in writes. */
-export function chromeDeniedTools(skill: Skill): string[] {
-  return [...gmailDeniedTools(skill), ...CHROME_WRITE_TOOLS, ...BUILTIN_WRITE_TOOLS];
+/**
+ * Everything a Chrome skill's run denies: Gmail writes it is not granted, every acting Chrome tool (but the
+ * fill assist's `form_input` + `file_upload` on a fill run with `assist`, #106), built-in writes.
+ */
+export function chromeDeniedTools(skill: Skill, opts: { assist?: boolean } = {}): string[] {
+  const granted = new Set(skillAllowedTools(skill, { assist: opts.assist === true }));
+  return [...gmailDeniedTools(skill), ...CHROME_WRITE_TOOLS.filter((t) => !granted.has(t)), ...BUILTIN_WRITE_TOOLS];
 }
 
 /** Everything a `connect` run denies: Gmail writes but create_draft, every acting Chrome tool, built-in writes. */
@@ -304,7 +325,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
   const skill = existsSync(file) ? readFileSync(file, 'utf8').trim() : `# ${c.skill}\n\n(SKILL.md not found at ${file})`;
   const ids = [`run_id: ${c.runId}`, ...(c.roleId ? [`role_id: ${c.roleId}`] : []), ...(c.contactId ? [`contact_id: ${c.contactId}`] : [])];
   const live = c.voice ? c.voice.linkedin : c.linkedin ? c.linkedin.mode === 'live' : true;
-  const extra = skillAllowedTools(c.skill, { linkedin: live }).slice(1);
+  const extra = skillAllowedTools(c.skill, { linkedin: live, assist: c.assist === true }).slice(1);
   const assets = (SKILL_ASSETS[c.skill] ?? []).map((name) => {
     const abs = join(skillsDir, c.skill, name);
     return `## ${name} (skill file, ${abs})\n\n${readAsset(abs)}`;
@@ -319,7 +340,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     `Tools: the ${MCP_SERVER_NAME} MCP tools${extra.length ? ` and ${extra.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
-    ...(c.skill === 'fill' ? ['', fillLine(c.questions)] : []),
+    ...(c.skill === 'fill' ? ['', fillLine(c.questions, c.assist === true)] : []),
     ...(c.voice ? ['', voiceLine(c.voice)] : []),
     '',
     skill,
@@ -334,12 +355,20 @@ export function linkedinLine(l: NonNullable<PromptContext['linkedin']>): string 
   return `LinkedIn (read-only via Claude in Chrome): at most ${l.max_pages_per_run} pages this run, ${l.budget_left} profiles left today (of ${l.max_profiles_per_day}), at most ${l.max_mutual_expansions} mutual lists, wait ${l.min_delay_s} to ${l.min_delay_s * 2} s before every page. Never message, connect, follow, like or click a button.`;
 }
 
-/** The portal line of a `fill` prompt (#81): pasted questions on file, or read the portal read-only. */
-export function fillLine(questions?: string): string {
-  if (questions)
-    return `Questions: the user pasted this portal's questions (vault.read { path: "${questions}" }). Answer exactly those; do not read the portal for questions.`;
-  return 'Portal (read-only via Claude in Chrome): open the apply page in a new tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type, fill a field, upload or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.';
+/**
+ * The portal line of a `fill` prompt (#81): pasted questions on file, or read the portal read-only. With the
+ * fill assist (#106) a second line: upload the rendered PDFs and fill the answer fields, stop before Submit.
+ */
+export function fillLine(questions?: string, assist = false): string {
+  const read = questions
+    ? `Questions: the user pasted this portal's questions (vault.read { path: "${questions}" }). Answer exactly those; do not read the portal for questions.`
+    : `Portal (${assist ? 'read first' : 'read-only'} via Claude in Chrome): open the apply page in a new tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type${assist ? '' : ', fill a field, upload'} or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.`;
+  return assist ? `${read}\n${FILL_ASSIST_LINE}` : read;
 }
+
+/** The fill assist line (#106): the user clicked Open and fill and is watching. */
+export const FILL_ASSIST_LINE =
+  'Fill assist (the user clicked Open and fill): after apply.fill, call apply.render_documents { role_id, formats: ["pdf"] }; in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload using each file\'s abs_path, and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
 
 /** The sources line of a `voice` prompt (#76): Gmail sent mail read-only, LinkedIn posts only when live, caps. */
 export function voiceLine(v: NonNullable<PromptContext['voice']>): string {
@@ -470,6 +499,8 @@ export function buildRunnerSpec(opts: {
    * `runs.start` passes `config.linkedin.mode === 'live'`.
    */
   linkedin?: boolean;
+  /** `fill` (#106): the fill assist; only then are `form_input` + `file_upload` allowed. Default false (read-only). */
+  assist?: boolean;
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
@@ -514,13 +545,14 @@ export function buildRunnerSpec(opts: {
                     // so the Chrome integration loads); built-ins narrowed to the skill's web tools; the Chrome read +
                     // navigate tools pre-approved; every acting Chrome tool (form_input, computer, javascript_tool,
                     // file_upload, ...), every Gmail write and built-in writes denied; dontAsk denies anything else.
+                    // #106: a fill run with assist also gets form_input + file_upload (never computer, script or keys).
                     [
                       '--tools',
                       SKILL_TOOLS[opts.skill].web.join(','),
                       '--allowedTools',
-                      skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
+                      skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false, assist: opts.assist === true }).join(','),
                       '--disallowedTools',
-                      chromeDeniedTools(opts.skill).join(','),
+                      chromeDeniedTools(opts.skill, { assist: opts.assist === true }).join(','),
                       '--permission-mode',
                       'dontAsk',
                     ]

@@ -1,4 +1,4 @@
-import type { Skill } from '@perfect-placement/contracts';
+import type { RenderDoc, RenderFormat, Skill } from '@perfect-placement/contracts';
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
@@ -29,13 +29,14 @@ type Tab = (typeof TABS)[number][0];
 const TAB_STAGE: Record<Tab, number> = { dossier: 0, resume: 1, cover_letter: 1, fit_map: 1, answers: 3 };
 
 export function RoleScreen({ roleId }: { roleId: string }) {
-  const { now, config, showToast, watchRun, activeRun, runs } = useApp();
+  const { now, config, showToast, watchRun, activeRun, runs, client } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
   const drafts = useOp('outreach.list', { role_id: roleId });
   const [tabId, setTab] = useState<Tab>('dossier');
   const [pasted, setPasted] = useState('');
+  const [rendering, setRendering] = useState<RenderFormat | null>(null);
   const t = now();
 
   const data = res.data;
@@ -57,8 +58,8 @@ export function RoleScreen({ roleId }: { roleId: string }) {
       ? activeRun({ skill: s, role_id: role.id, ...(s === 'research' ? { company_id: role.company_id } : {}) })
       : undefined;
   const inFlight = runOf(skill);
-  const start = async (s: Skill) => {
-    const o = await act('runs.start', { skill: s, role_id: role.id });
+  const start = async (s: Skill, assist = false) => {
+    const o = await act('runs.start', { skill: s, role_id: role.id, ...(assist ? { assist: true } : {}) });
     if (o.status !== 'ok') return;
     watchRun(o.output.run);
     if (s === 'connect') go({ screen: 'people', roleId: role.id });
@@ -114,6 +115,15 @@ export function RoleScreen({ roleId }: { roleId: string }) {
 
   // An inbox role is unscored (#31): scoring comes first. Its run, or an all-inbox score run, shows "Scoring".
   const scoring = role.status === 'inbox' ? scoreRunFor(runs, role.id) : undefined;
+  // #106: Fill (and Submit until it ran) is Open and fill: the fill run with assist uploads the PDFs and fills the
+  // answer fields in the portal, stopped before Submit. After apply.fill_done the primary is Open portal.
+  const fillRun = runOf('fill');
+  const openAndFill = {
+    label: fillRun ? activeLabel(fillRun) : 'Open and fill',
+    op: 'runs.start' as const,
+    disabled: !!fillRun,
+    onClick: () => start('fill', true),
+  };
   const primary =
     role.status === 'inbox'
       ? {
@@ -125,24 +135,26 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             if (o.status === 'ok') watchRun(o.output.run);
           },
         }
-      : stage === 4
-        ? {
-            label: 'Open portal',
-            op: null,
-            onClick: () => {
-              const url = app?.portal_url ?? role.url;
-              if (url) window.open(url, '_blank', 'noopener');
-              showToast('Portal opened · you submit');
-            },
-          }
-        : skill
+      : stage === 3 || (stage === 4 && !app?.fill_assist_json)
+        ? openAndFill
+        : stage === 4
           ? {
-              label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
-              op: 'runs.start' as const,
-              disabled: !!inFlight,
-              onClick: () => start(skill),
+              label: 'Open portal',
+              op: null,
+              onClick: () => {
+                const url = app?.portal_url ?? role.url;
+                if (url) window.open(url, '_blank', 'noopener');
+                showToast('Portal opened · you submit');
+              },
             }
-          : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
+          : skill
+            ? {
+                label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
+                op: 'runs.start' as const,
+                disabled: !!inFlight,
+                onClick: () => start(skill),
+              }
+            : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
 
   const tabs = (m: boolean) => (
     <div
@@ -204,7 +216,6 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const empty = !paths[tabId] || doc.data?.markdown === null;
   // #81: the paste fallback. Questions a fill run cannot read (other tabs, steps, a login) are pasted here; one op
   // saves them and queues a fill run that answers them.
-  const fillRun = runOf('fill');
   const addQuestions = async () => {
     const o = await act('apply.set_questions', { role_id: role.id, questions_text: pasted });
     if (o.status !== 'ok') return;
@@ -247,8 +258,44 @@ export function RoleScreen({ roleId }: { roleId: string }) {
         </div>
       </div>
     );
+  // #106: Download the tailored resume or cover letter: one op renders the file from the markdown, then the
+  // read-only route (GET /api/files) serves it.
+  const download = async (docKind: RenderDoc, format: RenderFormat) => {
+    setRendering(format);
+    const o = await act('apply.render_documents', { role_id: role.id, formats: [format], docs: [docKind] });
+    setRendering(null);
+    const path = o.status === 'ok' ? o.output.files[0]?.path : undefined;
+    const href = path && client.fileUrl?.(path);
+    if (!href) return;
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = path.split('/').pop() ?? '';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const downloads = (m: boolean) =>
+    (tabId === 'resume' || tabId === 'cover_letter') &&
+    md && (
+      <div className="downloads" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: m ? 6 : 10 }}>
+        <span style={eyebrow(C.muted, m ? 9.5 : 10)}>Download</span>
+        {(['pdf', 'docx'] as const).map((f) => (
+          <SecondaryButton
+            key={f}
+            op="apply.render_documents"
+            height={m ? 28 : 30}
+            label={f.toUpperCase()}
+            disabled={rendering !== null}
+            onClick={() => void download(tabId, f)}
+            style={{ fontSize: m ? 12 : 13 }}
+          />
+        ))}
+      </div>
+    );
   const body = (m: boolean) => (
     <>
+      {downloads(m)}
       {questionsBox(m)}
       {empty && slot(TAB_STAGE[tabId], m)}
       {md && tabId !== 'answers' ? <Markdown source={md} compact={m} /> : <Doc lines={md ? answerLines(md) : DOC_SKELETON} compact={m} />}
