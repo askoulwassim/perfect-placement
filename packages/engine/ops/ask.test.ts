@@ -181,6 +181,29 @@ describe('Ask threads in the vault (#69)', () => {
     engine = null;
   });
 
+  it('a finished turn keeps how long it took (#100)', async () => {
+    engine = openFixtureEngine();
+    let t = Date.parse('2026-10-08T12:00:00.000Z');
+    const clock = () => {
+      t += 1000;
+      return new Date(t);
+    };
+    const threads = new AskThreads({ store: dbAskThreadStore(engine.db), now: clock });
+    const ev = await collect(
+      runAsk(
+        { message: 'Score my inbox roles' },
+        deps(
+          fakeAskLauncher(() => claudeScoreTranscript()),
+          undefined,
+          threads,
+        ),
+      ),
+    );
+    const id = (ev[0] as { thread_id: string }).thread_id;
+    const row = engine.db.prepare('SELECT turns_json FROM ask_thread WHERE id = ?').get(id) as { turns_json: string };
+    expect(JSON.parse(row.turns_json)[0].ms).toBe(1000);
+  });
+
   it('a restart resumes a thread by id (Claude session, Codex replay), caps its turns and prunes idle ones', async () => {
     engine = openFixtureEngine();
     const db = engine.db;
@@ -195,7 +218,7 @@ describe('Ask threads in the vault (#69)', () => {
     const row = db.prepare('SELECT * FROM ask_thread WHERE id = ?').get(id) as Record<string, string>;
     expect(row.runner).toBe('claude');
     expect(row.session_id).toBe('sess-0001');
-    expect(JSON.parse(row.turns_json)).toEqual([{ user: 'Score my inbox roles', reply: expect.stringContaining('root = Reply') }]);
+    expect(JSON.parse(row.turns_json)).toEqual([{ user: 'Score my inbox roles', reply: expect.stringContaining('root = Reply'), ms: 0 }]);
 
     // `pp up` restarted: new memory, same vault.
     const again = await collect(

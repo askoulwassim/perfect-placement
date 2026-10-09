@@ -10,6 +10,7 @@ import type {
   RunOp,
 } from '@perfect-placement/contracts';
 import { backendsFromConfig, createDecisionOps, type DecisionStore } from '@perfect-placement/resolver';
+import type { Db } from '../../db/connection.js';
 import { doctor } from '../../db/doctor.js';
 import { createDecisionStore } from '../decision-store.js';
 import { OpError } from '../errors.js';
@@ -140,6 +141,49 @@ const MODE = { rule: 'local', kev: 'local', agent: 'session', jev: 'hosted', llm
 /** Above this a reachable backend reads as slow on the Settings card. */
 const SLOW_MS = 1500;
 
+/** How many recent agent samples the agent card's median covers (#100). */
+export const AGENT_LATENCY_SAMPLES = 20;
+
+const median = (xs: number[]): number | null => {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return Math.round(s.length % 2 ? (s[mid] as number) : ((s[mid - 1] as number) + (s[mid] as number)) / 2);
+};
+
+/**
+ * The agent session is not a network service, so its health has no latency (#100). Its card shows the
+ * median of the last AGENT_LATENCY_SAMPLES measured agent durations: Ask turns (`ask_thread.turns_json[].ms`)
+ * and agent-answered decisions with a measured `latency_ms`. 0 means not measured and is skipped; none: null.
+ */
+export function agentLatencyMs(db: Db, n = AGENT_LATENCY_SAMPLES): number | null {
+  const decisions = db
+    .prepare(
+      `SELECT ts AS at, latency_ms AS ms FROM decision WHERE backend = 'agent' AND latency_ms > 0 ORDER BY ts DESC, rowid DESC LIMIT ?`,
+    )
+    .all(n) as Array<{ at: string; ms: number }>;
+  const turns: Array<{ at: string; ms: number }> = [];
+  const threads = db.prepare('SELECT updated_at, turns_json FROM ask_thread ORDER BY updated_at DESC LIMIT ?').all(n) as Array<{
+    updated_at: string;
+    turns_json: string;
+  }>;
+  for (const t of threads) {
+    let list: unknown;
+    try {
+      list = JSON.parse(t.turns_json);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    for (const x of [...list].reverse()) {
+      const ms = (x as { ms?: unknown })?.ms;
+      if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) turns.push({ at: t.updated_at, ms });
+    }
+  }
+  const recent = [...decisions, ...turns].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, n);
+  return median(recent.map((r) => r.ms));
+}
+
 /** Kev's install marker in PP_HOME (written by `pp kev install`). */
 export const kevInstalledAt = (home: string) => existsSync(join(home, 'kev', 'installed.json'));
 
@@ -147,7 +191,7 @@ export const kevInstalledAt = (home: string) => existsSync(join(home, 'kev', 'in
  * Backend cards for Settings: rule, Kev and the agent session always; Jev and the API adapter only when enabled.
  * Kev that does not answer reads `not_installed` when PP_HOME has no Kev install (with `home`), else `down`.
  */
-export async function backendStatus(config: PolicyConfig, services: EngineServices, home?: string) {
+export async function backendStatus(config: PolicyConfig, services: EngineServices, home?: string, db?: Db) {
   const map = {
     ...backendsFromConfig(config, { ...(services.env ? { env: services.env } : {}), agent: {} }),
     ...(services.backends ?? {}),
@@ -162,9 +206,12 @@ export async function backendStatus(config: PolicyConfig, services: EngineServic
       } catch {
         health = { ok: false };
       }
-      const latencyMs = health.latencyMs ?? null;
+      // The agent session's health latency is meaningless (always 0): use measured agent durations (#100).
+      const latencyMs = name === 'agent' ? (db ? agentLatencyMs(db) : null) : (health.latencyMs ?? null);
       const installed = name !== 'kev' || home === undefined || (services.kevInstalled ?? kevInstalledAt)(home);
-      const status = !health.ok ? (installed ? 'down' : 'not_installed') : latencyMs !== null && latencyMs > SLOW_MS ? 'slow' : 'ok';
+      // A session turn is model think time, not a round trip: the agent never reads as slow.
+      const slow = name !== 'agent' && latencyMs !== null && latencyMs > SLOW_MS;
+      const status = !health.ok ? (installed ? 'down' : 'not_installed') : slow ? 'slow' : 'ok';
       return { name, mode: MODE[name], status, latencyMs } as const;
     }),
   );
@@ -172,7 +219,7 @@ export async function backendStatus(config: PolicyConfig, services: EngineServic
 
 export const systemBackends = defineHandler('system.backends', {
   async run(_input, h) {
-    return { items: await backendStatus(h.config, h.services, h.home) };
+    return { items: await backendStatus(h.config, h.services, h.home, h.db) };
   },
 });
 

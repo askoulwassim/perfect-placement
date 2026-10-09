@@ -596,9 +596,15 @@ export function BackendCard({
       {missing ? (
         <div style={{ ...mono(12, C.muted), letterSpacing: '.06em' }}>Not installed</div>
       ) : (
-        <div style={{ ...display(30, 800, 'normal'), ...tab }}>
-          {latencyMs ?? '—'}
-          <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
+        <div className="latency" style={{ ...display(30, 800, 'normal'), ...tab }}>
+          {latencyMs === null ? (
+            <span style={{ ...mono(14, C.muted), fontWeight: 400 }}>n/a</span>
+          ) : (
+            <>
+              {latencyMs}
+              <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>{mode === 'session' ? 'ms p50' : 'ms'}</span>
+            </>
+          )}
         </div>
       )}
     </div>

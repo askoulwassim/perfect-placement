@@ -858,3 +858,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: the Auto stream on Now showed one line per criterion, about nine per scored role (#103).
 - Shim: none for callers (`recent_auto` and `decisions.undo` unchanged; `auto_groups` and the op are additive).
 - Status: accepted
+
+## Agent session latency
+
+### `system.backends` agent `latencyMs` is a measured median or null; `AskThreadTurn.ms` (#100)
+- Lane: r3/10-agent-latency (I, D, cli Ask)
+- Date: 2026-10-09
+- Contract: `systemBackends.output.items[].latencyMs` stays `number | null` (already nullable; now documented as null when unknown). `AskThreadTurn` gains optional `ms` (int, >= 0): how long the Ask turn took, launch to done. No migration (`ask_thread.turns_json` is JSON; older turns have no `ms`). Not contracts: engine `agentLatencyMs(db, n)`, `AGENT_LATENCY_SAMPLES` (20), `backendStatus(config, services, home?, db?)`, `AskThreads.time()`; web `BackendCard` shows `n/a` for null and `ms p50` on the session card.
+- Change: the agent item no longer reports the agent backend's constant `health().latencyMs: 0`. Its `latencyMs` is the median of the last 20 measured agent durations: Ask turns (`turns_json[].ms`, newest threads first) and agent-answered decisions with `latency_ms > 0` (0 means not measured and is skipped), merged by recency; none: `null`. The agent never reads `slow` (a session turn is model think time, not a round trip). Rule keeps its honest in-process 0; Kev and Jev keep their measured health round trip; the API adapter reports none (null).
+- Why: Settings always showed the agent session at 0 ms (#100).
+- Shim: none for callers (the field was already nullable; `ms` is optional).
+- Status: accepted

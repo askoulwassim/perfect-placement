@@ -392,8 +392,8 @@ export const ASK_THREAD_MAX_TURNS = 20;
 /** Ask threads not updated for this many days are pruned (#69). */
 export const ASK_THREAD_TTL_DAYS = 30;
 
-/** One finished Ask turn: the user's message and the reply text. */
-export const AskThreadTurn = z.object({ user: z.string(), reply: z.string() });
+/** One finished Ask turn: the user's message, the reply text and (#100) how long it took in ms. */
+export const AskThreadTurn = z.object({ user: z.string(), reply: z.string(), ms: z.number().int().nonnegative().optional() });
 export type AskThreadTurn = z.infer<typeof AskThreadTurn>;
 
 /**

@@ -85,6 +85,8 @@ export function askAgentPrompt(): string {
 export interface AskTurn {
   user: string;
   reply: string;
+  /** How long the turn took, launch to done (#100): the agent card's latency. */
+  ms?: number;
 }
 
 /** Turns replayed into a Codex / Cursor prompt (the newest ones, each capped). */
@@ -544,6 +546,11 @@ export class AskThreads {
   private readonly store: AskThreadStore | undefined;
   private readonly now: () => Date;
 
+  /** The threads' clock (turn timing uses it too, so tests stay deterministic). */
+  time(): number {
+    return this.now().getTime();
+  }
+
   constructor(opts: { max?: number; store?: AskThreadStore; now?: () => Date } = {}) {
     this.max = opts.max ?? 50;
     this.store = opts.store;
@@ -649,6 +656,7 @@ export async function* runAsk(raw: unknown, deps: AskDeps): AsyncGenerator<AskCh
     yield { type: 'thread', thread_id: thread.id, runner: runner.command };
     const message = askMessage(req.message, req.context);
     const spec = buildAskSpec({ runner, message, home: deps.home, mcp: deps.mcp, sessionId: thread.sessionId, turns: thread.turns });
+    const started = deps.threads.time();
     let proc: AskProcess;
     try {
       proc = await deps.launcher.start(spec, deps.signal);
@@ -667,7 +675,12 @@ export async function* runAsk(raw: unknown, deps: AskDeps): AsyncGenerator<AskCh
     const exit = await proc.exit;
     if (deps.signal?.aborted) return;
     const last = parser.end(exit.code, exit.stderr);
-    if (last.type === 'done') deps.threads.record(thread, { user: req.message, reply: parser.reply.trim() }, parser.sessionId);
+    if (last.type === 'done')
+      deps.threads.record(
+        thread,
+        { user: req.message, reply: parser.reply.trim(), ms: Math.max(0, deps.threads.time() - started) },
+        parser.sessionId,
+      );
     yield last;
   } finally {
     thread.busy = false;

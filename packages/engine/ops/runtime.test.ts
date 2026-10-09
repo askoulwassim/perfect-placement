@@ -148,8 +148,44 @@ describe('runtime: nesting, backends, policy gate', () => {
     expect(out.items).toEqual([
       { name: 'rule', mode: 'local', status: 'ok', latencyMs: 0 },
       { name: 'kev', mode: 'local', status: 'not_installed', latencyMs: null },
-      { name: 'agent', mode: 'session', status: 'ok', latencyMs: 0 },
+      // The fixture's one agent-answered decision took 140 ms (#100).
+      { name: 'agent', mode: 'session', status: 'ok', latencyMs: 140 },
     ]);
+  });
+
+  it('system.backends: agent latency is the median of recent measured agent work, null when none, never a constant 0 (#100)', async () => {
+    const agent = async () => okOut(await e.runOp('system.backends', {}, ctxAt('human'))).items.find((i) => i.name === 'agent');
+    e.db.prepare(`DELETE FROM decision WHERE backend = 'agent'`).run();
+    expect(await agent()).toEqual({ name: 'agent', mode: 'session', status: 'ok', latencyMs: null });
+
+    // Unmeasured (0 ms) agent decisions and turns do not count.
+    const base = e.db.prepare(`SELECT * FROM decision WHERE backend = 'kev' LIMIT 1`).get() as Record<string, unknown>;
+    const add = (id: string, ts: string, ms: number) =>
+      e.db
+        .prepare(`INSERT INTO decision (id, ts, kind, subject_type, subject_id, question_json, backend, answer_json, p, impact,
+          policy_outcome, status, human_choice, overridden, undo_until, resolved_at, latency_ms, action_json) SELECT @id, @ts, kind, subject_type, subject_id, question_json, 'agent', answer_json, p, impact,
+          policy_outcome, status, human_choice, overridden, undo_until, resolved_at, @ms, action_json FROM decision WHERE id = @src`)
+        .run({ id, ts, ms, src: base.id });
+    add('dc_a0', '2026-10-08T07:00:00.000Z', 0);
+    e.db
+      .prepare(`INSERT INTO ask_thread (id, created_at, updated_at, runner, session_id, turns_json) VALUES (?, ?, ?, 'claude', NULL, ?)`)
+      .run('ask_t0', '2026-10-08T07:00:00.000Z', '2026-10-08T07:00:00.000Z', JSON.stringify([{ user: 'q', reply: 'a' }]));
+    expect((await agent())?.latencyMs).toBeNull();
+
+    add('dc_a1', '2026-10-08T07:01:00.000Z', 300);
+    add('dc_a2', '2026-10-08T07:02:00.000Z', 100);
+    expect((await agent())?.latencyMs).toBe(200);
+    e.db.prepare(`UPDATE ask_thread SET updated_at = ?, turns_json = ? WHERE id = 'ask_t0'`).run(
+      '2026-10-08T07:03:00.000Z',
+      JSON.stringify([
+        { user: 'q', reply: 'a', ms: 9000 },
+        { user: 'q2', reply: 'a2', ms: 4000 },
+      ]),
+    );
+    const out = await agent();
+    expect(out?.latencyMs).toBe(2150);
+    // Seconds-long session turns are think time, not a slow service.
+    expect(out?.status).toBe('ok');
   });
 
   it('system.backends: an installed Kev that does not answer is down (#40)', async () => {
