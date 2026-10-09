@@ -5,7 +5,19 @@ import { probColor } from '../components/theme';
 import { nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, type Person } from './people';
-import { activeLabel, duration, isActive, matches, retryInput, runOutcome, runToast, scoreInput, scoreRunFor } from './runs';
+import {
+  activeLabel,
+  duration,
+  isActive,
+  matches,
+  retryInput,
+  runCounts,
+  runOutcome,
+  runToast,
+  scoreInput,
+  scoreRunFor,
+  triggeredBy,
+} from './runs';
 import { stageOf } from './stage';
 
 describe('stageOf', () => {
@@ -128,6 +140,19 @@ describe('runs (#21)', () => {
     expect(scoreRunFor([all], 'c_d')?.id).toBe('rn_all');
     expect(scoreRunFor([{ ...all, status: 'ok' }, run({})])).toBeUndefined();
     expect(activeLabel(all)).toBe('Scoring');
+  });
+  it('pipeline (#30): research matches by company; the chain is named, not counted', () => {
+    const r = run({ op: 'research', summary_json: { skill: 'research', role_id: 'stripe_a', company_id: 'stripe' } });
+    expect(matches(r, { skill: 'research', role_id: 'stripe_b', company_id: 'stripe' })).toBe(true);
+    expect(matches(r, { skill: 'research', role_id: 'notion_a', company_id: 'notion' })).toBe(false);
+    expect(matches(r, { skill: 'research', role_id: 'stripe_b' })).toBe(false);
+    const chained = run({
+      op: 'score',
+      summary_json: { skill: 'score', triggered_by: 'rn_s', triggered_by_skill: 'scout', triggered: ['rn_r'], scored: 2 },
+    });
+    expect(triggeredBy(chained)).toEqual({ id: 'rn_s', label: 'Scout' });
+    expect(triggeredBy(run({}))).toBeNull();
+    expect(runCounts(chained)).toBe('2 scored');
   });
   it('shows duration', () => {
     expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');

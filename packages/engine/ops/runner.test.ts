@@ -263,7 +263,9 @@ describe('runs.start', () => {
   it('commits the run, then launches the configured runner once', async () => {
     e = openFixtureEngine({ config: { runner: { command: 'codex' } } });
     const run = okOut(await e.runOp('runs.start', { skill: 'tailor', role_id: 'linear_product-lead-insights' }, ctxAt('human'))).run;
-    expect(run.status).toBe('running');
+    // Queued in the transaction, launched by the dispatcher after commit (#30).
+    expect(run.status).toBe('queued');
+    expect(okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human'))).run.status).toBe('running');
     expect(e.launcher.specs).toHaveLength(1);
     expect(e.launcher.specs[0]).toMatchObject({ command: 'codex', runId: run.id });
     expect(e.launcher.specs[0]?.args.at(-1)).toContain('linear_product-lead-insights');

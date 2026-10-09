@@ -164,6 +164,27 @@ describe('ops registry', () => {
     expect(OPS['runs.start'].input.parse({ skill: 'connect', outreach_id: 'or_1' }).outreach_id).toBe('or_1');
     expect(PRIMARY_ACTIONS['outreach-draft']).toEqual([{ label: 'Create Gmail draft', op: 'runs.start' }]);
   });
+
+  it('run queue (#30): runs.dispatch is low impact; runs.start takes triggered_by; the pipeline is on by default', () => {
+    expect(OPS['runs.dispatch']).toMatchObject({ impact: 'low', emits: [] });
+    expect(OPS['runs.start'].input.parse({ skill: 'score', triggered_by: 'rn_1' }).triggered_by).toBe('rn_1');
+    expect(
+      OPS['runs.start'].output.safeParse({
+        run: {
+          id: 'rn_1',
+          op: 'scout',
+          started_at: '2026-10-08T00:00:00.000Z',
+          finished_at: null,
+          status: 'queued',
+          summary_json: {},
+          log_path: null,
+        },
+        deduped: true,
+      }).success,
+    ).toBe(true);
+    expect(DEFAULT_CONFIG.runs.max_concurrent).toBe(2);
+    expect(DEFAULT_CONFIG.pipeline).toEqual({ score_after_scout: true, research_after_score: true });
+  });
 });
 
 describe('policy', () => {

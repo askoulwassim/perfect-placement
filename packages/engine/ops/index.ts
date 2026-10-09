@@ -24,6 +24,16 @@ export { newId, roleIdFor, slugify, ulid } from './ids.js';
 export { backendStatus } from './lanes/decisions.js';
 export { rebalance, scoringStore } from './lanes/scoring.js';
 export { changedKeys, hardHumanHint } from './policy.js';
+export {
+  activeDuplicate,
+  isQueueRun,
+  type PipelineStart,
+  pipelineStarts,
+  queueRuns,
+  type RunScope,
+  sameScope,
+  scopeOf,
+} from './queue.js';
 export { ALL_HANDLERS } from './registry.js';
 export {
   buildRunnerSpec,

@@ -47,7 +47,10 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id));
   const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
   // Connect runs are per person (People shows them); Research, Tailor and Fill are per role.
-  const inFlight = skill && skill !== 'connect' ? activeRun({ skill, role_id: role.id }) : undefined;
+  const inFlight =
+    skill && skill !== 'connect'
+      ? activeRun({ skill, role_id: role.id, ...(skill === 'research' ? { company_id: role.company_id } : {}) })
+      : undefined;
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';

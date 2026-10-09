@@ -198,3 +198,41 @@ describe('pp up: interrupted runs (#21)', () => {
     }
   });
 });
+
+describe('run queue (#30): pp drain and pp up launch queued runs', () => {
+  it('a run queued while nothing dispatched is launched by pp drain once, and by pp up on start', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'pp-drain-'));
+    const home = join(tmp, 'vault');
+    const out: string[] = [];
+    const launcher = fakeLauncher();
+    const services = { fetch: noNetwork, launcher, backends: { kev: fakeBackend('kev', 'down') }, freshnessDelayMs: 0, env: {} };
+    const io: Io = { env: {}, out: (l) => out.push(l), err: (l) => out.push(l), stdin: () => '', services, runnerAlive: () => true };
+    const queue = (id: string, skill: string) => {
+      const e = ops.openEngine({ home, services });
+      const at = new Date().toISOString();
+      e.db
+        .prepare(
+          `INSERT INTO run (id, op, started_at, finished_at, status, summary_json, log_path) VALUES (?, ?, ?, NULL, 'queued', ?, NULL)`,
+        )
+        .run(id, skill, at, JSON.stringify({ skill, actor: 'schedule', runner: 'claude', queued_at: at }));
+      e.close();
+    };
+    try {
+      expect(await runCli(['init', '--home', home], io)).toBe(0);
+      queue('rn_q1', 'inbox');
+      expect(await runCli(['drain', '--home', home], io)).toBe(0);
+      expect(out.at(-1)).toBe('pp drain: 1 launched (rn_q1), 0 queued');
+      expect(launcher.specs.map((s) => s.runId)).toEqual(['rn_q1']);
+      expect(await runCli(['drain', '--home', home], io)).toBe(0);
+      expect(out.at(-1)).toBe('pp drain: 0 launched, 0 queued');
+
+      queue('rn_q2', 'learn');
+      const code = runCli(['up', '--home', home, '--port', '0', '--web', 'none', '--no-kev'], io, async () => {});
+      expect(await code).toBe(0);
+      expect(out).toContain('pp up: launched 1 queued run');
+      expect(launcher.specs.map((s) => s.runId)).toEqual(['rn_q1', 'rn_q2']);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});

@@ -1,6 +1,7 @@
-import { vaultPath } from '@perfect-placement/contracts';
+import { type Run, type Skill, vaultPath } from '@perfect-placement/contracts';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
+import { activeDuplicate, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
 import { get, insert, select, update } from '../rows.js';
 import {
   buildRunnerSpec,
@@ -13,14 +14,16 @@ import {
   type RunnerExit,
   skillPrompt,
 } from '../runner.js';
-import { defineHandler } from '../runtime.js';
+import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { getRole } from './shared.js';
 
 /**
- * runs.start: write the run row and its log, then (after commit, for a human or schedule actor) launch
- * the configured headless runner (`config.runner`) with the skill prompt and the pp MCP server. If the
- * runner cannot start, the run is finished as `error`. An agent actor is already the running session.
+ * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
+ * (unless an active run already has its skill and scope: that run is returned, `deduped`), and after
+ * commit the queue is dispatched (`runs.dispatch`), which launches the configured headless runner
+ * (`config.runner`) when a slot is free. An agent actor is already the running session: its run is
+ * `running` at once and nothing is launched for it.
  */
 export const runsStart = defineHandler('runs.start', {
   run(raw, h) {
@@ -37,8 +40,25 @@ export const runsStart = defineHandler('runs.start', {
       input = { ...raw, role_id: o.role_id, contact_id: o.contact_id };
     }
     const outreachId = input.outreach_id;
-    if (input.role_id) getRole(h.db, input.role_id);
+    const role = input.role_id ? getRole(h.db, input.role_id) : null;
     if (input.contact_id && !get(h.db, 'contact', input.contact_id)) throw notFound('contact', input.contact_id);
+    const parent = input.triggered_by ? get(h.db, 'run', input.triggered_by) : null;
+    if (input.triggered_by && !parent) throw notFound('run', input.triggered_by);
+    // Research writes one dossier per company: its scope is the company.
+    const companyId = input.skill === 'research' && role ? role.company_id : undefined;
+    const agent = h.ctx.actor === 'agent';
+
+    if (!agent) {
+      // A pipeline score run for the whole inbox waits behind a running one (it listed the inbox earlier).
+      const queuedOnly = Boolean(parent) && input.skill === 'score' && !input.role_id;
+      const dup = activeDuplicate(
+        h.db,
+        { skill: input.skill, role_id: input.role_id, contact_id: input.contact_id, outreach_id: outreachId, company_id: companyId },
+        { queuedOnly },
+      );
+      if (dup) return { run: dup, deduped: true };
+    }
+
     const now = h.ctx.now();
     const iso = now.toISOString();
     const id = newId('run', now);
@@ -52,23 +72,27 @@ export const runsStart = defineHandler('runs.start', {
       op: input.skill,
       started_at: iso,
       finished_at: null,
-      status: 'running' as const,
+      status: agent ? ('running' as const) : ('queued' as const),
       summary_json: {
         skill: input.skill,
         ...(input.role_id ? { role_id: input.role_id } : {}),
+        ...(companyId ? { company_id: companyId } : {}),
         ...(input.contact_id ? { contact_id: input.contact_id } : {}),
         ...(outreachId ? { outreach_id: outreachId, step: 'gmail_draft' } : {}),
+        ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         actor: h.ctx.actor,
         runner: h.config.runner.command,
+        ...(agent ? {} : { queued_at: iso }),
       },
       log_path,
     };
     insert(h.db, 'run', run);
+    const by = `${h.ctx.actor}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
     h.vault.write(
       log_path,
       renderMarkdown(
         { id, type: 'run' },
-        `# ${date} ${input.skill}${outreachId ? ' Gmail draft' : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\nStarted ${iso} by ${h.ctx.actor} (runner: ${h.config.runner.command}).`,
+        `# ${date} ${input.skill}${outreachId ? ' Gmail draft' : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).`,
       ),
     );
     h.emit('run_started', 'run', id, {
@@ -76,71 +100,125 @@ export const runsStart = defineHandler('runs.start', {
       role_id: input.role_id ?? null,
       contact_id: input.contact_id ?? null,
       ...(outreachId ? { outreach_id: outreachId } : {}),
+      status: run.status,
+      ...(parent ? { triggered_by: parent.id } : {}),
     });
 
-    // A UI button or a schedule starts a headless agent run. An agent calling runs.start is already
-    // the session doing the work (skills open their own run), so nothing is launched for it.
-    if (!h.ctx.dryRun && h.ctx.actor !== 'agent') {
-      const spec = buildRunnerSpec({
-        runner: h.config.runner,
-        skill: input.skill,
-        runId: id,
-        home: h.home,
-        mcp: defaultMcpServer(h.home),
-        ...(outreachId ? { gmailDraft: true } : {}),
-        prompt:
-          outreachId && input.role_id && input.contact_id
-            ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: input.role_id, contactId: input.contact_id })
-            : skillPrompt(DEFAULT_SKILLS_DIR, {
-                runId: id,
-                skill: input.skill,
-                ...(input.role_id ? { roleId: input.role_id } : {}),
-                ...(input.contact_id ? { contactId: input.contact_id } : {}),
-              }),
-      });
-      const launcher = h.services.launcher ?? createSpawnLauncher();
+    // A UI button or a schedule queues a headless agent run; the dispatcher launches it when a slot is
+    // free. An agent calling runs.start is already the session doing the work, so nothing is queued.
+    if (!h.ctx.dryRun && !agent) {
       const runOp = h.runOp;
-      const ctx = { actor: 'schedule' as const, now: h.ctx.now };
-      const skill = input.skill;
-      /** The runner exited and the run is still open: finish it as error, naming denied tools and the fix. */
-      const failIfOpen = async (r: RunnerExit) => {
-        const got = await runOp('runs.get', { run_id: id }, ctx);
-        if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
-        const denied = spec.command === 'claude' ? deniedTools(r.output) : [];
-        const error = denied.length
-          ? deniedToolsError(skill, denied)
-          : `runner ${spec.command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
-        await runOp(
-          'runs.finish',
-          {
-            run_id: id,
-            status: 'error',
-            summary: { error, ...(denied.length ? { denied_tools: denied } : {}), ...(r.logFile ? { runner_log: r.logFile } : {}) },
-            note: `${error}${r.logFile ? `\n\nRunner output: ${r.logFile}` : ''}`,
-          },
-          ctx,
-        );
-      };
+      const now = h.ctx.now;
       h.afterCommit(async () => {
-        try {
-          const started = await launcher.launch(spec);
-          // Never awaited: the runner outlives this op. If it ends without runs.finish, fail the run loudly.
-          started.exit?.then((r) => failIfOpen(r)).catch(() => {});
-        } catch (e) {
-          await runOp(
-            'runs.finish',
-            { run_id: id, status: 'error', note: `runner ${spec.command} did not start: ${(e as Error).message}` },
-            ctx,
-          );
-        }
+        await runOp('runs.dispatch', {}, { actor: 'schedule', now });
       });
     }
     return { run };
   },
 });
 
+/**
+ * runs.dispatch: the run queue's dispatcher. Inside one transaction (BEGIN IMMEDIATE, so two processes
+ * never claim the same slot) it marks the oldest queued runs `running`, up to `config.runs.max_concurrent`,
+ * skipping a run whose scope already has a running run; after commit it launches their runners.
+ */
+export const runsDispatch = defineHandler('runs.dispatch', {
+  run(_input, h) {
+    const running = queueRuns(h.db, ['running']);
+    const queued = queueRuns(h.db, ['queued']);
+    const launched: Run[] = [];
+    if (h.ctx.dryRun) return { launched: [], queued: queued.length, running: running.length };
+    let free = h.config.runs.max_concurrent - running.length;
+    const iso = h.nowIso();
+    for (const r of queued) {
+      if (free <= 0) break;
+      const scope = scopeOf(r);
+      if ([...running, ...launched].some((x) => sameScope(scopeOf(x), scope))) continue;
+      const patch = {
+        status: 'running' as const,
+        started_at: iso,
+        summary_json: { ...r.summary_json, runner: h.config.runner.command, launched_at: iso },
+      };
+      update(h.db, 'run', r.id, patch);
+      if (r.log_path) h.vault.append(r.log_path, `\nLaunched ${iso} (runner: ${h.config.runner.command}).\n`);
+      launched.push({ ...r, ...patch });
+      free--;
+    }
+    for (const r of launched) launchRun(r, h);
+    return { launched: launched.map((r) => r.id), queued: queued.length - launched.length, running: running.length + launched.length };
+  },
+});
+
+/**
+ * After commit, launch the headless runner for a run `runs.dispatch` just marked `running`. If the
+ * runner cannot start, or exits leaving the run open, the run is finished as `error`.
+ */
+function launchRun(run: Run, h: HandlerContext): void {
+  const s = summaryOf(run);
+  const skill = run.op as Skill;
+  const id = run.id;
+  const outreachId = s.outreach_id;
+  const spec = buildRunnerSpec({
+    runner: h.config.runner,
+    skill,
+    runId: id,
+    home: h.home,
+    mcp: defaultMcpServer(h.home),
+    ...(outreachId ? { gmailDraft: true } : {}),
+    prompt:
+      outreachId && s.role_id && s.contact_id
+        ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
+        : skillPrompt(DEFAULT_SKILLS_DIR, {
+            runId: id,
+            skill,
+            ...(s.role_id ? { roleId: s.role_id } : {}),
+            ...(s.contact_id ? { contactId: s.contact_id } : {}),
+          }),
+  });
+  const launcher = h.services.launcher ?? createSpawnLauncher();
+  const runOp = h.runOp;
+  const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+  /** The runner exited and the run is still open: finish it as error, naming denied tools and the fix. */
+  const failIfOpen = async (r: RunnerExit) => {
+    const got = await runOp('runs.get', { run_id: id }, ctx);
+    if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
+    const denied = spec.command === 'claude' ? deniedTools(r.output) : [];
+    const error = denied.length
+      ? deniedToolsError(skill, denied)
+      : `runner ${spec.command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
+    await runOp(
+      'runs.finish',
+      {
+        run_id: id,
+        status: 'error',
+        summary: { error, ...(denied.length ? { denied_tools: denied } : {}), ...(r.logFile ? { runner_log: r.logFile } : {}) },
+        note: `${error}${r.logFile ? `\n\nRunner output: ${r.logFile}` : ''}`,
+      },
+      ctx,
+    );
+  };
+  h.afterCommit(async () => {
+    try {
+      const started = await launcher.launch(spec);
+      // Never awaited: the runner outlives this op. If it ends without runs.finish, fail the run loudly.
+      started.exit?.then((r) => failIfOpen(r)).catch(() => {});
+    } catch (e) {
+      await runOp(
+        'runs.finish',
+        { run_id: id, status: 'error', note: `runner ${spec.command} did not start: ${(e as Error).message}` },
+        ctx,
+      );
+    }
+  });
+}
+
+/**
+ * runs.finish closes a queued or running run, then applies the pipeline rules (config `pipeline`,
+ * #30): the runs they start are queued with `triggered_by` = this run and listed in its
+ * `summary_json.triggered`. After commit the queue is dispatched (a slot just freed).
+ */
 export const runsFinish = defineHandler('runs.finish', {
-  run(input, h) {
+  async run(input, h) {
     const run = get(h.db, 'run', input.run_id);
     if (!run) throw notFound('run', input.run_id);
     if (run.status !== 'running' && run.status !== 'queued') throw new OpError('conflict', `run ${run.id} is already ${run.status}`);
@@ -150,6 +228,26 @@ export const runsFinish = defineHandler('runs.finish', {
     if (run.log_path)
       h.vault.append(run.log_path, `\n## Finished\n\n${iso}: ${input.status}${input.note ? `\n\n${input.note.trim()}` : ''}\n`);
     h.emit('run_finished', 'run', run.id, { status: input.status, skill: run.op });
+
+    const triggered: string[] = [];
+    if (!h.ctx.dryRun) {
+      const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+      for (const next of pipelineStarts(h.db, h.config, run, input.status)) {
+        const o = await h.runOp('runs.start', { ...next, triggered_by: run.id }, ctx);
+        if (o.status !== 'ok') continue;
+        const out = o.output as { run: Run; deduped?: boolean };
+        if (!out.deduped) triggered.push(out.run.id);
+      }
+      if (triggered.length) {
+        patch.summary_json = { ...patch.summary_json, triggered };
+        update(h.db, 'run', run.id, { summary_json: patch.summary_json });
+        if (run.log_path) h.vault.append(run.log_path, `\nQueued next: ${triggered.join(', ')}\n`);
+      }
+      const runOp = h.runOp;
+      h.afterCommit(async () => {
+        await runOp('runs.dispatch', {}, ctx);
+      });
+    }
     return { run: { ...run, ...patch } };
   },
 });

@@ -439,8 +439,9 @@ describe('run status (#21)', () => {
     expect(primary(container).getAttribute('data-op')).toBe('runs.start');
     expect(rail(container).getAttribute('data-run-state')).toBe('running');
     expect(rail(container).getAttribute('title')).toBe('Scouting');
+    const scout = lastRun();
     const fin = await live?.as('agent', 'runs.finish', {
-      run_id: lastRun(),
+      run_id: scout,
       status: 'ok',
       summary: { queries_run: 4, added: 12, duplicates: 3 },
     });
@@ -449,9 +450,14 @@ describe('run status (#21)', () => {
     expect(toast().getAttribute('data-tone')).toBe('ok');
     await waitFor(() => expect(primary(container).textContent).toBe('Scout now'));
     expect(primary(container).disabled).toBe(false);
-    expect(rail(container).getAttribute('data-run-state')).toBe('idle');
     // One start, no duplicates while it ran.
     expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(1);
+    // The pipeline (#30) scores the inbox next: the rail shows it until it ends.
+    const score = lastRun();
+    expect(score).not.toBe(scout);
+    await waitFor(() => expect(rail(container).getAttribute('title')).toBe('Scoring'));
+    await live?.as('agent', 'runs.finish', { run_id: score, status: 'ok' });
+    await waitFor(() => expect(rail(container).getAttribute('data-run-state')).toBe('idle'));
   });
 
   it('a failed run shows its reason without opening logs; Log opens the run with Retry', async () => {
@@ -547,6 +553,31 @@ describe('run status (#21)', () => {
     await waitFor(() => expect(container.querySelectorAll('.run-list .run-row').length).toBeGreaterThan(1));
     expect($(container, '.run-list .run-row').getAttribute('data-status')).toBe('running');
     assertButtons(container);
+  });
+
+  it('pipeline (#30): a scout chains a score run; Runs shows the chain both ways', async () => {
+    let scout = '';
+    let score = '';
+    const { container } = await boot('#/runs', async (l) => {
+      await quiet(l);
+      const o = await l.as('human', 'runs.start', { skill: 'scout' });
+      scout = (o as { output: { run: { id: string } } }).output.run.id;
+      const fin = await l.as('agent', 'runs.finish', { run_id: scout, status: 'ok', summary: { added: 2 } });
+      score = (fin as { output: { run: { summary_json: { triggered: string[] } } } }).output.run.summary_json.triggered[0] as string;
+    });
+    const row = await waitFor(() => $(container, `.run-list .run-row[data-run-id="${score}"]`));
+    expect(row.getAttribute('data-status')).toBe('running');
+    expect(row.textContent).toContain('after Scout');
+    await go(`#/runs/${scout}`);
+    const then = await waitFor(() => $(container, '.run-chain[data-chain="then"]'));
+    expect(then.getAttribute('data-run-id')).toBe(score);
+    expect(then.textContent).toContain('Score');
+    assertButtons(container);
+    fireEvent.click(within(then).getByRole('button'));
+    await waitFor(() => expect(window.location.hash).toBe(`#/runs/${score}`));
+    const from = await waitFor(() => $(container, '.run-chain[data-chain="from"]'));
+    expect(from.getAttribute('data-run-id')).toBe(scout);
+    expect(from.textContent).toContain('Scout');
   });
 
   it('pp up restart: an interrupted run reads as failed with the reason', async () => {

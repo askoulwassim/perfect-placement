@@ -527,3 +527,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: the run queue and automatic pipeline (#30), schedules (#29) and the guided path (#24) show queued, running and done/failed per run; the UI already treats `queued` as in progress (button label "Queued", no duplicate starts).
 - Shim: none (additive; existing rows keep their status).
 - Status: accepted
+
+## Run queue and pipeline
+
+### Run queue, `runs.dispatch`, config `runs` + `pipeline` (#30)
+- Lane: pipeline-queue (B, D)
+- Date: 2026-10-09
+- Contract: registry `runsStart.input` (`triggered_by`), `runsStart.output` (`deduped`), new op `runs.dispatch`; policy.ts `PolicyConfig.runs`, `PolicyConfig.pipeline`, `DEFAULT_CONFIG`
+- Change: `runs.start` is the single entry point for skill runs (UI, schedules, the pipeline). A human or schedule run is created `queued` (was `running`); an agent's own run is still `running` at once and never launched. A second active run for the same skill and scope (role, contact, outreach; research: the role's company, kept as `summary_json.company_id`) is not created: the existing one is returned with `deduped: true`. Optional input `triggered_by` (a run id) is kept as `summary_json.triggered_by` + `triggered_by_skill`. New op `runs.dispatch {}` -> `{ launched, queued, running }` (impact low, no events): launches queued runs oldest first, at most `config.runs.max_concurrent` running, never two running for one scope; `runs.start`, `runs.finish`, `pp up` (start + every 30 s) and the new `pp drain` call it. `runs.finish` applies config `pipeline` rules: `score_after_scout` (scout ended `ok`, inbox non-empty -> one score run for the inbox), `research_after_score` (score ended `ok`/`partial` -> one research run per company of a kept role with no dossier); the finished run gets `summary_json.triggered`. Config: `runs: { max_concurrent: 2 }`, `pipeline: { score_after_scout: true, research_after_score: true }`. No new event types (`run_started` payload gains `status` and `triggered_by`); no migration (`queued` came with 004).
+- Why: scouted roles sat unscored in Inbox and new companies had no dossier unless someone started each run (#30); schedules (#29) enqueue through the same entry point.
+- Shim: none (config sections default through `readConfig`; input and output fields optional).
+- Status: accepted

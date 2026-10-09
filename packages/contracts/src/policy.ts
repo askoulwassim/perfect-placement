@@ -138,6 +138,14 @@ export const PolicyConfig = z.object({
     min_delay_s: z.number().min(0),
   }),
   freshness: z.object({ stale_after_days: z.number().int().positive() }),
+  /** Run queue (#30): how many queued skill runs run at once (each is an agent session). */
+  runs: z.object({ max_concurrent: z.number().int().min(1) }),
+  /**
+   * Automatic pipeline (#30), on by default. `score_after_scout`: a scout run that ends `ok` queues one
+   * score run for the inbox. `research_after_score`: a score run that ends `ok` or `partial` queues one
+   * research run per company of a role it kept (not archived) that has no dossier yet.
+   */
+  pipeline: z.object({ score_after_scout: z.boolean(), research_after_score: z.boolean() }),
   schedules: z.object({
     inbox: ScheduleSpec,
     freshness: ScheduleSpec,
@@ -181,6 +189,8 @@ export const DEFAULT_CONFIG: PolicyConfig = {
     min_delay_s: 20,
   },
   freshness: { stale_after_days: 45 },
+  runs: { max_concurrent: 2 },
+  pipeline: { score_after_scout: true, research_after_score: true },
   schedules: { inbox: 'daily 07:30', freshness: 'daily 06:30', scout_score: 'fri 05:30' },
   ui: { cues_seen: [] },
 };

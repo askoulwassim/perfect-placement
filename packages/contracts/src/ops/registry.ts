@@ -745,8 +745,12 @@ export const runsGet = defineOp({
 
 /**
  * Added in Wave 0: UI buttons (Scout now, Research, Tailor, Connect, Fill, Check all) start skill runs.
- * Launches the configured headless runner (`config.runner`). A `connect` run's
- * `summary_json.outreach_id` names the draft it wrote (or, with `outreach_id`, the draft it puts in Gmail).
+ * The single entry point for starting a skill run (#30): a human or schedule run is `queued` and the
+ * run queue (`runs.dispatch`) launches the configured headless runner (`config.runner`). An agent's own
+ * run is `running` at once and never launched. A second run for the same skill and scope (role, company
+ * for research, contact, outreach) is not created: the active one is returned with `deduped: true`.
+ * A `connect` run's `summary_json.outreach_id` names the draft it wrote (or, with `outreach_id`, the
+ * draft it puts in Gmail).
  */
 export const runsStart = defineOp({
   name: 'runs.start',
@@ -760,14 +764,36 @@ export const runsStart = defineOp({
      * the agent creates a Gmail draft with its own Gmail tool and records it with `outreach.to_gmail`.
      */
     outreach_id: Id.optional(),
+    /** Added (#30): the run that caused this one (pipeline rules, schedules). Kept as `summary_json.triggered_by`. */
+    triggered_by: Id.optional(),
   }),
-  output: z.object({ run: Run }),
+  /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
+  output: z.object({ run: Run, deduped: z.boolean().optional() }),
   impact: 'low',
   emits: ['run_started'],
   owner: 'B',
 });
 
-/** Added in Wave 2 (lane B): close a run started with runs.start (a `queued` or `running` run). */
+/**
+ * Added (#30): the run queue's dispatcher. Launches queued runs oldest first, up to
+ * `config.runs.max_concurrent` running at once, never two for the same skill and scope. `runs.start`
+ * and `runs.finish` call it; `pp up` and `pp drain` call it too.
+ */
+export const runsDispatch = defineOp({
+  name: 'runs.dispatch',
+  description: 'Launch queued skill runs, up to the concurrency limit.',
+  input: z.object({}),
+  output: z.object({ launched: z.array(Id), queued: z.number().int().min(0), running: z.number().int().min(0) }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added in Wave 2 (lane B): close a run started with runs.start (a `queued` or `running` run). Since #30
+ * it also applies the pipeline rules (config `pipeline`): the runs it queues are listed in
+ * `summary_json.triggered`.
+ */
 export const runsFinish = defineOp({
   name: 'runs.finish',
   description: 'Close a skill run started with runs.start.',
@@ -904,6 +930,7 @@ export const OPS = {
   'runs.get': runsGet,
   'runs.start': runsStart,
   'runs.finish': runsFinish,
+  'runs.dispatch': runsDispatch,
   'vault.read': vaultRead,
   'system.doctor': systemDoctor,
   'system.backends': systemBackends,

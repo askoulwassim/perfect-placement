@@ -3,8 +3,10 @@ import { humanize } from './format';
 
 /*
  * Run status everywhere (#21): one place that names a run, its in-progress label, and its outcome.
- * A run row: `op` = the skill; `summary_json` = { skill, role_id?, contact_id?, outreach_id?, actor,
- * runner, ...what the skill reported (counts), error?, denied_tools?, runner_log? }.
+ * A run row: `op` = the skill; `summary_json` = { skill, role_id?, company_id? (research), contact_id?,
+ * outreach_id?, actor, runner, queued_at?, launched_at?, triggered_by? + triggered_by_skill? (the run
+ * that queued it, #30), triggered? (runs it queued), ...what the skill reported (counts), error?,
+ * denied_tools?, runner_log? }.
  */
 
 export const SKILL_LABEL: Record<Skill, string> = {
@@ -39,8 +41,12 @@ export const isActive = (s: RunStatus) => (RUN_ACTIVE_STATUSES as readonly RunSt
 export interface RunSummary {
   skill?: string;
   role_id?: string;
+  company_id?: string;
   contact_id?: string;
   outreach_id?: string;
+  triggered_by?: string;
+  triggered_by_skill?: string;
+  triggered?: string[];
   error?: string;
   denied_tools?: string[];
   runner_log?: string;
@@ -55,7 +61,23 @@ export const activeLabel = (r: Run): string =>
   r.status === 'queued' ? 'Queued' : (SKILL_ACTIVE[r.op as Skill] ?? `${runLabel(r)} running`);
 
 /** Bookkeeping keys in summary_json that are not outcomes. */
-const META = new Set(['skill', 'role_id', 'contact_id', 'outreach_id', 'actor', 'runner', 'step', 'gmail_draft_id', 'runner_log']);
+const META = new Set([
+  'skill',
+  'role_id',
+  'company_id',
+  'contact_id',
+  'outreach_id',
+  'actor',
+  'runner',
+  'step',
+  'gmail_draft_id',
+  'runner_log',
+  'queued_at',
+  'launched_at',
+  'triggered_by',
+  'triggered_by_skill',
+  'triggered',
+]);
 
 /** What changed, from the numbers the skill reported: "12 added · 3 duplicates". Null when it reported none. */
 export function runCounts(r: Run, max = 2): string | null {
@@ -101,16 +123,21 @@ export function runToast(r: Run): { text: string; tone: 'ok' | 'error' } {
   return { text: `${name} done${counts ? ` · ${counts}` : ''}`, tone: 'ok' };
 }
 
-/** What a start button is scoped to: a run matches when its skill and every given scope id match. */
+/**
+ * What a start button is scoped to: a run matches when its skill and every given scope id match.
+ * Research is per company (one dossier): with `company_id`, a research run for any role there matches.
+ */
 export interface RunScope {
   skill: Skill;
   role_id?: string;
+  company_id?: string;
   contact_id?: string;
   outreach_id?: string;
 }
 export function matches(r: Run, q: RunScope): boolean {
   if (r.op !== q.skill) return false;
   const s = summaryOf(r);
+  if (q.skill === 'research' && q.company_id && s.company_id) return s.company_id === q.company_id;
   return (
     (q.role_id === undefined || s.role_id === q.role_id) &&
     (q.contact_id === undefined || s.contact_id === q.contact_id) &&
@@ -129,6 +156,14 @@ export function retryInput(r: Run): RunScope | null {
     ...(s.role_id ? { role_id: s.role_id } : {}),
     ...(s.contact_id ? { contact_id: s.contact_id } : {}),
   };
+}
+
+/** The run that queued this one (pipeline, #30): its id and skill label, or null. */
+export function triggeredBy(r: Run): { id: string; label: string } | null {
+  const s = summaryOf(r);
+  if (!s.triggered_by) return null;
+  const skill = s.triggered_by_skill as Skill | undefined;
+  return { id: s.triggered_by, label: skill && skill in SKILL_LABEL ? SKILL_LABEL[skill] : 'Run' };
 }
 
 /** Elapsed or total time: "42s", "3m", "1h 5m". */

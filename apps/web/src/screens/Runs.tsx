@@ -4,7 +4,7 @@ import { Btn } from '../components/Btn';
 import { C, ellipsis, eyebrow, mono } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago } from '../lib/format';
-import { duration, isActive, retryInput, runLabel, runOutcome, summaryOf } from '../lib/runs';
+import { duration, isActive, retryInput, runLabel, runOutcome, summaryOf, triggeredBy } from '../lib/runs';
 import { go } from '../router';
 
 /* Runs (#21): every skill run with its state, outcome and log. List from runs.list, detail from runs.get. */
@@ -50,7 +50,9 @@ export function RunStatusChip({ status }: { status: RunStatus }) {
 /** One run as a row (Runs list, Settings). */
 export function RunRow({ run, now, onOpen }: { run: Run; now: Date; onOpen: () => void }) {
   const { mobile } = useLayout();
-  const scope = summaryOf(run).role_id ?? '';
+  const from = triggeredBy(run);
+  // Chained runs (#30) read "after Scout"; then the role, if any.
+  const scope = [from ? `after ${from.label}` : null, summaryOf(run).role_id ?? summaryOf(run).company_id].filter(Boolean).join(' · ');
   return (
     <Btn
       op={null}
@@ -135,6 +137,15 @@ function RunDetail({ runId }: { runId: string }) {
     ['By', String(s.actor ?? '—')],
     ...(s.role_id ? ([['Role', s.role_id]] as Array<[string, string]>) : []),
   ];
+  // The chain (#30): the run that queued this one, and the runs this one queued.
+  const from = triggeredBy(run);
+  const chain: Array<{ key: string; label: string; id: string }> = [
+    ...(from ? [{ key: 'From', label: from.label, id: from.id }] : []),
+    ...(s.triggered ?? []).map((id) => {
+      const next = runs.find((r) => r.id === id);
+      return { key: 'Then', label: next ? runLabel(next) : 'Run', id };
+    }),
+  ];
   return (
     <Screen label="Run" eyebrow={RUN_STATUS_LABEL[run.status]} title={runLabel(run)} back={() => go({ screen: 'runs' })} primary={primary}>
       <div
@@ -153,6 +164,19 @@ function RunDetail({ runId }: { runId: string }) {
             <div key={k}>
               <div style={eyebrow(C.dim, 10)}>{k}</div>
               <div style={{ ...mono(13), marginTop: 4 }}>{v}</div>
+            </div>
+          ))}
+          {chain.map((c) => (
+            <div key={`${c.key}-${c.id}`} className="run-chain" data-chain={c.key.toLowerCase()} data-run-id={c.id}>
+              <div style={eyebrow(C.dim, 10)}>{c.key}</div>
+              <Btn
+                op={null}
+                onClick={() => go({ screen: 'runs', runId: c.id })}
+                style={{ ...mono(13, C.emerald), marginTop: 4, padding: 0, background: 'transparent', border: 0 }}
+                hover={{ textDecoration: 'underline' }}
+              >
+                {c.label}
+              </Btn>
             </div>
           ))}
         </div>

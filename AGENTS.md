@@ -53,6 +53,7 @@ pp up                           # API /api/ops, MCP /mcp, web UI on http://127.0
 pp up --fixtures                # demo on synthetic data
 pp doctor                       # integrity checks
 pp op <name> --input '<json>'   # any op
+pp drain                        # launch queued skill runs once (pp up does it continuously)
 pp kev install|start|stop|status
 
 corepack enable                 # development: pnpm version pinned in package.json
@@ -64,7 +65,7 @@ pnpm --filter @perfect-placement/fixtures gen   # after editing fixtures/src/dat
 
 - Node 22+. `better-sqlite3` is native: on macOS it needs the Xcode command line tools if no prebuilt binary matches.
 - **Kev** (local decision model): `pp kev install` puts it in `$PP_HOME/kev/`; `pp up` starts it on demand and stops it on exit only if it started it. Model in `config.backends.kev.model`. Background: `packages/resolver/docs/kev-setup.md`.
-- **Agents (Claude Code, Codex, Cursor, Claude Desktop):** `pp setup` registers the stdio `pp-mcp` server (key `pp`, absolute node + bin, `PP_HOME` env) after asking; manual snippets in `packages/mcp/README.md`. Tool names use underscores (`roles_list`) because all three clients mishandle dots; op names stay dotted. `runs.start` launches a headless runner from `config.runner` (`claude`, `codex` or `cursor-agent`).
+- **Agents (Claude Code, Codex, Cursor, Claude Desktop):** `pp setup` registers the stdio `pp-mcp` server (key `pp`, absolute node + bin, `PP_HOME` env) after asking; manual snippets in `packages/mcp/README.md`. Tool names use underscores (`roles_list`) because all three clients mishandle dots; op names stay dotted. `runs.start` queues a headless runner from `config.runner` (`claude`, `codex` or `cursor-agent`); the run queue launches it (`config.runs.max_concurrent`), and the pipeline chains scout -> score -> research (`config.pipeline`).
 - **Tests never touch real machine state:** `pp setup` / `pp kev` take an injected `SystemDeps` (temp HOME, fake spawn, no network); `install.sh` is tested with `--check` only. CI job `fresh-install` runs the real `./install.sh` and `scripts/fresh-install-smoke.sh` (setup, up, write, restart, read back).
 - **Web dev:** `pnpm --filter @perfect-placement/web dev` (port 5178) proxies `/api` to `pp up` on 5177; `dev:mock` runs on read-only fixtures.
 - **OpenUI telemetry:** set `OPENUI_TELEMETRY_DISABLED=1` in your shell; root `package.json` also blocks its install script (`pnpm.onlyBuiltDependencies`). Never add `@openuidev/lang-core` to that list.

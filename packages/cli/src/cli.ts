@@ -12,7 +12,7 @@ import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
 import { kevInstalled } from './system/kev.js';
 
-export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
+export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'drain', 'op'] as const;
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
 
@@ -26,6 +26,7 @@ const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
   score    --in <file|->                   roles.score
   fresh    [--role <id>]...                roles.check_freshness
   inbox    --in <file|->                   inbox.ingest
+  drain                                    launch queued skill runs (up to runs.max_concurrent), once
   op       <name> [<json>|--input <json>|--in f]  any op
   doctor   [--json]                        system.doctor`;
 
@@ -90,6 +91,8 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
           return await fresh(engine, args, io);
         case 'inbox':
           return await inbox(engine, args, io);
+        case 'drain':
+          return await drain(engine, io);
         case 'op':
           return await op(engine, args, io);
       }
@@ -103,8 +106,30 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
   }
 }
 
-/** Stale-run sweep interval in `pp up`. */
+/** Stale-run sweep + queue dispatch interval in `pp up`. */
 const SWEEP_MS = 30_000;
+
+/**
+ * The run queue, once (#30): finish runs whose runner is gone (they hold a slot), then launch queued
+ * runs that fit. `pp up` does this on start and every SWEEP_MS; `pp drain` does it once (schedules,
+ * headless use). Runs started or finished anywhere also dispatch on their own.
+ */
+async function drainQueue(engine: ops.Engine, io: Io): Promise<{ interrupted: string[]; launched: string[]; queued: number }> {
+  const interrupted = await ops
+    .interruptStaleRuns(engine.runOp, io.runnerAlive ? { isAlive: (r) => (io.runnerAlive as (id: string) => boolean)(r.id) } : {})
+    .catch(() => [] as string[]);
+  const o = await engine.runOp('runs.dispatch', {}, { actor: 'schedule', now: () => new Date() });
+  const out = o.status === 'ok' ? (o.output as { launched: string[]; queued: number }) : { launched: [], queued: 0 };
+  return { interrupted, launched: out.launched, queued: out.queued };
+}
+
+async function drain(engine: ops.Engine, io: Io): Promise<number> {
+  const r = await drainQueue(engine, io);
+  if (r.interrupted.length)
+    io.out(`pp drain: ${r.interrupted.length} interrupted run${r.interrupted.length === 1 ? '' : 's'} marked error`);
+  io.out(`pp drain: ${r.launched.length} launched${r.launched.length ? ` (${r.launched.join(', ')})` : ''}, ${r.queued} queued`);
+  return 0;
+}
 
 async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForStop): Promise<number> {
   const port = Number(args.get('port') ?? DEFAULT_PORT);
@@ -126,11 +151,13 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
   }
 
   // Runs a previous pp up left open (their runner is gone) end as error "interrupted"; then keep sweeping
-  // for detached runners that die without runs.finish while nothing is watching them.
-  const sweepOpts = io.runnerAlive ? { isAlive: (r: { id: string }) => (io.runnerAlive as (id: string) => boolean)(r.id) } : {};
+  // for detached runners that die without runs.finish while nothing is watching them. Each sweep also
+  // dispatches the run queue (#30): runs queued while nothing was running launch here.
   const sweep = async () => {
-    const ids = await ops.interruptStaleRuns(engine.runOp, sweepOpts).catch(() => []);
+    const r = await drainQueue(engine, io);
+    const ids = r.interrupted;
     if (ids.length) io.out(`pp up: ${ids.length} interrupted run${ids.length === 1 ? '' : 's'} marked error (${ids.join(', ')})`);
+    if (r.launched.length) io.out(`pp up: launched ${r.launched.length} queued run${r.launched.length === 1 ? '' : 's'}`);
   };
   await sweep();
   const sweeper = setInterval(() => void sweep(), SWEEP_MS);
