@@ -8,9 +8,7 @@ Lane H "done when": on one real picked role, correct tiers and four drafts in Gm
 2. **Browser driver** (implements `LinkedInDriver`: `open(url)` + `readPeopleCards()` only):
    - **A. Playwright** `chromium.launchPersistentContext(<copy of Wassim's Chrome profile dir>, { headless: false, channel: 'chrome' })`. Uses his signed-in session. Chrome must be closed (profile lock), or use a dedicated profile he signs into once.
    - **B. Claude in Chrome** (extension in his own Chrome). Driver = an agent loop that calls `navigate` + `get_page_text` and parses cards. No profile copy, but slower and needs site permission for linkedin.com.
-3. **Gmail auth.** `GmailDraftClient` with one method, `createDraft`:
-   - **A. Gmail REST** (`createGmailApiClient`): OAuth client in Google Cloud, scope `gmail.compose` only, token stored outside the repo (keychain or `$PP_HOME/.secrets`, never committed).
-   - **B. Gmail MCP connector** `create_draft` behind the same interface. No new OAuth app.
+3. **Gmail (decided: Gmail via agent).** The engine has no Gmail client. The agent session creates the draft with its own Gmail tool (Claude Code: the claude.ai Gmail connector, `create_draft`) and records it with `outreach.to_gmail { outreach_id, gmail_draft_id }`. From the web UI, **Create Gmail draft** starts a headless `connect` run for that outreach (`runs.start { skill: "connect", outreach_id }`). Check the connector is connected in Claude Code first. No OAuth app.
 4. **Caps for the first run.** `config.linkedin.max_profiles_per_day: 40` (default), `min_delay_s: 20`. Per call: max 6 pages, max 3 mutual expansions. Expected: 3 to 6 page loads over 1 to 4 minutes.
 
 ## Run
@@ -25,7 +23,7 @@ Lane H "done when": on one real picked role, correct tiers and four drafts in Gm
 4. `people.classify` for each contact. Wassim resolves any Needs-you picks.
 5. Wassim confirms the tiers are right (the "correct tiers" check).
 6. For the best contact in each of warm_hiring, warm_other, bridge, cold_hiring (where one exists): skill writes Hook / Proof / Ask from Story + Voice, `outreach.draft`, Wassim reads the vault file.
-7. `outreach.to_gmail` for each. Four Gmail drafts. Wassim opens Gmail, checks To (bridge = the mutual), edits if needed, sends himself or deletes.
+7. Gmail draft step for each (SKILL.md "Gmail draft step", or **Create Gmail draft** in the UI). Four Gmail drafts. Wassim opens Gmail, checks To (bridge = the mutual), edits if needed, sends himself or deletes.
 
 ## Stop conditions
 

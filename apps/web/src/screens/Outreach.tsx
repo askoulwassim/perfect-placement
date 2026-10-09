@@ -1,3 +1,4 @@
+import type { RunStatus } from '@perfect-placement/contracts';
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { DraftStatusChip, ToneChips } from '../components/controls';
@@ -10,10 +11,12 @@ import { go } from '../router';
 export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const { mobile } = useLayout();
   const act = useAct();
-  const { showToast } = useApp();
+  const { showToast, watchRun } = useApp();
   const res = useOp('outreach.get', { outreach_id: outreachId });
   const role = useOp('roles.get', res.data ? { role_id: res.data.outreach.role_id } : null);
   const [tone, setTone] = useState<number | null>(null);
+  /** The Gmail draft run (Gmail via agent): null = none started here. */
+  const [run, setRun] = useState<RunStatus | null>(null);
 
   if (!res.data) return <div data-screen-label="Outreach draft" aria-busy={!res.error} />;
   const { outreach, contact, variants } = res.data;
@@ -32,18 +35,25 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const via = me?.link.via_contact_id ? people.find((p) => p.contact.id === me.link.via_contact_id)?.contact.name : undefined;
   const path = ['You', ...(via ? [via] : []), contact.name];
 
+  // The engine has no Gmail client: the button starts a headless connect run scoped to this draft; the
+  // agent creates the Gmail draft with its own Gmail tool and records it (outreach.to_gmail). Never sends.
   const primary = {
     label: 'Create Gmail draft',
-    op: 'outreach.to_gmail' as const,
-    disabled: outreach.status !== 'drafted',
+    op: 'runs.start' as const,
+    disabled: outreach.status !== 'drafted' || run === 'running',
     onClick: async () => {
-      const o = await act('outreach.to_gmail', { outreach_id: outreach.id });
-      if (o.status === 'ok') {
-        showToast('Gmail draft created');
-        go({ screen: 'role', roleId: outreach.role_id });
-      }
+      const o = await act('runs.start', { skill: 'connect', outreach_id: outreach.id });
+      if (o.status !== 'ok') return;
+      setRun('running');
+      showToast('Drafting in Gmail');
+      // watchRun polls runs.get, then refreshes every read (the outreach comes back `in_gmail`).
+      watchRun(o.output.run.id, (r) => {
+        setRun(r.status);
+        showToast(r.status === 'ok' ? 'Gmail draft created' : 'Gmail draft failed');
+      });
     },
   };
+  const runLabel = run === 'running' ? 'Gmail · drafting' : run && run !== 'ok' ? 'Gmail · failed' : 'Gmail · draft only';
   const header = {
     eyebrow: `Outreach · ${tier.label}`,
     title: contact.name,
@@ -118,7 +128,7 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
             ))}
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 14, ...mono(11, C.dim) }}>
               <span>{words} words</span>
-              <span>Gmail · draft only</span>
+              <span data-run={run ?? 'none'}>{runLabel}</span>
             </div>
           </div>
         </div>

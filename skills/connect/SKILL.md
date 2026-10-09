@@ -32,7 +32,17 @@ You supply judgment (who is in the JD, the draft text). Code does mechanics (Lin
    - No em dashes, no en dashes. No flattery. No facts beyond Story.
    Bridge drafts are addressed to the mutual, not the target.
 7. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask }`. It refuses rule breaks with the exact issue; fix and call again.
-8. **To Gmail.** `outreach.to_gmail { outreach_id }`. Medium impact: policy may queue it for the user. It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+8. **To Gmail.** Follow "Gmail draft step" below. It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+
+## Gmail draft step
+
+The engine has no Gmail client. You create the draft with your own Gmail draft tool, then record it. This works from any MCP client that has a Gmail draft tool next to the `pp` server: Claude Code uses the Gmail connector (`create_draft`); Codex and Cursor need their own Gmail MCP server configured for this step. The web UI's **Create Gmail draft** starts a headless `connect` run for one outreach (`runs.start { skill: "connect", outreach_id }`) that does only this step.
+
+1. **Read the draft.** `outreach.get { outreach_id }`: subject, hook, proof, ask. No subject: the role title plus " at " and the company (`roles.get`).
+2. **Recipient.** The contact's email (`contacts.get`). Bridge: the mutual (the link's `via_contact_id`), never the target. No email on file: leave To empty.
+3. **Create a Gmail DRAFT.** Body = Hook, blank line, Proof, blank line, Ask, as stored (the user may have edited them). Never send, reply or forward. No Gmail draft tool: stop and finish the run as `error` with a note.
+4. **Record it.** `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }`. Medium impact: with `confidence` the policy grid decides; without it, or unsure, it waits in Needs you. It re-checks the writing rules, stores the id, sets the outreach `in_gmail` and moves the application to Fill.
+5. **Finish** (headless run): `runs.finish { run_id, status: "ok", summary: { outreach_id, gmail_draft_id } }`.
 
 ## Never
 

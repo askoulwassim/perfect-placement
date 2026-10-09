@@ -156,6 +156,14 @@ describe('ops registry', () => {
     expect(OPS['outreach.get'].input.safeParse({ outreach_id: 'or_1' }).success).toBe(true);
     expect(OPS['runs.start'].input.parse({ skill: 'connect', contact_id: 'ct_1' }).contact_id).toBe('ct_1');
   });
+
+  it('Gmail via agent: to_gmail records an agent-made draft id; runs.start scopes a connect run to one outreach', () => {
+    expect(OPS['outreach.to_gmail'].input.parse({ outreach_id: 'or_1', gmail_draft_id: 'r-1' }).gmail_draft_id).toBe('r-1');
+    expect(OPS['outreach.to_gmail'].input.safeParse({ outreach_id: 'or_1', gmail_draft_id: '' }).success).toBe(false);
+    expect(OPS['outreach.to_gmail'].impact).toBe('medium');
+    expect(OPS['runs.start'].input.parse({ skill: 'connect', outreach_id: 'or_1' }).outreach_id).toBe('or_1');
+    expect(PRIMARY_ACTIONS['outreach-draft']).toEqual([{ label: 'Create Gmail draft', op: 'runs.start' }]);
+  });
 });
 
 describe('policy', () => {

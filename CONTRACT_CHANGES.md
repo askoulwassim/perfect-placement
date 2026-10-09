@@ -472,3 +472,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: no v1 data is ever imported (wave1-decisions #26); these existed only for the v1 importer.
 - Shim: none (003 maps leftovers).
 - Status: accepted
+
+## Gmail via agent
+
+### outreach.to_gmail records an agent-made draft; runs.start runs the Gmail draft step
+- Lane: gmail (H, B, D)
+- Date: 2026-10-08
+- Contract: registry `outreachToGmail.input`, `runsStart.input`; `PRIMARY_ACTIONS['outreach-draft']` (ui.ts)
+- Change: `outreach.to_gmail` gains optional `gmail_draft_id: string` = a Gmail draft the calling agent already created with its own Gmail tool. The handler then skips the engine Gmail client, still runs the writing-rule checks, stores the id, sets `in_gmail` and advances Connect to Fill. Without the id and with no engine client it answers `backend_unavailable` (start a Gmail-capable agent run). Impact (medium) and policy unchanged. `runs.start` gains optional `outreach_id` (skill `connect` only): a run scoped to that draft's Gmail step; role and contact come from the outreach (must be `drafted`), `summary_json` gets `outreach_id` + `step: 'gmail_draft'`, and the runner prompt is the Gmail step (read `outreach.get`, create a Gmail **draft** with the agent's Gmail tool, never send, then `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }`). The Outreach screen's **Create Gmail draft** now calls `runs.start` (was `outreach.to_gmail`); Ask replies no longer offer `outreach.to_gmail` (not in PRIMARY_ACTIONS).
+- Why: wave1-decisions #5 and #9: the Gmail connector exists only inside an agent session; the engine has no Gmail client and no OAuth app. Smallest change: one optional field per op, no new op.
+- Shim: none (both fields optional; an injected `EngineServices.gmail` still works without the id).
+- Status: accepted
