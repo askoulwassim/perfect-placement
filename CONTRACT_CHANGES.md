@@ -684,3 +684,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: a restart lost the conversation and the Claude session (#69).
 - Shim: none (new table; `new AskThreads()` without a store keeps the in-memory behavior; the request contract is unchanged).
 - Status: accepted
+
+## Hybrid work-mode filter
+
+### Work mode `remote_only`, `hard_nos`, `by_location`, `outside_locations`; `isRemoteOnly`; op `roles.reevaluate_filters` (#83)
+- Lane: r2/01-hybrid-filter (F, E, B)
+- Date: 2026-10-09
+- Contract: profile-data.ts `WORK_MODES` / `WorkMode`, `isRemoteOnly`, Work mode `remote_only` (boolean), `hard_nos` (modes), `by_location` (`[{ location, modes }]`), `outside_locations` (`verify` | `fail`); registry new op `roles.reevaluate_filters` and `ReevaluatedRole`
+- Change: the work-mode filter honors the profile instead of treating `modes: ['remote']` as remote required. Remote, flexible or `remote_ok: true` passes. Hybrid or onsite: a mode hard no (Work mode `hard_nos`, or a Dealbreakers hard no that names only the mode, e.g. "onsite only") is hit `work_mode_hard_no`; explicit `remote_only: true` is `remote_required`; a `by_location` entry for the role's place decides (mode not listed: `work_mode_location`); a place in `locations` passes; elsewhere is a `location` verify flag, or `work_mode_location` with `outside_locations: 'fail'`; no known place is a `location` flag. Unknown mode is a `work_mode` verify flag (was `remote`), never a hit. The place is the new `facts.location`, else the role row's location (and workplace). Scout's remote-only drop, the fill office-days answer and the onboarding office-days question key off `isRemoteOnly`; onboarding asks a new `work_mode.remote_only` question only when remote is the one mode picked. New op `roles.reevaluate_filters { dry_run?, role_ids? }` -> `{ items: [{ role_id, old_hits, hits, verify, passes, total, band, decision_id, skipped }], queued }` (impact low, no events): `dealbreaker` archives whose latest score hits were all work-mode hits (`remote_required`, `work_mode_hard_no`, `work_mode_location`) are re-checked under the current profile; each that passes and is green gets a `roles.move` decision (question id `restore`, noulli, medium, `forceHuman`: always Needs you) whose action is `roles.score { rescore: true }` with the stored criteria and judged facts (`when: true`); a pending one is not duplicated; `dry_run` writes nothing.
+- Why: the engine applied remote required to hybrid roles in an accepted location (NYC) and archived them as `dealbreaker` (#83).
+- Shim: none for callers (all new fields optional). A profile that really is remote only sets `remote_only: true` (fixtures do). Existing archives are not touched until the owner runs `roles.reevaluate_filters` and accepts each restore.
+- Status: accepted

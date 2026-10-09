@@ -250,6 +250,24 @@ export const QUESTION_BANK: QuestionDef[] = [
     apply: set('work_mode', 'modes', asList),
   },
   {
+    id: 'work_mode.remote_only',
+    component: 'work_mode',
+    label: 'Should every hybrid or onsite role be ruled out, wherever it is?',
+    example: 'Say no if hybrid in a city you listed would work.',
+    answer_type: 'chips',
+    options: ['no', 'yes'],
+    fields: ['remote_only'],
+    known: known('work_mode', 'remote_only'),
+    // Asked only when remote is the one mode picked (#83): remote only is never implied.
+    when: (d) => {
+      const modes = (d.work_mode?.modes as string[] | undefined) ?? [];
+      return modes.length === 1 && modes[0] === 'remote';
+    },
+    apply: (d, v) => {
+      comp(d, 'work_mode').remote_only = String(v).trim().toLowerCase() === 'yes';
+    },
+  },
+  {
     id: 'work_mode.locations',
     component: 'work_mode',
     label: 'Which cities or regions can you work from?',
@@ -496,11 +514,8 @@ export const QUESTION_BANK: QuestionDef[] = [
     answer_type: 'chips',
     options: ['0', '1-2', '3', '4-5'],
     known: knownDefault('in_office'),
-    // Remote only answers it already.
-    when: (d) => {
-      const modes = (d.work_mode?.modes as string[] | undefined) ?? [];
-      return !(modes.length === 1 && modes[0] === 'remote');
-    },
+    // Remote only answers it already (#83: only when explicit).
+    when: (d) => d.work_mode?.remote_only !== true,
     apply: setDefault('in_office'),
   },
   {

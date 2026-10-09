@@ -16,7 +16,7 @@ const comp = (key: ProfileComponent['key'], data: Record<string, unknown>): Prof
   data_json: data,
   md_path: null,
 });
-const REMOTE_ONLY = [comp('work_mode', { modes: ['remote'] })];
+const REMOTE_ONLY = [comp('work_mode', { modes: ['remote'], remote_only: true })];
 const rubric = rubricFor({ config: DEFAULT_CONFIG, profileVersionId: null, components: [] });
 
 describe('totals', () => {
@@ -74,7 +74,7 @@ describe('dealbreakers: no bypass for anyone', () => {
     expect(evaluateDealbreakers({ workplace: 'hybrid', remote_ok: true }, REMOTE_ONLY).hits).toEqual([]);
     const u = evaluateDealbreakers({ workplace: 'unspecified' }, REMOTE_ONLY);
     expect(u.hits).toEqual([]);
-    expect(u.verify).toEqual(['remote']);
+    expect(u.verify).toEqual(['work_mode']);
   });
   it('comp below floor is a gate only when the profile marks it hard', () => {
     const soft = [comp('terms', { comp_floor: 200000 })];
@@ -88,6 +88,75 @@ describe('dealbreakers: no bypass for anyone', () => {
   });
   it('below green archives with below_threshold', () => {
     expect(computeScore(all(3), {}, rubric, [], 0).archive_reason).toBe('below_threshold');
+  });
+});
+
+describe('work-mode filter honors the profile (#83)', () => {
+  // Synthetic: open to remote, lives in New York, hard no on onsite only (the shape that hit #83).
+  const NYC = [
+    comp('work_mode', { modes: ['remote'], locations: ['New York', 'US remote'] }),
+    comp('dealbreakers', { hard_nos: ['onsite only', 'ad tech'] }),
+  ];
+
+  it('hybrid in an accepted location passes (NYC aliases match)', () => {
+    for (const location of ['New York, NY', 'NYC', 'Hybrid - New York City', 'San Francisco, CA; New York, NY']) {
+      expect(evaluateDealbreakers({ workplace: 'hybrid', location }, NYC)).toEqual({ hits: [], verify: [] });
+    }
+    const s = computeScore(all(5), { workplace: 'hybrid', location: 'New York, NY' }, rubric, NYC, 3);
+    expect(s.verdict).toBe('active');
+  });
+  it('the role row location is the fallback', () => {
+    expect(evaluateDealbreakers({ workplace: 'hybrid' }, NYC, { location: 'Brooklyn, NY' }).hits).toEqual([]);
+    expect(evaluateDealbreakers({}, NYC, { location: 'New York', workplace: 'hybrid' }).hits).toEqual([]);
+  });
+  it('hybrid elsewhere is a verify flag by default, a hit only when the profile says so', () => {
+    expect(evaluateDealbreakers({ workplace: 'hybrid', location: 'Austin, TX' }, NYC)).toEqual({ hits: [], verify: ['location'] });
+    const strict = [comp('work_mode', { modes: ['remote', 'hybrid'], locations: ['New York'], outside_locations: 'fail' })];
+    expect(evaluateDealbreakers({ workplace: 'hybrid', location: 'Austin, TX' }, strict).hits).toEqual(['work_mode_location']);
+    expect(evaluateDealbreakers({ workplace: 'hybrid', location: 'New York, NY' }, strict).hits).toEqual([]);
+    // "US" names no city: not an accepted hybrid location.
+    expect(
+      evaluateDealbreakers({ workplace: 'hybrid', location: 'Chicago, IL' }, [comp('work_mode', { locations: ['US'] })]).verify,
+    ).toEqual(['location']);
+  });
+  it('accepted modes per place decide for that place', () => {
+    const per = [comp('work_mode', { locations: ['New York'], by_location: [{ location: 'NYC', modes: ['hybrid'] }] })];
+    expect(evaluateDealbreakers({ workplace: 'hybrid', location: 'New York, NY' }, per).hits).toEqual([]);
+    expect(evaluateDealbreakers({ workplace: 'onsite', location: 'New York, NY' }, per).hits).toEqual(['work_mode_location']);
+  });
+  it('an onsite hard no fails anywhere, a dream company included', () => {
+    expect(evaluateDealbreakers({ workplace: 'onsite', location: 'New York, NY' }, NYC).hits).toEqual(['work_mode_hard_no']);
+    const s = computeScore(all(5), { workplace: 'onsite', location: 'New York, NY' }, rubric, NYC, 5);
+    expect(s.archive_reason).toBe('dealbreaker');
+    expect(evaluateDealbreakers({ workplace: 'hybrid' }, [comp('work_mode', { hard_nos: ['hybrid'] })]).hits).toEqual([
+      'work_mode_hard_no',
+    ]);
+    // A qualified hard no is left to the skill's judgment, not read as a mode.
+    expect(
+      evaluateDealbreakers({ workplace: 'onsite', location: 'Boston' }, [comp('dealbreakers', { hard_nos: ['onsite outside NYC'] })]).hits,
+    ).toEqual([]);
+  });
+  it('unknown mode is a verify flag, never an archive', () => {
+    for (const f of [{}, { workplace: 'unspecified' as const }, { remote_ok: false }]) {
+      const r = evaluateDealbreakers(f, NYC);
+      expect(r.hits).toEqual([]);
+      expect(r.verify).toEqual(['work_mode']);
+    }
+    expect(computeScore(all(5), { workplace: 'unspecified' }, rubric, NYC, 0).verdict).toBe('active');
+  });
+  it('remote and flexible pass; no work-mode profile, no flag', () => {
+    expect(evaluateDealbreakers({ workplace: 'remote' }, NYC)).toEqual({ hits: [], verify: [] });
+    expect(evaluateDealbreakers({ workplace: 'onsite', remote_ok: true }, NYC).hits).toEqual([]);
+    expect(evaluateDealbreakers({ workplace: 'hybrid' }, [])).toEqual({ hits: [], verify: [] });
+  });
+  it('remote_required only with an explicit remote-only profile', () => {
+    expect(
+      evaluateDealbreakers({ workplace: 'hybrid', location: 'New York, NY' }, [comp('work_mode', { modes: ['remote'] })]).hits,
+    ).toEqual([]);
+    const explicit = [comp('work_mode', { modes: ['remote'], locations: ['New York'], remote_only: true })];
+    expect(evaluateDealbreakers({ workplace: 'hybrid', location: 'New York, NY' }, explicit).hits).toEqual(['remote_required']);
+    expect(evaluateDealbreakers({ remote_ok: false }, explicit).hits).toEqual(['remote_required']);
+    expect(evaluateDealbreakers({ workplace: 'remote' }, explicit).hits).toEqual([]);
   });
 });
 

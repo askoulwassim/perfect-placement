@@ -1,3 +1,4 @@
+import { isRemoteOnly } from '@perfect-placement/contracts';
 import { titleTokens } from '../ops/dedupe.js';
 
 /*
@@ -120,7 +121,7 @@ export interface ScanRules {
   exclude: Set<string>;
   /** Lowest acceptable posting level (profile level minus two); null = no seniority rule. */
   minLevel: number | null;
-  /** Work mode is exactly remote (lane F dealbreaker). */
+  /** Work mode explicitly requires remote (`remote_only`, #83); `modes: ['remote']` alone does not. */
   remoteOnly: boolean;
   /** Profile locations are US-only: postings placed only outside the US are dropped. */
   usOnly: boolean;
@@ -152,14 +153,13 @@ export function rulesFromProfile(p: ProfileForScan, overrides: { include?: strin
     if (core.length) phrases.push(core);
   }
   const level = typeof craft.level === 'string' ? minLevelOf(craft.level) : null;
-  const modes = strList(wm.modes).map((m) => m.toLowerCase());
   const locs = strList(wm.locations).map((l) => l.toLowerCase());
   return {
     phrases,
     families,
     exclude: new Set((overrides.exclude ?? []).flatMap((x) => [...titleTokens(x)])),
     minLevel: level === null ? null : Math.max(0, level - 2),
-    remoteOnly: modes.length === 1 && modes[0] === 'remote',
+    remoteOnly: isRemoteOnly(wm),
     usOnly: locs.length > 0 && locs.every((l) => US_MARKERS.test(l)),
   };
 }

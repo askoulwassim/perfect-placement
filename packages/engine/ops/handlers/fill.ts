@@ -1,4 +1,4 @@
-import { type ApplicationDefaults, EEO_DEFAULT, type OpInput, type OpOutput, vaultPath } from '@perfect-placement/contracts';
+import { type ApplicationDefaults, EEO_DEFAULT, isRemoteOnly, type OpInput, type OpOutput, vaultPath } from '@perfect-placement/contracts';
 import { checkFacts } from '../../profile/facts.js';
 import { getComponents, getCurrentVersion } from '../../profile/versions.js';
 import { OpError } from '../errors.js';
@@ -155,8 +155,7 @@ export function standardAnswer(field: string, a: Pick<FillIn, 'question' | 'coun
         if (/^0\b|remote/i.test(v)) return { answer: 'I am looking for fully remote work.' };
         return { answer: /day/i.test(v) ? v : `I can be in the office ${v} days a week.` };
       }
-      const modes = list(s.workMode.modes);
-      if (modes.length === 1 && modes[0] === 'remote') return { answer: 'I am looking for fully remote work.' };
+      if (isRemoteOnly(s.workMode)) return { answer: 'I am looking for fully remote work.' };
       return { reason: 'no saved answer for office days' };
     }
     case 'location': {

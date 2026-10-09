@@ -37,6 +37,15 @@ const common = {
   follow_ups: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
 };
 
+/** Added (#83): the work modes the Work mode filter knows. */
+export const WORK_MODES = ['remote', 'hybrid', 'onsite'] as const;
+export type WorkMode = (typeof WORK_MODES)[number];
+
+/** Added (#83): the profile explicitly requires remote (Work mode `remote_only`); `modes: ['remote']` alone does not. */
+export function isRemoteOnly(workMode: unknown): boolean {
+  return !!workMode && typeof workMode === 'object' && (workMode as { remote_only?: unknown }).remote_only === true;
+}
+
 export const StoryRole = z.looseObject({
   company: Text,
   title: Text,
@@ -149,9 +158,18 @@ export const COMPONENT_DATA_SCHEMAS = {
   }),
   work_mode: z.looseObject({
     ...common,
-    /** Scoring: exactly ['remote'] means remote is required (lane F dealbreaker). */
+    /** Ways of working the user is open to (remote | hybrid | onsite). A preference: on its own it never archives (#83). */
     modes: TextList.optional(),
+    /** Places the user can work from; hybrid or onsite there passes the work-mode filter (#83). */
     locations: TextList.optional(),
+    /** Added (#83): explicit remote only. The only way a hybrid or onsite role fails as `remote_required`. */
+    remote_only: z.boolean().optional(),
+    /** Added (#83): modes that rule a role out anywhere (`work_mode_hard_no`). Dealbreakers hard nos like "onsite only" count too. */
+    hard_nos: z.array(z.enum(WORK_MODES)).optional(),
+    /** Added (#83): accepted modes per place; a mode not listed for a matching place fails (`work_mode_location`). */
+    by_location: z.array(z.looseObject({ location: Text, modes: z.array(z.enum(WORK_MODES)) })).optional(),
+    /** Added (#83): hybrid or onsite outside `locations`: `verify` (default, a flag) or `fail` (`work_mode_location`). */
+    outside_locations: z.enum(['verify', 'fail']).optional(),
     home_location: Text.optional(),
     travel_max_pct: z.number().min(0).max(100).optional(),
     relocation: Text.optional(),

@@ -1,4 +1,12 @@
-import { type ArchiveReason, type Band, CRITERIA, type Criterion, type ProfileComponent } from '@perfect-placement/contracts';
+import {
+  type ArchiveReason,
+  type Band,
+  CRITERIA,
+  type Criterion,
+  isRemoteOnly,
+  type ProfileComponent,
+  type WorkMode,
+} from '@perfect-placement/contracts';
 import type { Rubric } from './rubric.js';
 
 export type Criteria = Record<Criterion, number>;
@@ -42,6 +50,8 @@ export interface ScoreFacts {
   workplace?: 'remote' | 'hybrid' | 'onsite' | 'flexible' | 'unspecified';
   /** true = remote allowed, false = not, null/undefined = unknown. */
   remote_ok?: boolean | null;
+  /** Where the role is based (#83). Default: the role row's location. */
+  location?: string | null;
   comp_min?: number | null;
   comp_max?: number | null;
   /** Hard nos from the Dealbreakers component that the model judged the JD hits. */
@@ -51,12 +61,128 @@ export interface ScoreFacts {
 
 export interface DealbreakerResult {
   hits: string[];
-  /** Facts that need checking (unknown remote, unknown comp). Never a hit on their own. */
+  /** Facts that need checking (unknown work mode or location, unknown comp). Never a hit on their own. */
   verify: string[];
 }
 
+/** What the role row knows when the facts leave it out (#83). */
+export interface RoleBasics {
+  location?: string | null;
+  workplace?: string | null;
+}
+
+/** Hits the work-mode filter produces (#83). `roles.reevaluate_filters` re-checks archives made only of these. */
+export const WORK_MODE_HITS = ['remote_required', 'work_mode_hard_no', 'work_mode_location'] as const;
+
 function componentData(components: readonly ProfileComponent[], key: string): Record<string, unknown> {
   return (components.find((c) => c.key === key)?.data_json ?? {}) as Record<string, unknown>;
+}
+
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []);
+
+/** A mode word: remote, hybrid or onsite (on-site, in office, office based). */
+function modeOf(s: string): WorkMode | null {
+  const t = s.toLowerCase();
+  if (/\bhybrid\b/.test(t)) return 'hybrid';
+  if (/\b(on-?site|in[- ]office|office[- ]based|in[- ]person)\b/.test(t)) return 'onsite';
+  if (/\bremote\b/.test(t)) return 'remote';
+  return null;
+}
+
+/**
+ * Dealbreakers hard nos that name only a mode ("onsite only", "no hybrid", "fully on-site roles").
+ * Anything with a qualifier ("onsite outside NYC") is left to the skill's judgment.
+ */
+const MODE_HARD_NO =
+  /^(no\s+)?(fully\s+|full[- ]time\s+|100%\s+|5[- ]day\s+)?(on-?site|in[- ]office|office[- ]based|in[- ]person|hybrid|remote)(\s+(only|roles?|jobs?|work))?$/i;
+
+export function workModeHardNos(components: readonly ProfileComponent[]): Set<WorkMode> {
+  const out = new Set<WorkMode>();
+  for (const m of strList(componentData(components, 'work_mode').hard_nos)) {
+    const mode = modeOf(m);
+    if (mode) out.add(mode);
+  }
+  for (const t of strList(componentData(components, 'dealbreakers').hard_nos)) {
+    if (!MODE_HARD_NO.test(t.trim())) continue;
+    const mode = modeOf(t);
+    if (mode) out.add(mode);
+  }
+  return out;
+}
+
+const PLACE_ALIASES: Array<[RegExp, string]> = [
+  [/\bnew york city\b|\bnyc\b|\bmanhattan\b|\bbrooklyn\b/g, 'new york'],
+  [/\bsan francisco bay area\b|\bbay area\b|\bsf\b/g, 'san francisco'],
+  [/\bla\b/g, 'los angeles'],
+  [/\bdc\b|\bwashington,? d\.?c\.?/g, 'washington'],
+];
+const COUNTRY_ONLY = /^(us|usa|u\.s\.a?\.?|united states|america|north america|anywhere|global|worldwide|uk|canada|europe|emea)$/;
+
+function normPlace(s: string): string {
+  let t = s.toLowerCase();
+  for (const [re, to] of PLACE_ALIASES) t = t.replace(re, to);
+  return t.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** The city a profile place names ("New York, NY" -> "new york"); null for remote scopes and whole countries. */
+function placeKey(s: string): string | null {
+  const t = normPlace(s);
+  if (/\bremote\b/.test(t)) return null;
+  const city = (t.split(',')[0] ?? '').trim();
+  if (!city || COUNTRY_ONLY.test(city)) return null;
+  return city;
+}
+
+function placeMatches(profilePlace: string, roleLocation: string): boolean {
+  const key = placeKey(profilePlace);
+  if (!key) return false;
+  const loc = normPlace(roleLocation);
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z])${escaped}($|[^a-z])`).test(loc);
+}
+
+/**
+ * Work-mode filter (#83). Honors the profile: accepted modes per place, hard nos, explicit remote only.
+ * - remote, flexible or `remote_ok === true`: passes.
+ * - hybrid or onsite: a mode hard no (Work mode `hard_nos`, or a Dealbreakers hard no naming only the mode,
+ *   e.g. "onsite only") -> `work_mode_hard_no`; else explicit `remote_only` -> `remote_required`; else a
+ *   `by_location` entry for the place decides (mode not listed -> `work_mode_location`); else a place in
+ *   `locations` passes; elsewhere is a `location` verify flag (or `work_mode_location` when
+ *   `outside_locations: 'fail'`); an unknown place is a `location` verify flag.
+ * - unknown mode: a `work_mode` verify flag, never a hit (with `remote_only` and `remote_ok === false`: `remote_required`).
+ * `modes` is a preference only: it never archives on its own.
+ */
+export function evaluateWorkMode(facts: ScoreFacts, components: readonly ProfileComponent[], role: RoleBasics = {}): DealbreakerResult {
+  const hits: string[] = [];
+  const verify: string[] = [];
+  const wm = componentData(components, 'work_mode');
+  const remoteOnly = isRemoteOnly(wm);
+  const hardNos = workModeHardNos(components);
+  const byLocation = Array.isArray(wm.by_location) ? (wm.by_location as Array<{ location?: unknown; modes?: unknown }>) : [];
+  const locations = strList(wm.locations);
+  const constrained = remoteOnly || hardNos.size > 0 || byLocation.length > 0 || locations.length > 0 || strList(wm.modes).length > 0;
+  if (!constrained) return { hits, verify };
+
+  const raw = facts.workplace ?? (typeof role.workplace === 'string' ? role.workplace : undefined);
+  const wp = raw ? (modeOf(raw) ?? (raw.toLowerCase() === 'flexible' ? 'flexible' : null)) : null;
+  if (facts.remote_ok === true || wp === 'remote' || wp === 'flexible') return { hits, verify };
+  if (wp !== 'hybrid' && wp !== 'onsite') {
+    if (remoteOnly && facts.remote_ok === false) hits.push('remote_required');
+    else verify.push('work_mode');
+    return { hits, verify };
+  }
+  if (hardNos.has(wp)) return { hits: ['work_mode_hard_no'], verify };
+  if (remoteOnly) return { hits: ['remote_required'], verify };
+
+  const loc = typeof facts.location === 'string' && facts.location.trim() ? facts.location : (role.location ?? null);
+  if (!loc) return { hits, verify: ['location'] };
+  const entry = byLocation.find((e) => typeof e.location === 'string' && placeMatches(e.location, loc));
+  if (entry) {
+    const ok = strList(entry.modes).some((m) => modeOf(m) === wp);
+    return ok ? { hits, verify } : { hits: ['work_mode_location'], verify };
+  }
+  if (locations.some((p) => placeMatches(p, loc))) return { hits, verify };
+  return wm.outside_locations === 'fail' ? { hits: ['work_mode_location'], verify } : { hits, verify: ['location'] };
 }
 
 /**
@@ -64,21 +190,12 @@ function componentData(components: readonly ProfileComponent[], key: string): Re
  * that fails a filter is archived like any other.
  *
  * Rules (mechanical):
- * - remote: Work mode `modes` is exactly ['remote'] -> onsite, or remote_ok === false, or hybrid without remote_ok === true, is a hit.
+ * - work mode: `evaluateWorkMode` (#83).
  * - comp: only when Terms `comp_floor_hard === true` and comp_max < comp_floor (v1: comp is a C6 penalty, not a gate).
  * - judged: any `facts.dealbreaker_hits` (the model matched a hard no).
  */
-export function evaluateDealbreakers(facts: ScoreFacts, components: readonly ProfileComponent[]): DealbreakerResult {
-  const hits: string[] = [];
-  const verify: string[] = [];
-  const workMode = componentData(components, 'work_mode');
-  const modes = Array.isArray(workMode.modes) ? (workMode.modes as unknown[]).map(String) : [];
-  const remoteRequired = modes.length > 0 && modes.every((m) => m === 'remote');
-  if (remoteRequired) {
-    const wp = facts.workplace;
-    if (facts.remote_ok === false || wp === 'onsite' || (wp === 'hybrid' && facts.remote_ok !== true)) hits.push('remote_required');
-    else if (facts.remote_ok !== true && wp !== 'remote' && wp !== 'flexible') verify.push('remote');
-  }
+export function evaluateDealbreakers(facts: ScoreFacts, components: readonly ProfileComponent[], role: RoleBasics = {}): DealbreakerResult {
+  const { hits, verify } = evaluateWorkMode(facts, components, role);
   const terms = componentData(components, 'terms');
   const floor = typeof terms.comp_floor === 'number' ? terms.comp_floor : null;
   if (floor !== null) {
@@ -109,12 +226,13 @@ export function computeScore(
   rubric: Rubric,
   components: readonly ProfileComponent[],
   affinity: number | null | undefined,
+  role: RoleBasics = {},
 ): ComputedScore {
   const base = baseTotal(criteria, rubric);
   const mod = affinityMod(affinity, rubric.affinity_cap);
   const total = clampTotal(base + mod);
   const band = bandFor(total, rubric);
-  const dealbreakers = evaluateDealbreakers(facts, components);
+  const dealbreakers = evaluateDealbreakers(facts, components, role);
   const archive_reason = dealbreakers.hits.length > 0 ? 'dealbreaker' : band !== 'green' ? 'below_threshold' : null;
   return { base, affinity_mod: mod, total, band, dealbreakers, verdict: archive_reason ? 'archived' : 'active', archive_reason };
 }

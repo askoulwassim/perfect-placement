@@ -562,6 +562,39 @@ export const rolesScore = defineOp({
   owner: 'F',
 });
 
+/** Added (#83): a `dealbreaker` archive whose only hits were work-mode rules, re-checked against the current profile. */
+export const ReevaluatedRole = z.object({
+  role_id: Id,
+  /** The work-mode hits that archived it (latest score). */
+  old_hits: z.array(z.string()),
+  /** Hits under the current profile (empty = it now passes the filters). */
+  hits: z.array(z.string()),
+  verify: z.array(z.string()),
+  passes: z.boolean(),
+  total: z.number().int(),
+  band: Band,
+  /** The Needs-you decision queued to restore it (null on a dry run, or when not queued). */
+  decision_id: Id.nullable(),
+  /** Why no decision was queued: `fails`, `below_threshold`, `pending` (one is already waiting), `dry_run`. */
+  skipped: z.enum(['fails', 'below_threshold', 'pending', 'dry_run']).nullable(),
+});
+
+export const rolesReevaluateFilters = defineOp({
+  name: 'roles.reevaluate_filters',
+  description:
+    'Re-check dealbreaker archives whose only hits were work-mode rules against the current profile; queue a Needs-you restore decision (rescore) per role that now passes. Never restores on its own.',
+  input: z.object({
+    /** List what would be queued; write nothing. */
+    dry_run: z.boolean().optional(),
+    /** Limit to these roles (default: every `dealbreaker` archive). */
+    role_ids: z.array(Id).optional(),
+  }),
+  output: z.object({ items: z.array(ReevaluatedRole), queued: z.number().int() }),
+  impact: 'low',
+  emits: [],
+  owner: 'F',
+});
+
 export const rolesMove = defineOp({
   name: 'roles.move',
   description: 'Change status with the no-downgrade guard.',
@@ -1381,6 +1414,7 @@ export const OPS = {
   'roles.add': rolesAdd,
   'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,
+  'roles.reevaluate_filters': rolesReevaluateFilters,
   'roles.move': rolesMove,
   'roles.archive': rolesArchive,
   'roles.check_freshness': rolesCheckFreshness,

@@ -113,7 +113,10 @@ export function rolesScoreHandler(rawInput: OpInput<'roles.score'> | unknown, ct
   const rubric = rubricFor({ config, profileVersionId: profile?.id ?? null, components, scale: deps.scale });
   const facts = input.facts as ScoreFacts;
   const rawAffinity = affinityFor(company.slug, company.affinity, components);
-  const computed = computeScore(input.criteria as Criteria, facts, rubric, components, rawAffinity);
+  const computed = computeScore(input.criteria as Criteria, facts, rubric, components, rawAffinity, {
+    location: role.location ?? null,
+    workplace: role.workplace ?? null,
+  });
 
   const movable = isMovable(role.status, role.archive_reason);
   const pool = store.companyPool(company.id).filter((p) => p.role_id !== role.id);

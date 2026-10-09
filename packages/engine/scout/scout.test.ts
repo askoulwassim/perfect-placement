@@ -28,7 +28,10 @@ function boards(url: string) {
   return undefined;
 }
 
-const FIXTURE_PROFILE = { craft: { functions: ['PM', 'TPM'], level: 'principal' }, work_mode: { modes: ['remote'], locations: ['US'] } };
+const FIXTURE_PROFILE = {
+  craft: { functions: ['PM', 'TPM'], level: 'principal' },
+  work_mode: { modes: ['remote'], remote_only: true, locations: ['US'] },
+};
 
 describe('board listings', () => {
   it('lists Greenhouse, Lever and Ashby boards with JD, workplace and comp', async () => {
@@ -130,6 +133,12 @@ describe('rule filter', () => {
     expect(keep('Product Manager', 'Europe', 'remote')).toEqual({ keep: false, reason: 'location' });
     expect(keep('Product Manager', 'Remote - United States', 'remote')).toEqual({ keep: true });
     expect(keep('Product Manager', 'New York', null)).toEqual({ keep: true });
+  });
+
+  it('remote preferred is not remote only: hybrid stays for scoring (#83)', () => {
+    const r = rulesFromProfile({ ...FIXTURE_PROFILE, work_mode: { modes: ['remote'], locations: ['New York'] } });
+    expect(r.remoteOnly).toBe(false);
+    expect(screen({ title: 'Principal Product Manager', location: 'New York, NY', workplace: 'hybrid' }, r)).toEqual({ keep: true });
   });
 
   it('include replaces the Craft phrases; exclude drops words', () => {

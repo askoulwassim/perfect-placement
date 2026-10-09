@@ -12,6 +12,9 @@ export interface RoleLite {
   status: RoleStatus;
   archive_reason: ArchiveReason | null;
   found_at: string;
+  /** Work-mode filter fallbacks when the facts leave them out (#83). */
+  location?: string | null;
+  workplace?: string | null;
 }
 
 export interface CompanyLite {
