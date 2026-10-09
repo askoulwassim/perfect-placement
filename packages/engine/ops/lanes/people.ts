@@ -1,7 +1,8 @@
 import { type ContactTier, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { findPeople } from '../../people/find.js';
-import { draftOutreach, outreachToGmailHandler, readOutreachSections } from '../../people/outreach.js';
+import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
 import { notFound, OpError } from '../errors.js';
@@ -68,7 +69,11 @@ export const LANE_H_HANDLERS = {
         const tier = TONE_TIER[tone];
         return { hook, proof, ask: tier === outreach.tier ? ask : TIER_TEMPLATES[tier].ask };
       });
-      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, variants };
+      // Sign-off and body exactly as outreach.to_gmail composes them (the agent's Gmail step uses `body`).
+      const d = md ? resolveDraft(peopleDeps(h), outreach, md) : null;
+      const signoff = d && !('error' in d) ? (d.text.signoff ?? '') : (s.signoff ?? '');
+      const body = d && !('error' in d) ? d.body : composeBody({ hook, proof, ask, signoff }, { recipientName: contact.name });
+      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants };
     },
   }),
   'outreach.list': defineHandler('outreach.list', {

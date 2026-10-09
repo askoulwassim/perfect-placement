@@ -20,6 +20,8 @@ export interface DraftText {
   hook: string;
   proof: string;
   ask: string;
+  /** Sign-off in the user's voice ("Thanks,\nAlex"). Optional: the default comes from Voice / Story. */
+  signoff?: string;
 }
 
 export interface WriterPrompt {

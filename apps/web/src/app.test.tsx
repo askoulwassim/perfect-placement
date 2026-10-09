@@ -267,6 +267,32 @@ describe('click paths', () => {
     await screen.findByText('1 / 12');
   });
 
+  it('Onboarding: Voice keeps several writing samples (add, remove)', async () => {
+    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['voice'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Style'));
+    fireEvent.click($(container, '.onboard-q .chip'));
+    fireEvent.click(primary(container));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Writing samples'));
+    // The fixture's two samples are listed; remove the first, add two more.
+    await waitFor(() => expect(container.querySelectorAll('.onboard-q__item')).toHaveLength(2));
+    assertButtons(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove 1' }));
+    expect(container.querySelectorAll('.onboard-q__item')).toHaveLength(1);
+    const area = $(container, '.onboard-q textarea');
+    fireEvent.change(area, { target: { value: 'Sample two, short.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(container.querySelectorAll('.onboard-q__item')).toHaveLength(2);
+    fireEvent.change($(container, '.onboard-q textarea'), { target: { value: 'Sample three, pending.' } });
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.filter((c) => c.name === 'onboard.answer')).toHaveLength(2));
+    const last = live?.calls.filter((c) => c.name === 'onboard.answer').at(-1);
+    expect(last?.status).toBe('ok');
+    const sent = last?.body as { question_id: string; value: string[] };
+    expect(sent.question_id).toBe('voice.sample');
+    expect(sent.value).toHaveLength(3);
+    expect(sent.value.slice(1)).toEqual(['Sample two, short.', 'Sample three, pending.']);
+  });
+
   it('Onboarding: four steps end to end', async () => {
     const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));

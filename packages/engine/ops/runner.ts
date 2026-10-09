@@ -109,7 +109,7 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     '',
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
-    '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = Hook, blank line, Proof, blank line, Ask, exactly as stored.',
+    '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
     '2. Recipient: the contact\'s email (contacts_get { contact_id }). For a bridge draft (tier "bridge") it is the mutual: the link for this role names via_contact_id; use that contact\'s email. No email on file = leave To empty.',
     "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,

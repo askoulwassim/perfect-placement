@@ -33,6 +33,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const [answers, setAnswers] = useState<Record<string, string | number | string[]>>({});
   const [weights, setWeights] = useState<Record<Criterion, number> | null>(null);
   const [ci, setCi] = useState(0);
+  /** List text questions (voice.sample): the item being typed before Add. */
+  const [pending, setPending] = useState('');
   const samples = useOp('onboard.samples', step >= 2 ? {} : null);
   const profile = useOp('profile.get', step === 3 ? {} : null);
   const saved = useOp('onboard.state', {});
@@ -74,7 +76,18 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
     ? (val ??
       (q.answer_type === 'slider' ? sliderMid : q.answer_type === 'multi_chips' && q.options?.includes('Any') ? ['Any'] : undefined))
     : undefined;
-  const answered = qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
+  // A list question (voice.sample) keeps several items: Add appends, Remove drops one, Next sends the list.
+  const listQ = !!q?.max_items;
+  const items: string[] = listQ ? (Array.isArray(val) ? val : (q?.items ?? [])) : [];
+  const listOut = listQ ? [...items, ...(pending.trim() && !items.includes(pending.trim()) ? [pending.trim()] : [])] : [];
+  const answered = listQ
+    ? listOut.length > 0 && listOut.length <= (q?.max_items ?? 0)
+    : qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
+  const addItem = () => {
+    if (!q || !pending.trim() || items.length >= (q.max_items ?? 0)) return;
+    setAnswers({ ...answers, [q.id]: listOut });
+    setPending('');
+  };
 
   const calibrate = useCallback(
     async (choice: 'yes' | 'no' | 'maybe') => {
@@ -105,9 +118,10 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       if (state && parsed >= NODE_COUNT) setStep(1);
       return;
     }
-    if (step === 1 && q && answered && qVal !== undefined) {
-      const o = await act('onboard.answer', { question_id: q.id, value: qVal });
+    if (step === 1 && q && answered && (listQ || qVal !== undefined)) {
+      const o = await act('onboard.answer', { question_id: q.id, value: listQ ? listOut : (qVal as string | number | string[]) });
       if (o.status !== 'ok') return;
+      setPending('');
       setState(o.output);
       if (o.output.step === 'calibrate') setStep(2);
       else setQn((n) => n + 1);
@@ -328,7 +342,83 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 </div>
               </div>
             )}
-            {q.answer_type === 'text' && (
+            {q.answer_type === 'text' && listQ && (
+              <div className="onboard-q" style={{ maxWidth: 620, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {items.map((it, i) => (
+                  <div
+                    key={it}
+                    className="onboard-q__item"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 14,
+                      border: `1.5px solid ${C['line-2']}`,
+                      borderRadius: 12,
+                      padding: '12px 16px',
+                    }}
+                  >
+                    <span style={{ ...mono(11, C.dim), letterSpacing: '.1em', paddingTop: 3 }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontSize: 15, color: C.fg, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{it}</span>
+                    <Btn
+                      op="local"
+                      aria-label={`Remove ${i + 1}`}
+                      onClick={() => setAnswers({ ...answers, [q.id]: items.filter((_, j) => j !== i) })}
+                      style={{ background: 'transparent', border: 'none', color: C.muted, fontSize: 13, padding: 0 }}
+                      hover={{ color: C.fg }}
+                    >
+                      Remove
+                    </Btn>
+                  </div>
+                ))}
+                {items.length < (q.max_items ?? 0) && (
+                  <>
+                    <textarea
+                      aria-label={q.label}
+                      value={pending}
+                      maxLength={q.max_chars}
+                      onChange={(e) => setPending(e.target.value)}
+                      rows={4}
+                      style={{
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        background: 'transparent',
+                        border: `1.5px solid ${C['line-2']}`,
+                        borderRadius: 12,
+                        color: C.fg,
+                        fontSize: 18,
+                        padding: '16px 20px',
+                        fontFamily: 'inherit',
+                        resize: 'vertical',
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ ...mono(11, C.dim), letterSpacing: '.1em' }}>
+                        {items.length} / {q.max_items}
+                      </span>
+                      <Btn
+                        op="local"
+                        disabled={!pending.trim()}
+                        onClick={addItem}
+                        style={{
+                          height: 40,
+                          padding: '0 20px',
+                          borderRadius: 999,
+                          border: `1.5px solid ${C['line-2']}`,
+                          background: 'transparent',
+                          color: C.fg,
+                          fontSize: 15,
+                          fontWeight: 500,
+                        }}
+                        hover={{ borderColor: C['emerald-2'] }}
+                      >
+                        Add
+                      </Btn>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {q.answer_type === 'text' && !listQ && (
               <div className="onboard-q" style={{ maxWidth: 620 }}>
                 <textarea
                   aria-label={q.label}

@@ -2,7 +2,7 @@
 
 **Owner: lane H** (`docs/v2/lanes/`). Only lane H writes here.
 
-Contacts, contact_link, tier classification via resolver, outreach drafts (Hook / Proof / Ask).
+Contacts, contact_link, tier classification via resolver, outreach drafts (Hook / Proof / Ask + sign-off, sent to Gmail as a natural email).
 
 ## Files
 
@@ -12,8 +12,8 @@ Contacts, contact_link, tier classification via resolver, outreach drafts (Hook 
 | `find.ts` | `people.find`: picked roles only; LinkedIn (capped) + Gmail contacts + skill hints; upsert contacts, provisional links, `contact_found`, run row (carries the daily LinkedIn budget). |
 | `classify.ts` | `people.classify` (resolver Choice, kind `people.classify`, low impact; `role` input = a human's pick via the decision action `role: "$value"`) and `people.link` (tier must equal degree x hiring team). |
 | `outreach.ts` | `outreach.draft` (vault md + row + `outreach_drafted`), `outreach.to_gmail` (Gmail draft only, idempotent), `outreach.send` (always `unimplemented`), `composeAndDraft` writer pipeline. |
-| `templates.ts` | Per-tier Hook / Proof / Ask templates, LLM writer prompt (Story + Voice only), deterministic fallback. |
-| `style.ts` | Mechanical writing checks: no em/en dashes, length limits, Proof numbers must appear in Story. |
+| `templates.ts` | Per-tier templates; LLM writer prompt with CONTEXT (contact headline, role JD, dossier highlights; facts about them) apart from STORY (the only facts about the user) and VOICE (style, notes, every writing sample as a tone exemplar); deterministic natural-shape fallback. |
+| `style.ts` | Mechanical writing checks: no em/en dashes, length limits, Proof at most 3 sentences, Proof numbers in Story, Hook numbers in Story or CONTEXT, no stock flattery; `composeBody` (greeting, Hook, Proof, Ask, sign-off). |
 | `tier.ts` | `tierFor(degree, hiringTeam)`. |
 | `queries.ts` | Row access over lane A repositories, runOp's emitter and staged vault. |
 
