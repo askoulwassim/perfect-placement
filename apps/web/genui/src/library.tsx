@@ -159,8 +159,11 @@ const PRIMARY_OPS = new Set<string>(
     .map((a) => a.op)
     .filter((op): op is OpName => op !== null),
 );
-/** Ops an Ask reply may offer: PRIMARY_ACTIONS ops that act on what a reply shows. Never submit or send. */
-const CANDIDATES = ['runs.start', 'roles.check_freshness', 'outreach.to_gmail', 'profile.apply_diff'] as const;
+/**
+ * Ops an Ask reply may offer: PRIMARY_ACTIONS ops that act on what a reply shows. Never submit or send.
+ * Gmail drafts are made by an agent run from the Outreach screen (the engine has no Gmail client).
+ */
+const CANDIDATES = ['runs.start', 'roles.check_freshness', 'profile.apply_diff'] as const;
 export const ASK_ACTION_OPS = CANDIDATES.filter((op) => PRIMARY_OPS.has(op) && !isHardHuman({ op }) && !OPS[op].humanOnly);
 type AskOp = (typeof CANDIDATES)[number];
 
@@ -171,8 +174,6 @@ export function actionInput(op: AskOp, ids: readonly string[], skill?: (typeof S
       return skill ? { skill, ...(ids[0] ? { role_id: ids[0] } : {}), ...(ids[1] ? { contact_id: ids[1] } : {}) } : null;
     case 'roles.check_freshness':
       return ids.length ? { role_ids: [...ids] } : { all_in_scope: true };
-    case 'outreach.to_gmail':
-      return ids[0] ? { outreach_id: ids[0] } : null;
     case 'profile.apply_diff':
       return ids[0] ? { diff_id: ids[0] } : null;
   }
@@ -182,7 +183,7 @@ const forbidden = (label: string) => FORBIDDEN_BUTTON_LABELS.some((bad) => label
 
 export const OpButton = defineComponent({
   name: 'OpButton',
-  description: `One button that runs one op on what the reply shows. Label 1 to 3 words. op is one of ${ASK_ACTION_OPS.join(', ')}. ids: role ids for roles.check_freshness; [roleId, contactId?] for runs.start (with skill); [outreachId] for outreach.to_gmail; [diffId] for profile.apply_diff. Never submit or send.`,
+  description: `One button that runs one op on what the reply shows. Label 1 to 3 words. op is one of ${ASK_ACTION_OPS.join(', ')}. ids: role ids for roles.check_freshness; [roleId, contactId?] for runs.start (with skill); [diffId] for profile.apply_diff. Never submit or send.`,
   props: z.object({
     label: z.string(),
     op: z.enum(CANDIDATES),

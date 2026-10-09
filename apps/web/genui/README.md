@@ -13,7 +13,7 @@
 
 - **Ids, not data.** Props are the contract's `GENUI_PROPS` (id-only, key order = argument order). Cards fetch through ops (`roles.get`, `contacts.get`, `profile.get`) with the app's client; a wrong id renders "No role", never an invented card.
 - **Cards are lane D's**: RoleCard, ScoreRadar, ContactAvatar (+ name), DiffBlock.
-- **OpButton** (OpenUI reserves `Action`): one button, one op, limited to the PRIMARY_ACTIONS ops an Ask reply can act on (`runs.start`, `roles.check_freshness`, `outreach.to_gmail`, `profile.apply_diff`); never submit or send, forbidden labels render nothing. Whatever the engine routes to a human comes back as `requires_human` and lands in Needs you.
+- **OpButton** (OpenUI reserves `Action`): one button, one op, limited to the PRIMARY_ACTIONS ops an Ask reply can act on (`runs.start`, `roles.check_freshness`, `profile.apply_diff`; Gmail drafts start from the Outreach screen as an agent run); never submit or send, forbidden labels render nothing. Whatever the engine routes to a human comes back as `requires_human` and lands in Needs you.
 
 ## Supply chain
 

@@ -154,14 +154,39 @@ describe('click paths', () => {
     fireEvent.click(maya);
     await go(window.location.hash);
     await waitFor(() => expect(primary(container).textContent).toBe('Create Gmail draft'));
+    expect(primary(container).getAttribute('data-op')).toBe('runs.start');
     fireEvent.click(primary(container));
-    await waitFor(() => expect(window.location.hash).toBe(`#/role/${R.linearDraft}`));
-    await go(window.location.hash);
+    // Gmail via agent: the click starts a connect run scoped to the draft; the headless agent makes the draft.
+    await waitFor(() => expect(container.querySelector('[data-run]')?.getAttribute('data-run')).toBe('running'));
+    expect(live?.calls.filter((c) => c.name === 'runs.start').at(-1)?.body).toEqual({ skill: 'connect', outreach_id: 'or_0001' });
+    expect(primary(container).disabled).toBe(true);
+    const spec = live?.engine.launcher.specs.at(-1);
+    expect(spec?.args).not.toContain('--chrome');
+    expect(spec?.args[1]).toContain('outreach_id: or_0001');
+    expect(live?.calls.some((c) => c.name === 'outreach.to_gmail')).toBe(false);
+    // The agent records the draft it created with its own Gmail tool, then finishes the run.
+    const recorded = await live?.as(
+      'agent',
+      'outreach.to_gmail',
+      { outreach_id: 'or_0001', gmail_draft_id: 'r-agent-1' },
+      { confidence: { p: 0.95, backend: 'agent' } },
+    );
+    expect(recorded?.status).toBe('ok');
+    expect(
+      await live?.as('agent', 'runs.finish', { run_id: spec?.runId, status: 'ok', summary: { outreach_id: 'or_0001' } }),
+    ).toMatchObject({
+      status: 'ok',
+    });
+    // runs.get poll sees the run finish; the outreach refreshes to in_gmail and the button disables.
+    await waitFor(() => expect(container.querySelector('[data-run]')?.getAttribute('data-run')).toBe('ok'));
+    await waitFor(() => expect(primary(container).disabled).toBe(true));
+    expect(live?.calls.some((c) => c.name === 'runs.get')).toBe(true);
+    await go(`#/role/${R.linearDraft}`);
     await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
     const connect = Array.from(container.querySelectorAll('.stage')).find((s) => s.textContent === 'Connect');
     expect(connect?.getAttribute('data-state')).toBe('done');
     const o = await live?.client.run('outreach.get', { outreach_id: 'or_0001' });
-    expect(o?.status === 'ok' && o.output.outreach.status).toBe('in_gmail');
+    expect(o?.status === 'ok' && o.output.outreach).toMatchObject({ status: 'in_gmail', gmail_draft_id: 'r-agent-1' });
   });
 
   it('People: Draft for <best path> starts a connect run for that person and opens the draft it wrote', async () => {

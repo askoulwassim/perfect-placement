@@ -596,8 +596,17 @@ export const contactsGet = defineOp({
 
 export const outreachToGmail = defineOp({
   name: 'outreach.to_gmail',
-  description: 'Create a Gmail draft from a vault draft. Never sends.',
-  input: z.object({ outreach_id: Id }),
+  description:
+    'Create a Gmail draft from a vault draft, or record one the calling agent already created with its own Gmail tool (gmail_draft_id). Never sends.',
+  input: z.object({
+    outreach_id: Id,
+    /**
+     * Added (Gmail via agent): the id of a Gmail draft the calling agent already created with its own
+     * Gmail draft tool (Claude Code: the Gmail connector). The engine then records it instead of
+     * calling its own Gmail client (it has none by default).
+     */
+    gmail_draft_id: z.string().min(1).optional(),
+  }),
   output: z.object({ outreach: Outreach, gmail_draft_id: z.string() }),
   impact: 'medium',
   emits: [],
@@ -723,12 +732,21 @@ export const runsGet = defineOp({
 /**
  * Added in Wave 0: UI buttons (Scout now, Research, Tailor, Connect, Fill, Check all) start skill runs.
  * Launches the configured headless runner (`config.runner`). A `connect` run's
- * `summary_json.outreach_id` names the draft it wrote.
+ * `summary_json.outreach_id` names the draft it wrote (or, with `outreach_id`, the draft it puts in Gmail).
  */
 export const runsStart = defineOp({
   name: 'runs.start',
-  description: 'Start a skill run, optionally for one role or one person.',
-  input: z.object({ skill: Skill, role_id: Id.optional(), contact_id: Id.optional() }),
+  description: 'Start a skill run, optionally for one role, one person, or one outreach draft (connect: the Gmail draft step).',
+  input: z.object({
+    skill: Skill,
+    role_id: Id.optional(),
+    contact_id: Id.optional(),
+    /**
+     * Added (Gmail via agent): `connect` only. Scopes the run to the Gmail draft step for this outreach:
+     * the agent creates a Gmail draft with its own Gmail tool and records it with `outreach.to_gmail`.
+     */
+    outreach_id: Id.optional(),
+  }),
   output: z.object({ run: Run }),
   impact: 'low',
   emits: ['run_started'],

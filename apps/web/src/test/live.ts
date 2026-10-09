@@ -1,4 +1,4 @@
-import type { Actor, OpOutcome } from '@perfect-placement/contracts';
+import type { Actor, OpContext, OpOutcome } from '@perfect-placement/contracts';
 import { type FixtureEngine, type FixtureOptions, openFixtureEngine, tickingClock } from '@perfect-placement/engine/testing';
 import { FIXTURE_NOW } from '@perfect-placement/fixtures';
 import { createHttpClient } from '../client/http';
@@ -25,8 +25,8 @@ export interface Live {
   fetch: typeof fetch;
   client: OpClient;
   calls: FetchCall[];
-  /** Run an op as another actor (the agent finishing a run, a schedule), bypassing HTTP. */
-  as(actor: Actor, name: string, input: unknown): Promise<OpOutcome<unknown>>;
+  /** Run an op as another actor (the agent finishing a run, a schedule), bypassing HTTP. `over`: e.g. the agent's confidence. */
+  as(actor: Actor, name: string, input: unknown, over?: Partial<OpContext>): Promise<OpOutcome<unknown>>;
   now: () => Date;
   close(): void;
 }
@@ -57,7 +57,7 @@ export function openLive(opts: FixtureOptions = {}): Live {
     fetch: fake,
     client: createHttpClient('/api', fake),
     calls,
-    as: (actor, name, input) => engine.runOp(name, input, { actor, now: clock }),
+    as: (actor, name, input, over) => engine.runOp(name, input, { ...over, actor, now: clock }),
     now: () => new Date(FIXTURE_NOW),
     close: () => engine.cleanup(),
   };
