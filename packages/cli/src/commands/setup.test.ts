@@ -10,6 +10,7 @@ import { runCli } from '../cli.js';
 import type { Io } from '../io.js';
 import { type FakeDeps, fakeDeps } from '../system/fake-deps.test-helpers.js';
 import { kevPaths, serveArgs } from '../system/kev.js';
+import { restartHint } from './setup.js';
 
 let root: string;
 let home: string;
@@ -91,7 +92,33 @@ describe('pp setup', () => {
     const cursor = JSON.parse(readFileSync(join(home, '.cursor', 'mcp.json'), 'utf8'));
     expect(cursor.mcpServers.pp).toMatchObject({ command: '/opt/node22/bin/node', env: { PP_HOME: ppHome } });
     expect(existsSync(join(home, '.codex', 'config.toml'))).toBe(false);
+    expect(text()).toContain('mcp: Cursor: restart Cursor; then ask it to call the pp tools');
     expect(await runCli(['setup', '--mcp', 'nope'], io)).toBe(2);
+  });
+
+  it('Claude Desktop: says to quit (Cmd+Q) and reopen, where pp shows, and again when already registered', async () => {
+    const dir = join(home, 'Library', 'Application Support', 'Claude');
+    mkdirSync(dir, { recursive: true });
+    const hint = 'mcp: Claude Desktop: Quit Claude Desktop (Cmd+Q) and reopen it; pp appears under Settings > Developer';
+    expect(await runCli(['setup', '--yes', '--no-kev', '--mcp', 'claude-desktop'], io)).toBe(0);
+    const cfg = JSON.parse(readFileSync(join(dir, 'claude_desktop_config.json'), 'utf8'));
+    expect(cfg.mcpServers.pp.env).toEqual({ PP_HOME: ppHome });
+    expect(text()).toContain(hint);
+    out.length = 0;
+    expect(await runCli(['setup', '--yes', '--no-kev', '--mcp', 'claude-desktop'], io)).toBe(0);
+    expect(text()).toContain('mcp: Claude Desktop: already registered');
+    expect(text()).toContain(hint);
+  });
+
+  it('restart hints: one per client, never for a skipped one', async () => {
+    expect(restartHint('claude-code')).toBe('restart Claude Code; then ask it to call the pp tools');
+    expect(restartHint('codex')).toBe('restart Codex; then ask it to call the pp tools');
+    expect(restartHint('claude-desktop', 'win32')).toBe('Quit Claude Desktop fully and reopen it; pp appears under Settings > Developer');
+    mkdirSync(join(home, '.cursor'));
+    answers = [false];
+    expect(await runCli(['setup', '--no-kev', '--mcp', 'cursor'], io)).toBe(0);
+    expect(text()).toContain('mcp: Cursor: skipped');
+    expect(text()).not.toContain('restart Cursor');
   });
 
   it('says Kev is unsupported off Apple Silicon / CUDA and carries on', async () => {

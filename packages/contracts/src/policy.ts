@@ -143,6 +143,12 @@ export const PolicyConfig = z.object({
     freshness: ScheduleSpec,
     scout_score: ScheduleSpec,
   }),
+  /**
+   * UI state kept in the vault (wave1-decisions #27). `cues_seen`: first-visit cue ids already
+   * dismissed (screen names, plus `ask`); Settings "Show cues" resets it to []. Optional: older
+   * config.json files parse unchanged.
+   */
+  ui: z.object({ cues_seen: z.array(z.string()).default([]) }).optional(),
 });
 /** Shape of `$PP_HOME/config.json`. */
 export type PolicyConfig = z.infer<typeof PolicyConfig>;
@@ -176,6 +182,7 @@ export const DEFAULT_CONFIG: PolicyConfig = {
   },
   freshness: { stale_after_days: 45 },
   schedules: { inbox: 'daily 07:30', freshness: 'daily 06:30', scout_score: 'fri 05:30' },
+  ui: { cues_seen: [] },
 };
 
 /** Effective thresholds for a decision kind (base merged with override). Pure data merge, no policy logic. */

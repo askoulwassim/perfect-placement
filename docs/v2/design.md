@@ -34,6 +34,7 @@ Now, Needs you, River, Role, People, Outreach draft, You, Onboarding (4 steps), 
 ## Non-negotiables
 
 - No explanatory text, no tips, labels of one to three words.
+  - Exception (wave1-decisions #27, owner-approved 2026-10-08): a one-time first-visit cue per screen, a spotlight on the primary action with a 1-3 word label. Never a paragraph or a tour.
 - One primary action per screen, same place, filled emerald.
 - Every button calls exactly one op from `packages/contracts`.
 - Never a "Send" or "Submit" button that acts externally: outreach ends at **Create Gmail draft**, applications at **Open portal**.
