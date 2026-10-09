@@ -162,10 +162,23 @@ mkdir -p "$BIN_DIR"
 write_launcher pp "$REPO/packages/cli/dist/index.js"
 write_launcher pp-mcp "$REPO/packages/mcp/dist/bin.js"
 
+# Another `pp` earlier on PATH wins (macOS ships /usr/bin/pp, a Perl packager).
+SHADOW=""
+OLD_IFS=$IFS
+IFS=:
+for d in $PATH; do
+  [ "$d" = "$BIN_DIR" ] && break
+  if [ -x "$d/pp" ]; then SHADOW="$d/pp"; break; fi
+done
+IFS=$OLD_IFS
+
 echo ""
 echo "Done."
-if [ "$ON_PATH" -eq 0 ]; then
-  echo "Add this to your shell profile (~/.zshrc or ~/.bashrc), then open a new terminal:"
+if [ "$ON_PATH" -eq 0 ] || [ -n "$SHADOW" ]; then
+  [ -n "$SHADOW" ] && echo "Another pp comes first on your PATH ($SHADOW)."
+  echo "Add this to the end of your shell profile (~/.zshrc or ~/.bashrc), then open a new terminal:"
   echo "  export PATH=\"$BIN_DIR:\$PATH\""
+else
+  echo "Open a new terminal (or run: rehash in zsh, hash -r in bash) so your shell finds the new pp."
 fi
 echo "Next: pp setup, then pp up"
