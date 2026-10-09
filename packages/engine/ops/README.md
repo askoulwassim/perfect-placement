@@ -22,7 +22,7 @@ engine.close();
 | --- | --- |
 | `runtime.ts` | `createEngine` / `runOp`: lookup, zod input, gate, transaction (savepoints for nested ops), staged vault, output check, after-commit hooks. |
 | `registry.ts` | `ALL_HANDLERS`: every op except `outreach.send` (unimplemented by contract). |
-| `handlers/` | Lane B: roles.add/move/archive/get/list, pipeline.summary, companies.get, companies.dossier.write, apply.*, inbox.ingest, runs.*, config.*, vault.read. `shared.ts` `moveRole` is the one place lane B changes a status. |
+| `handlers/` | Lane B: roles.add (intake check via `scout/`)/move/archive/get/list, scout.watchlist_scan, pipeline.summary, companies.get, companies.dossier.write, apply.*, inbox.ingest, runs.*, config.*, vault.read. `shared.ts` `moveRole` is the one place lane B changes a status. |
 | `lanes/` | Wiring for lanes E (`profile.ts`), F (`scoring.ts`, incl. `rebalance`), G (`freshness.ts`), H (`people.ts`, incl. outreach.get/list, contacts.get), I + A (`decisions.ts`: decisions.*, system.backends, system.doctor). |
 | `decision-store.ts` | Lane I's `DecisionStore` over lane A repositories. |
 | `policy.ts` | Hard-exclusion hint for the resolver (diff component + changed keys). |

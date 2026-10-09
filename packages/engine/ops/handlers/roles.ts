@@ -3,12 +3,19 @@ import {
   ArchiveReason,
   type Company,
   type DecisionAction,
+  type IntakeCounts,
+  type OpInput,
   ROLE_STATUSES,
   type Role,
   type RoleStatus,
   Slug,
   vaultPath,
 } from '@perfect-placement/contracts';
+import type Database from 'better-sqlite3';
+import { defaultFetch } from '../../integrations/ats/index.js';
+import { getComponent, getCurrentVersion } from '../../profile/versions.js';
+import { watchlistFrom } from '../../scoring/source-mix.js';
+import { type IntakeVerdict, intakeDeps, rulesFromProfile, type ScanCompany, scanWatchlist, verifyCandidate } from '../../scout/index.js';
 import { atsFromUrl, normalizeUrl, TITLE_DUPLICATE_MIN, TITLE_POSSIBLE_MIN, titleSimilarity } from '../dedupe.js';
 import { OpError } from '../errors.js';
 import { roleIdFor, slugify } from '../ids.js';
@@ -32,17 +39,17 @@ const hostOf = (d: string | null | undefined) =>
         .split('/')[0] || null
     : null;
 
-function findCompany(h: HandlerContext, name: string, domain: string | undefined, url: string | undefined): Company | null {
-  const byId = get(h.db, 'company', companySlug(name));
+function findCompany(db: Database.Database, name: string, domain: string | undefined, url: string | undefined): Company | null {
+  const byId = get(db, 'company', companySlug(name));
   if (byId) return byId;
   const host = hostOf(domain);
   if (host) {
-    const byDomain = select(h.db, 'company', 'lower(domain) = ?', [host])[0];
+    const byDomain = select(db, 'company', 'lower(domain) = ?', [host])[0];
     if (byDomain) return byDomain;
   }
   const ats = atsFromUrl(url);
   if (ats.board && ats.type !== 'unknown') {
-    const byBoard = select(h.db, 'company', 'ats_type = ? AND lower(ats_board) = ?', [ats.type, ats.board.toLowerCase()])[0];
+    const byBoard = select(db, 'company', 'ats_type = ? AND lower(ats_board) = ?', [ats.type, ats.board.toLowerCase()])[0];
     if (byBoard) return byBoard;
   }
   return null;
@@ -74,50 +81,137 @@ interface Known {
   jobId: string | null;
 }
 
+type Candidate = OpInput<'roles.add'>['candidates'][number];
+type DupMatch = { existing_id: string; match: 'url' | 'ats_job_id' | 'company_title' };
+
+const knownRoles = (db: Database.Database): Known[] =>
+  select(db, 'role').map((r) => ({ id: r.id, company_id: r.company_id, title: r.title, url: normalizeUrl(r.url), jobId: r.ats_job_id }));
+
+/** Exact duplicate (url, ATS job id, company + title >= TITLE_DUPLICATE_MIN), plus the best same-company title match. */
+function matchKnown(
+  known: readonly Known[],
+  company: Company | null,
+  title: string,
+  url: string | undefined,
+  jobId: string | null | undefined,
+): { dup: DupMatch | null; best: { k: Known; sim: number } | null } {
+  const nurl = normalizeUrl(url);
+  const byUrl = nurl ? known.find((k) => k.url === nurl) : undefined;
+  if (byUrl) return { dup: { existing_id: byUrl.id, match: 'url' }, best: null };
+  const byJob = jobId ? known.find((k) => k.jobId === jobId) : undefined;
+  if (byJob) return { dup: { existing_id: byJob.id, match: 'ats_job_id' }, best: null };
+  let best: { k: Known; sim: number } | null = null;
+  if (company)
+    for (const k of known.filter((k) => k.company_id === company.id)) {
+      const sim = titleSimilarity(title, k.title);
+      if (!best || sim > best.sim) best = { k, sim };
+    }
+  if (best && best.sim >= TITLE_DUPLICATE_MIN) return { dup: { existing_id: best.k.id, match: 'company_title' }, best };
+  return { dup: null, best };
+}
+
+/** Intake verdicts by candidate index (#32), computed before the transaction (network). */
+type Verdicts = Map<number, IntakeVerdict>;
+
+const emptyCounts = (): IntakeCounts => ({ candidates: 0, added: 0, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 });
+
 export const rolesAdd = defineHandler('roles.add', {
-  async run(input, h) {
+  async prepare(input, p): Promise<Verdicts> {
+    const verdicts: Verdicts = new Map();
+    if (input.verify === false) return verdicts;
+    const deps = intakeDeps(p.services.fetch ?? defaultFetch());
+    const known = knownRoles(p.db);
+    for (const [index, c] of input.candidates.entries()) {
+      if (!c.url) continue;
+      const company = findCompany(p.db, c.company_name, c.company_domain, c.url);
+      const { dup } = matchKnown(known, company, c.title, c.url, c.ats_job_id ?? atsFromUrl(c.url).jobId);
+      if (dup) continue; // no network for known roles
+      known.push({
+        id: `#${index}`,
+        company_id: company?.id ?? companySlug(c.company_name),
+        title: c.title,
+        url: normalizeUrl(c.url),
+        jobId: c.ats_job_id ?? null,
+      });
+      const hint = {
+        slug: company?.slug ?? companySlug(c.company_name),
+        ats_type: company?.ats_type ?? null,
+        ats_board: company?.ats_board ?? null,
+      };
+      verdicts.set(index, await verifyCandidate({ title: c.title, url: c.url, location: c.location }, hint, deps));
+    }
+    return verdicts;
+  },
+  async run(input, h, prepared) {
+    const verdicts = (prepared as Verdicts | undefined) ?? new Map<number, IntakeVerdict>();
     const now = h.nowIso();
-    const known: Known[] = select(h.db, 'role').map((r) => ({
-      id: r.id,
-      company_id: r.company_id,
-      title: r.title,
-      url: normalizeUrl(r.url),
-      jobId: r.ats_job_id,
-    }));
+    const known = knownRoles(h.db);
     const added: string[] = [];
     const duplicates: { index: number; existing_id: string; match: 'url' | 'ats_job_id' | 'company_title' }[] = [];
     const possible: { index: number; role_id: string; existing_id: string; similarity: number; decision_id: string }[] = [];
+    const skipped: { index: number; reason: 'dead' | 'aggregator'; detail: string }[] = [];
+    const resolved: { index: number; role_id: string; from: string; to: string }[] = [];
+    const notes = new Map<string, string>();
+    const bySource: Partial<Record<Candidate['source'], IntakeCounts>> = {};
+    const count = (c: Candidate, key: keyof IntakeCounts) => {
+      const n = bySource[c.source] ?? emptyCounts();
+      n[key]++;
+      bySource[c.source] = n;
+    };
 
-    for (const [index, c] of input.candidates.entries()) {
-      const ats = atsFromUrl(c.url);
-      const jobId = c.ats_job_id ?? ats.jobId;
-      const nurl = normalizeUrl(c.url);
-      const company = findCompany(h, c.company_name, c.company_domain, c.url);
-
-      const byUrl = nurl ? known.find((k) => k.url === nurl) : undefined;
-      if (byUrl) {
-        duplicates.push({ index, existing_id: byUrl.id, match: 'url' });
+    for (const [index, raw] of input.candidates.entries()) {
+      count(raw, 'candidates');
+      let company = findCompany(h.db, raw.company_name, raw.company_domain, raw.url);
+      const first = matchKnown(known, company, raw.title, raw.url, raw.ats_job_id ?? atsFromUrl(raw.url).jobId);
+      if (first.dup) {
+        duplicates.push({ index, ...first.dup });
+        count(raw, 'duplicates');
         continue;
       }
-      const byJob = jobId ? known.find((k) => k.jobId === jobId) : undefined;
-      if (byJob) {
-        duplicates.push({ index, existing_id: byJob.id, match: 'ats_job_id' });
+
+      const v = verdicts.get(index);
+      if (v && v.verdict !== 'keep') {
+        skipped.push({ index, reason: v.verdict, detail: v.reason });
+        count(raw, v.verdict === 'dead' ? 'skipped_dead' : 'skipped_aggregator');
         continue;
       }
-      let best: { k: Known; sim: number } | null = null;
-      if (company)
-        for (const k of known.filter((k) => k.company_id === company.id)) {
-          const sim = titleSimilarity(c.title, k.title);
-          if (!best || sim > best.sim) best = { k, sim };
+
+      // The company's own posting replaces an aggregator link; the ATS JD fills or replaces a summary.
+      let c: Candidate = raw;
+      let best = first.best;
+      if (v?.url && v.url !== raw.url) {
+        c = { ...raw, url: v.url, ...(v.ats_job_id ? { ats_job_id: v.ats_job_id } : {}) };
+        company = company ?? findCompany(h.db, c.company_name, c.company_domain, c.url);
+        const again = matchKnown(known, company, c.title, c.url, c.ats_job_id ?? atsFromUrl(c.url).jobId);
+        if (again.dup) {
+          duplicates.push({ index, ...again.dup });
+          count(raw, 'duplicates');
+          continue;
         }
-      if (best && best.sim >= TITLE_DUPLICATE_MIN) {
-        duplicates.push({ index, existing_id: best.k.id, match: 'company_title' });
-        continue;
+        best = again.best;
+      }
+      const posting = v?.posting;
+      if (posting) {
+        c = {
+          ...c,
+          ...(posting.text.trim() ? { jd_markdown: posting.text.trim() } : {}),
+          ...(!c.ats_job_id && v?.ats_job_id ? { ats_job_id: v.ats_job_id } : {}),
+          ...(!c.location && posting.location ? { location: posting.location } : {}),
+          ...(!c.posted_at && posting.postedAt && !Number.isNaN(Date.parse(posting.postedAt))
+            ? { posted_at: new Date(posting.postedAt).toISOString() }
+            : {}),
+          ...(!c.workplace && (posting.workplace === 'remote' || posting.workplace === 'hybrid' || posting.workplace === 'onsite')
+            ? { workplace: posting.workplace }
+            : {}),
+        };
       }
 
+      const nurl = normalizeUrl(c.url);
+      const jobId = c.ats_job_id ?? atsFromUrl(c.url).jobId;
       const co = company ?? createCompany(h, c.company_name, c.company_domain, c.url);
       const id = roleIdFor(co.slug, c.title, (rid) => known.some((k) => k.id === rid) || get(h.db, 'role', rid) !== null);
       const workplace = c.workplace ?? 'unspecified';
+      const checked = v && v.freshness !== 'unknown';
       const role: Role = {
         id,
         company_id: co.id,
@@ -138,23 +232,30 @@ export const rolesAdd = defineHandler('roles.add', {
         status: 'inbox',
         archive_reason: null,
         held_reason: null,
-        last_checked_at: null,
-        freshness: 'unknown',
+        last_checked_at: checked ? now : null,
+        freshness: v?.freshness ?? 'unknown',
         flags_json: {},
         md_path: vaultPath.role(id),
         created_at: now,
         updated_at: now,
       };
       insert(h.db, 'role', role);
+      const found = [`- Found via ${c.source} on ${now.slice(0, 10)}.`];
+      if (c.url) found.push(`- ${c.url}`);
+      if (v?.resolved_from) found.push(`- Resolved from ${v.resolved_from}`);
+      if (v && v.verdict === 'keep' && v.freshness !== 'unknown') found.push(`- Intake check: ${v.freshness} (${v.reason})`);
       h.vault.write(
         role.md_path as string,
         renderMarkdown(
           { id, type: 'role' },
-          `# ${role.title}, ${co.name}\n\n## JD\n\n${c.jd_markdown?.trim() || '_Not captured yet._'}\n\n## Notes\n\n- Found via ${c.source} on ${now.slice(0, 10)}.${c.url ? `\n- ${c.url}` : ''}`,
+          `# ${role.title}, ${co.name}\n\n## JD\n\n${c.jd_markdown?.trim() || '_Not captured yet._'}\n\n## Notes\n\n${found.join('\n')}`,
         ),
       );
       h.emit('role_added', 'role', id, { company_id: co.id, title: role.title, source: c.source, url: role.url });
       added.push(id);
+      count(raw, 'added');
+      if (v?.resolved_from && c.url) resolved.push({ index, role_id: id, from: v.resolved_from, to: c.url });
+      if (v && v.freshness === 'unsure') notes.set(id, v.reason);
       known.push({ id, company_id: co.id, title: role.title, url: nurl, jobId: jobId ?? null });
 
       if (best && best.sim >= TITLE_POSSIBLE_MIN) {
@@ -180,19 +281,42 @@ export const rolesAdd = defineHandler('roles.add', {
       }
     }
 
+    const skippedDead = skipped.filter((s) => s.reason === 'dead');
+    const skippedAgg = skipped.filter((s) => s.reason === 'aggregator');
     h.runLog({
       title: 'roles.add',
-      summary: { candidates: input.candidates.length, added: added.length, duplicates: duplicates.length, possible: possible.length },
+      summary: {
+        candidates: input.candidates.length,
+        added: added.length,
+        duplicates: duplicates.length,
+        possible: possible.length,
+        skipped_dead: skippedDead.length,
+        skipped_aggregator: skippedAgg.length,
+        resolved: resolved.length,
+        by_source: bySource,
+      },
       lines: [
-        `Candidates in: ${input.candidates.length}, added: ${added.length}, deduped: ${duplicates.length}, possible duplicates: ${possible.length}`,
+        `Candidates in: ${input.candidates.length}, added: ${added.length}, deduped: ${duplicates.length}, possible duplicates: ${possible.length}, skipped dead: ${skippedDead.length}, skipped aggregator: ${skippedAgg.length}`,
+        '',
+        '| Source | Candidates | Added | Duplicates | Dead | Aggregator |',
+        '| --- | --- | --- | --- | --- | --- |',
+        ...Object.entries(bySource).map(
+          ([src, n]) => `| ${src} | ${n.candidates} | ${n.added} | ${n.duplicates} | ${n.skipped_dead} | ${n.skipped_aggregator} |`,
+        ),
         '',
         '### Added to inbox',
-        ...(added.length ? added.map((id) => `- ${id}`) : ['- (none)']),
+        ...(added.length ? added.map((id) => `- ${id}${notes.has(id) ? ` (freshness unsure: ${notes.get(id)})` : ''}`) : ['- (none)']),
         '',
         '### Deduped (already in pipeline)',
         ...(duplicates.length
           ? duplicates.map((d) => `- #${d.index} ${input.candidates[d.index]?.title} -> ${d.existing_id} (${d.match})`)
           : ['- (none)']),
+        ...(resolved.length
+          ? ['', "### Resolved to the company's own posting", ...resolved.map((r) => `- ${r.role_id}: ${r.from} -> ${r.to}`)]
+          : []),
+        ...(skipped.length
+          ? ['', '### Skipped', ...skipped.map((s) => `- #${s.index} ${input.candidates[s.index]?.title} (${s.reason}: ${s.detail})`)]
+          : []),
         ...(possible.length
           ? [
               '',
@@ -206,7 +330,50 @@ export const rolesAdd = defineHandler('roles.add', {
       added,
       duplicates,
       possible_duplicates: possible.map(({ index, role_id, existing_id, decision_id }) => ({ index, role_id, existing_id, decision_id })),
+      skipped,
+      resolved,
+      by_source: bySource,
     };
+  },
+});
+
+// --------------------------------------------------------- scout.watchlist_scan
+
+const titleCase = (slug: string) => slug.replace(/(^|-)([a-z])/g, (_m, sep: string, ch: string) => `${sep ? ' ' : ''}${ch.toUpperCase()}`);
+
+export const scoutWatchlistScanHandler = defineHandler('scout.watchlist_scan', {
+  async run(input, h) {
+    const version = getCurrentVersion(h.repos);
+    const comp = (key: 'craft' | 'work_mode' | 'company') =>
+      version ? ((getComponent(h.repos, version.id, key)?.data_json as Record<string, unknown> | undefined) ?? {}) : {};
+    const names = input.companies ?? watchlistFrom(comp('company'));
+    const companies: ScanCompany[] = [];
+    for (const n of names) {
+      const row = findCompany(h.db, n, undefined, undefined);
+      const slug = row?.slug ?? companySlug(n);
+      if (!Slug.safeParse(slug).success || companies.some((c) => c.slug === slug)) continue;
+      companies.push({
+        slug,
+        name: row?.name ?? (n === slug ? titleCase(n) : n.trim()),
+        ats_type: row?.ats_type ?? null,
+        ats_board: row?.ats_board ?? null,
+      });
+    }
+    const rules = rulesFromProfile(
+      { craft: comp('craft'), work_mode: comp('work_mode') },
+      { ...(input.include ? { include: input.include } : {}), ...(input.exclude ? { exclude: input.exclude } : {}) },
+    );
+    const roles = select(h.db, 'role');
+    const known = {
+      urls: new Set(roles.map((r) => normalizeUrl(r.url)).filter((u): u is string => !!u)),
+      jobIds: new Set(roles.map((r) => r.ats_job_id).filter((j): j is string => !!j)),
+    };
+    const res = await scanWatchlist(companies, rules, known, {
+      fetch: h.services.fetch ?? defaultFetch(),
+      boards: new Map(),
+      jdChars: input.jd_chars ?? 400,
+    });
+    return res;
   },
 });
 

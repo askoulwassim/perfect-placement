@@ -35,7 +35,9 @@
     "yellow_min": 55
   },
   "scout": {
-    "watchlist_share_max": 0.34
+    "watchlist_share_max": 0.34,
+    "target_new_roles": 25,
+    "max_queries": 30
   },
   "runner": {
     "command": "claude"

@@ -91,7 +91,8 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `profile.propose_diff` | low | creates a pending diff |
 | `profile.apply_diff` | per diff: weights medium, filters/dealbreakers high | |
 | `onboard.ingest_resume`, `onboard.answer`, `onboard.calibrate`, `onboard.confirm` | low | |
-| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy) |
+| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32) |
+| `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, as roles.add candidates (#28) |
 | `roles.score` | low | writes score row, sets active/held/archived |
 | `roles.move` | medium | status change with no-downgrade guard |
 | `roles.archive` | medium | requires reason |
@@ -143,7 +144,7 @@ decide(answer: Answer, impact: Impact, thresholds): 'auto' | 'auto_second' | 'au
   "overrides": { "freshness.closed": { "auto": 0.92 } },
   "backends": { "default": "jev", "fallback": "kev", "jev": { "baseUrl": "", "keyEnv": "JEV_API_KEY" }, "kev": { "baseUrl": "http://127.0.0.1:8009" }, "llm": { "provider": "anthropic" } },
   "scoring": { "affinity_cap": 5, "company_active_cap": 3, "green_min": 75, "yellow_min": 55 },
-  "scout": { "watchlist_share_max": 0.34 },
+  "scout": { "watchlist_share_max": 0.34, "target_new_roles": 25, "max_queries": 30 },
   "linkedin": { "max_profiles_per_day": 40, "min_delay_s": 20 },
   "schedules": { "inbox": "daily 07:30", "freshness": "daily 06:30", "scout_score": "fri 05:30" }
 }

@@ -126,7 +126,16 @@ export const PolicyConfig = z.object({
     green_min: z.number(),
     yellow_min: z.number(),
   }),
-  scout: z.object({ watchlist_share_max: z.number().min(0).max(1) }),
+  /**
+   * Scout (#28). `watchlist_share_max`: watchlist web-search queries as a share of a run's queries (ATS board
+   * scans are not queries). `target_new_roles`: a run keeps building query variations until this many roles
+   * were added or `max_queries` web searches ran. Defaults keep older config.json files valid.
+   */
+  scout: z.object({
+    watchlist_share_max: z.number().min(0).max(1),
+    target_new_roles: z.number().int().min(1).default(25),
+    max_queries: z.number().int().min(1).default(30),
+  }),
   runner: RunnerConfig,
   /** Read-only, capped, slow; never messages or connects. Tests use `dry-run`. */
   linkedin: z.object({
@@ -178,7 +187,7 @@ export const DEFAULT_CONFIG: PolicyConfig = {
     agent: {},
   },
   scoring: { affinity_cap: 5, company_active_cap: 3, green_min: 75, yellow_min: 55 },
-  scout: { watchlist_share_max: 0.34 },
+  scout: { watchlist_share_max: 0.34, target_new_roles: 25, max_queries: 30 },
   runner: { command: 'claude' },
   linkedin: {
     mode: 'live',

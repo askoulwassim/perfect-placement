@@ -271,18 +271,81 @@ const RoleCandidate = z.object({
   jd_markdown: z.string().optional(),
 });
 
+/** Per-source intake counts (`roles.add`, #28 / #32). */
+export const IntakeCounts = z.object({
+  candidates: z.number().int(),
+  added: z.number().int(),
+  duplicates: z.number().int(),
+  skipped_dead: z.number().int(),
+  skipped_aggregator: z.number().int(),
+});
+export type IntakeCounts = z.infer<typeof IntakeCounts>;
+
 export const rolesAdd = defineOp({
   name: 'roles.add',
-  description: 'Add candidate roles to inbox. Dedupes on url, ATS job id, company + title (fuzzy).',
-  input: z.object({ candidates: z.array(RoleCandidate).min(1) }),
+  description:
+    "Add candidate roles to inbox. Dedupes on url, ATS job id, company + title (fuzzy). Verifies each new posting URL: dead postings are skipped; aggregator links are resolved to the company's own ATS posting or skipped.",
+  input: z.object({
+    candidates: z.array(RoleCandidate).min(1),
+    /** Check each new candidate's URL before adding (#32). Default true. */
+    verify: z.boolean().optional(),
+  }),
   output: z.object({
     added: z.array(Id),
     duplicates: z.array(z.object({ index: z.number().int(), existing_id: Id, match: z.enum(['url', 'ats_job_id', 'company_title']) })),
     /** Near matches that were added and queued as `roles.dedupe` decisions. */
     possible_duplicates: z.array(z.object({ index: z.number().int(), role_id: Id, existing_id: Id, decision_id: Id })).default([]),
+    /** Not added: the posting is gone (`dead`) or only an aggregator listed it (`aggregator`). */
+    skipped: z.array(z.object({ index: z.number().int(), reason: z.enum(['dead', 'aggregator']), detail: z.string() })).default([]),
+    /** Aggregator hits stored under the company's own posting URL. */
+    resolved: z.array(z.object({ index: z.number().int(), role_id: Id, from: z.string(), to: z.string() })).default([]),
+    /** Counts per candidate `source`. */
+    by_source: z.partialRecord(RoleSource, IntakeCounts).default({}),
   }),
   impact: 'low',
   emits: ['role_added'],
+  owner: 'B',
+});
+
+export const scoutWatchlistScan = defineOp({
+  name: 'scout.watchlist_scan',
+  description:
+    "List every open role on each watchlist company's ATS board (Greenhouse, Lever, Ashby), drop clear title / seniority / work-mode misses and roles already in the pipeline, and return the rest as roles.add candidates. Companies without a readable board come back no_board (search the web for them).",
+  input: z.object({
+    /** Company names or slugs. Default: the Company component watchlist. */
+    companies: z.array(z.string().min(1)).optional(),
+    /** Title keywords that replace the Craft functions for the title rule. */
+    include: z.array(z.string().min(1)).optional(),
+    /** Title words that drop a posting. */
+    exclude: z.array(z.string().min(1)).optional(),
+    /** JD characters per candidate (roles.add captures the full JD from the ATS). Default 400; 0 = none. */
+    jd_chars: z.number().int().min(0).max(20000).optional(),
+  }),
+  output: z.object({
+    companies: z.array(
+      z.object({
+        company: z.string(),
+        name: z.string(),
+        state: z.enum(['scanned', 'no_board', 'error']),
+        ats: z.string().nullable(),
+        board: z.string().nullable(),
+        listed: z.number().int(),
+        kept: z.number().int(),
+        reason: z.string().optional(),
+      }),
+    ),
+    candidates: z.array(RoleCandidate),
+    dropped: z.object({
+      title: z.number().int(),
+      seniority: z.number().int(),
+      work_mode: z.number().int(),
+      location: z.number().int(),
+      known: z.number().int(),
+    }),
+  }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
   owner: 'B',
 });
 
@@ -933,6 +996,7 @@ export const OPS = {
   'onboard.calibrate': onboardCalibrate,
   'onboard.confirm': onboardConfirm,
   'roles.add': rolesAdd,
+  'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,
   'roles.move': rolesMove,
   'roles.archive': rolesArchive,

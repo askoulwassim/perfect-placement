@@ -558,3 +558,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: a headless run's ops were not linked to the run, so the research rule guessed by event time and could pick up roles another session scored.
 - Shim: none (old events without `run_id` are only read by the agent-run fallback).
 - Status: accepted
+
+## Scout yield and intake quality
+
+### Scout targets, `scout.watchlist_scan`, roles.add intake check (#28, #32)
+- Lane: scout-quality (B, F, G)
+- Date: 2026-10-09
+- Contract: policy.ts `PolicyConfig.scout` (`target_new_roles`, `max_queries`), `DEFAULT_CONFIG`; registry `rolesAdd.input` (`verify`), `rolesAdd.output` (`skipped`, `resolved`, `by_source`), new `IntakeCounts`, new op `scout.watchlist_scan`
+- Change: config `scout` gains `target_new_roles` (default 25) and `max_queries` (default 30): the scout skill keeps building query variations until the run has added the target or spent the web-search budget. New read op `scout.watchlist_scan { companies?, include?, exclude?, jd_chars? }` -> `{ companies: [{ company, name, state: scanned | no_board | error, ats, board, listed, kept, reason? }], candidates: RoleCandidate[], dropped: { title, seniority, work_mode, location, known } }` (impact low, no events): lists every open posting on each company's Greenhouse / Lever / Ashby board (company row's `ats_type` + `ats_board`, else the slug probed on each ATS), drops clear title / seniority / work-mode / US-location misses from Craft and Work mode plus postings already in the pipeline, and returns the rest with a JD summary (default 400 chars). The watchlist share cap applies to watchlist **web queries** only; board scans are not queries and their role count is not capped. `roles.add` checks each new candidate URL before the transaction (skip with `verify: false`; no network for known roles): an aggregator URL (LinkedIn, builtin*, Indeed, Glassdoor, Wellfound, ZipRecruiter and others) is resolved to the company's ATS posting by title (similarity >= 0.7) and stored under that URL and job id (`resolved`), else skipped (`skipped[].reason = 'aggregator'`); an ATS URL is checked through the ATS API, anything else through the freshness page check, and dead postings (ATS closed, 404/410, redirect to a listing, closed phrase) are skipped (`reason = 'dead'`); a bot wall or network failure keeps the role with `freshness: 'unsure'`. Verified-open roles get `freshness: 'open'` + `last_checked_at`, and the ATS JD (plus location, posted date, workplace when missing). `by_source` counts per candidate source `{ candidates, added, duplicates, skipped_dead, skipped_aggregator }`; the run log shows the same table.
+- Why: the first real scout run added 3 roles (#28); most posting pages were dead and one role linked to an aggregator (#32).
+- Shim: none (new config fields default through zod, new output fields default; `verify` optional).
+- Status: accepted

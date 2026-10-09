@@ -45,6 +45,7 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'onboard.calibrate': 'low',
   'onboard.confirm': 'low',
   'roles.add': 'low',
+  'scout.watchlist_scan': 'low',
   'roles.score': 'low',
   'roles.move': 'medium',
   'roles.archive': 'medium',
@@ -153,6 +154,16 @@ describe('ops registry', () => {
 
   it('new output fields default so older handlers still parse', () => {
     expect(OPS['roles.add'].output.parse({ added: [], duplicates: [] }).possible_duplicates).toEqual([]);
+    expect(OPS['roles.add'].output.parse({ added: [], duplicates: [] })).toMatchObject({ skipped: [], resolved: [], by_source: {} });
+    expect(OPS['scout.watchlist_scan'].readOnly).toBe(true);
+    // #28: an older config.json without the new scout fields still parses, with the defaults.
+    const { target_new_roles, max_queries, ...oldScout } = DEFAULT_CONFIG.scout;
+    expect(PolicyConfig.parse({ ...DEFAULT_CONFIG, scout: oldScout }).scout).toEqual({
+      watchlist_share_max: 0.34,
+      target_new_roles: 25,
+      max_queries: 30,
+    });
+    expect([target_new_roles, max_queries]).toEqual([25, 30]);
     expect(OPS['roles.check_freshness'].output.parse({ results: [] }).skipped).toEqual([]);
     expect(OPS['outreach.get'].input.safeParse({ outreach_id: 'or_1' }).success).toBe(true);
     expect(OPS['runs.start'].input.parse({ skill: 'connect', contact_id: 'ct_1' }).contact_id).toBe('ct_1');
