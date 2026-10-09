@@ -5,6 +5,7 @@ import {
   type OpOutput,
   PROFILE_COMPONENT_KEYS,
   PROFILE_COMPONENT_KIND,
+  type ProfileComponentKey,
 } from '@perfect-placement/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
@@ -35,6 +36,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const [ci, setCi] = useState(0);
   /** List text questions (voice.sample): the item being typed before Add. */
   const [pending, setPending] = useState('');
+  /** A scoped re-interview that reached confirm: the component to show on You after Start. */
+  const [reinterview, setReinterview] = useState<ProfileComponentKey | null>(null);
   const samples = useOp('onboard.samples', step >= 2 ? {} : null);
   const profile = useOp('profile.get', step === 3 ? {} : null);
   const saved = useOp('onboard.state', {});
@@ -124,7 +127,11 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       setPending('');
       setState(o.output);
       if (o.output.step === 'calibrate') setStep(2);
-      else setQn((n) => n + 1);
+      else if (o.output.step === 'confirm') {
+        // Only a scoped re-interview goes straight from the interview to confirm.
+        setReinterview(q.component);
+        setStep(3);
+      } else setQn((n) => n + 1);
       return;
     }
     setStep((s) => Math.min(3, s + 1));
@@ -160,7 +167,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
           const o = await act('onboard.confirm', {});
           if (o.status === 'ok') {
             showToast('Profile live');
-            go({ screen: 'now' });
+            go(reinterview ? { screen: 'you', component: reinterview } : { screen: 'now' });
           }
         }}
       />

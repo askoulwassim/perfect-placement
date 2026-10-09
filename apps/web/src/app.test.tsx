@@ -291,6 +291,14 @@ describe('click paths', () => {
     expect(sent.question_id).toBe('voice.sample');
     expect(sent.value).toHaveLength(3);
     expect(sent.value.slice(1)).toEqual(['Sample two, short.', 'Sample three, pending.']);
+    // The re-interview leaves the questions: confirm step, then You with Voice selected.
+    await waitFor(() => expect(primary(container).textContent).toBe('Start'));
+    expect(container.querySelector('.onboard-q__text')).toBeNull();
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(window.location.hash).toBe('#/you/voice'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy());
+    expect(container.textContent).toContain('Sample three, pending.');
+    expect(opsCalled()).toContain('onboard.confirm');
   });
 
   it('Onboarding: four steps end to end', async () => {
