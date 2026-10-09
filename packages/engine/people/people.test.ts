@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONTACT_DEGREES, type OpContext, type OpOutcome } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
@@ -325,10 +325,41 @@ describe('outreach', () => {
     expect(gmail.drafts).toHaveLength(1);
   });
 
-  it('outreach.to_gmail without a client is backend_unavailable; dry run calls nothing', async () => {
+  it('outreach.to_gmail without a client or a draft id is backend_unavailable (use a Gmail-capable agent run); dry run calls nothing', async () => {
     open({ services: { gmail: undefined } });
-    expect(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'backend_unavailable' });
+    const r = await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human'));
+    expect(r).toMatchObject({ code: 'backend_unavailable' });
+    expect((r as { message: string }).message).toMatch(/agent run/);
     expect(ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human', { dryRun: true }))).gmail_draft_id).toBe('dry-run');
+  });
+
+  it('outreach.to_gmail with gmail_draft_id records the agent-made draft: no client call, in_gmail, Connect done', async () => {
+    open({ services: { gmail: undefined } });
+    const roleId = ok(await run('outreach.get', { outreach_id: 'or_0001' })).outreach.role_id;
+    // Medium impact: an agent without confidence still waits in Needs you.
+    expect((await run('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-agent-1' })).status).toBe('requires_human');
+    const out = ok(
+      await run(
+        'outreach.to_gmail',
+        { outreach_id: 'or_0001', gmail_draft_id: 'r-agent-1' },
+        testCtx({ confidence: { p: 0.95, backend: 'agent' } }),
+      ),
+    );
+    expect(out).toMatchObject({ gmail_draft_id: 'r-agent-1', outreach: { status: 'in_gmail', gmail_draft_id: 'r-agent-1' } });
+    expect(ok(await run('outreach.get', { outreach_id: 'or_0001' })).outreach.status).toBe('in_gmail');
+    expect(ok(await run('roles.get', { role_id: roleId }, ctxAt('human'))).application?.stage).toBe('fill');
+    // Idempotent: a second record keeps the first id.
+    const again = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-agent-2' }, ctxAt('human')));
+    expect(again.gmail_draft_id).toBe('r-agent-1');
+  });
+
+  it('outreach.to_gmail with gmail_draft_id still enforces the writing rules', async () => {
+    const o = ok(await run('outreach.get', { outreach_id: 'or_0001' })).outreach;
+    const file = join(v.home, o.md_path as string);
+    writeFileSync(file, readFileSync(file, 'utf8').replace('## Hook\n\n', '## Hook\n\nA hook \u2014 with a dash. '));
+    const r = await run('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-x' }, ctxAt('human'));
+    expect(r).toMatchObject({ status: 'error', code: 'invalid_input' });
+    expect(ok(await run('outreach.get', { outreach_id: 'or_0001' })).outreach.status).toBe('drafted');
   });
 
   it('outreach.send is unimplemented, for humans too', async () => {

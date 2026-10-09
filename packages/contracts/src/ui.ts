@@ -101,7 +101,8 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
     { label: 'Open River', op: null },
   ],
   people: [{ label: 'Draft for <first name>', op: 'runs.start' }],
-  'outreach-draft': [{ label: 'Create Gmail draft', op: 'outreach.to_gmail' }],
+  /** Starts a `connect` run scoped to the outreach; the agent creates the draft with its Gmail tool. */
+  'outreach-draft': [{ label: 'Create Gmail draft', op: 'runs.start' }],
   you: [
     { label: 'Review diff', op: null },
     { label: 'Accept diff', op: 'profile.apply_diff' },

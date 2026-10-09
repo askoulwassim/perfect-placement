@@ -116,6 +116,9 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
 
 /**
  * outreach.to_gmail: create a Gmail DRAFT from the vault draft. Never sends.
+ * Gmail via agent: with `gmail_draft_id`, the calling agent already created the draft with its own
+ * Gmail tool (Claude Code: the Gmail connector); the engine records it and never calls a client.
+ * Without it the engine's own Gmail client (absent by default) creates the draft.
  * Idempotent: an outreach already in Gmail returns its existing draft id.
  * Recipient: the contact, or the mutual for bridge drafts. No email on file = draft with no To.
  */
@@ -145,14 +148,22 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const recipient = recipientId ? getContact(db, recipientId) : undefined;
   if (!recipient) return err('not_found', `recipient for outreach ${o.id}`);
 
-  if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: 'dry-run' }, eventIds: [] };
-  if (!deps.gmail) return err('backend_unavailable', 'no Gmail draft client configured');
+  const given = parsed.data.gmail_draft_id;
+  if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: given ?? 'dry-run' }, eventIds: [] };
 
   let draftId: string;
-  try {
-    draftId = (await deps.gmail.createDraft({ to: recipient.email, subject: text.subject, body: composeBody(text) })).draftId;
-  } catch (e) {
-    return err('backend_unavailable', `gmail: ${(e as Error).message}`);
+  if (given) draftId = given;
+  else {
+    if (!deps.gmail)
+      return err(
+        'backend_unavailable',
+        'the engine has no Gmail client: start a Gmail-capable agent run (runs.start { skill: "connect", outreach_id }), which creates the draft with its own Gmail tool and records it here with gmail_draft_id',
+      );
+    try {
+      draftId = (await deps.gmail.createDraft({ to: recipient.email, subject: text.subject, body: composeBody(text) })).draftId;
+    } catch (e) {
+      return err('backend_unavailable', `gmail: ${(e as Error).message}`);
+    }
   }
   const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail' };
   upsertOutreach(db, next, true);

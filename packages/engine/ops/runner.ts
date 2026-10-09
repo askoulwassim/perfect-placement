@@ -79,6 +79,45 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
   ].join('\n');
 }
 
+/**
+ * Claude Code's Gmail connector (claude.ai) tool names. The Gmail draft run may call `create_draft`
+ * only; sending tools are denied outright (AGENTS.md rule 4).
+ */
+export const GMAIL_DRAFT_TOOL = 'mcp__claude_ai_Gmail__create_draft';
+export const GMAIL_DENIED_TOOLS = [
+  'mcp__claude_ai_Gmail__send_message',
+  'mcp__claude_ai_Gmail__reply',
+  'mcp__claude_ai_Gmail__forward',
+  'mcp__claude_ai_Gmail__delete_draft',
+] as const;
+
+/** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
+export function gmailStepSection(skillMd: string): string | null {
+  const m = /^## Gmail draft step\b[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(skillMd);
+  return m ? `## Gmail draft step\n${m[1]}`.trim() : null;
+}
+
+/**
+ * The prompt for a `connect` run scoped to one outreach (Gmail via agent): read the draft, create a
+ * Gmail DRAFT with the agent's own Gmail tool (never send), record it with outreach.to_gmail.
+ */
+export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreachId: string; roleId: string; contactId: string }): string {
+  const file = join(skillsDir, 'connect', 'SKILL.md');
+  const section = existsSync(file) ? gmailStepSection(readFileSync(file, 'utf8')) : null;
+  return [
+    `You are running the Perfect Placement "connect" skill headless, Gmail draft step only. Every Perfect Placement read and write goes through the ${MCP_SERVER_NAME} MCP tools; never edit files or the database directly. Never send an email: create a Gmail DRAFT only. Never submit an application.`,
+    '',
+    [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
+    '',
+    '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = Hook, blank line, Proof, blank line, Ask, exactly as stored.',
+    '2. Recipient: the contact\'s email (contacts_get { contact_id }). For a bridge draft (tier "bridge") it is the mutual: the link for this role names via_contact_id; use that contact\'s email. No email on file = leave To empty.',
+    "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
+    `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
+    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id } } (status "error" with a note if any step failed).`,
+    ...(section ? ['', section] : []),
+  ].join('\n');
+}
+
 /** Command line per runner (flags verified against each CLI's docs, 2026-10). */
 export function buildRunnerSpec(opts: {
   runner: RunnerConfig;
@@ -87,6 +126,12 @@ export function buildRunnerSpec(opts: {
   skill: Skill;
   home: string;
   mcp: McpServerSpec;
+  /**
+   * The Gmail draft step (`runs.start` with `outreach_id`). Claude: no `--strict-mcp-config` (the claude.ai
+   * Gmail connector must load), only its create_draft tool allowed next to pp, sending tools denied, no Chrome.
+   * Codex and Cursor use whatever Gmail MCP server the user configured for them.
+   */
+  gmailDraft?: boolean;
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
@@ -103,15 +148,15 @@ export function buildRunnerSpec(opts: {
           prompt,
           '--mcp-config',
           mcpConfig,
-          '--strict-mcp-config',
-          '--allowedTools',
-          `mcp__${MCP_SERVER_NAME}`,
+          ...(opts.gmailDraft
+            ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
+            : ['--strict-mcp-config', '--allowedTools', `mcp__${MCP_SERVER_NAME}`]),
           '--permission-prompts',
           'none',
           '--output-format',
           'json',
-          // LinkedIn people reads go through Claude in Chrome (wave1-decisions #4).
-          ...(opts.skill === 'connect' ? ['--chrome'] : []),
+          // LinkedIn people reads go through Claude in Chrome (wave1-decisions #4); the Gmail step reads no LinkedIn.
+          ...(opts.skill === 'connect' && !opts.gmailDraft ? ['--chrome'] : []),
           ...extra,
         ],
         cwd: home,

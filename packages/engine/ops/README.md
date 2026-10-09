@@ -57,3 +57,5 @@ A human or schedule `runs.start` commits the run, then launches `config.runner` 
 | `cursor-agent` | `cursor-agent -p <prompt> --output-format text --approve-mcps --force`, cwd = a temp dir holding `.cursor/mcp.json` (Cursor reads project MCP config) |
 
 `config.runner.args` are appended. Tests use `fakeLauncher()`; nothing spawns in CI.
+
+**Gmail draft step** (`runs.start { skill: 'connect', outreach_id }`, Gmail via agent): role and contact come from the outreach (must be `drafted`); `summary_json` gets `outreach_id` + `step: 'gmail_draft'`. The prompt (`gmailDraftPrompt`) tells the agent to read `outreach.get`, create a Gmail **draft** with its own Gmail tool (never send), then call `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }` and `runs.finish`. `claude` drops `--strict-mcp-config` (so the claude.ai Gmail connector loads), allows `mcp__pp,mcp__claude_ai_Gmail__create_draft`, denies send / reply / forward / delete_draft, and skips `--chrome`. Codex and Cursor use the Gmail MCP server the user configured for them.
