@@ -27,6 +27,13 @@ A role is `active` or `on-deck` (or `draft-ready`, to re-tailor) and you have th
 6. `apply.tailor { role_id, resume_md, cover_letter_md, fit_map_md }`. The op fact-checks the resume and cover letter against the sources: an unsupported number, year, date, degree or role heading is rejected (`invalid_input` lists each claim; fix it from the source, never by rewording the number), and an unsupported title or employer in prose comes back in `fact_check.needs_you` and is queued for the user in Needs you as an `apply.fact_check` decision (keep, remove or edit the line; a re-tailor replaces the pending ones). It appends the claim -> source line table to the fit map. The op writes `applications/<role_id>/{resume,cover_letter,fit_map}.md`, upserts the application and moves the role to `draft-ready` (a freed company slot promotes a held role automatically).
 7. `runs.finish { run_id, status: "ok" }`. Next: the fill skill for the real portal questions.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebFetch`: capture the full JD from the posting when only a title is on file.
+
 ## Rules
 
 - Truth only: reframe and emphasize, never invent. Gaps go in the fit map, not the resume.

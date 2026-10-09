@@ -30,6 +30,13 @@ After tailor, while the role is `draft-ready`. Open the live portal and read the
 
 You may pre-fill portal fields in the user's browser. **Stop before the final submit.** Applications end at Open portal.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebFetch`: read the real portal questions (a headless run has no browser).
+
 ## Rules
 
 - Truth only. Never state a fact Story does not hold; never reword a number to pass the check.

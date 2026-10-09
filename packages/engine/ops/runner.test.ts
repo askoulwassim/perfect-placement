@@ -10,8 +10,12 @@ import {
   defaultMcpServer,
   deniedTools,
   deniedToolsError,
+  GMAIL_DENIED_TOOLS,
   GMAIL_DRAFT_TOOL,
+  GMAIL_PREFIX,
   GMAIL_READ_TOOLS,
+  GMAIL_WRITE_TOOLS,
+  gmailDeniedTools,
   gmailDraftPrompt,
   gmailStepSection,
   MCP_SERVER_NAME,
@@ -57,14 +61,23 @@ describe('runner command lines', () => {
     });
     expect(connect.args).toEqual(expect.arrayContaining(['--chrome', '--model', 'opus']));
     // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed; #37: Gmail search + read
-    // (the connector loads, so no strict MCP config), every Gmail write but drafts denied, drafts not allowed.
-    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(['mcp__pp', ...GMAIL_READ_TOOLS].join(','));
+    // (the connector loads, so no strict MCP config); #79: create_draft allowed, every other Gmail write denied.
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(','));
     expect(connect.args).not.toContain('--tools');
     expect(connect.args).not.toContain('--strict-mcp-config');
-    const denied = connect.args[connect.args.indexOf('--disallowedTools') + 1] as string;
-    for (const t of ['send_message', 'reply', 'forward', 'delete_draft', 'trash_thread'])
+    const denied = (connect.args[connect.args.indexOf('--disallowedTools') + 1] as string).split(',');
+    for (const t of [
+      'send_message',
+      'reply',
+      'forward',
+      'delete_draft',
+      'update_draft',
+      'trash_thread',
+      'label_message',
+      'mark_thread_spam',
+    ])
       expect(denied).toContain(`mcp__claude_ai_Gmail__${t}`);
-    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).not.toContain('create_draft');
+    expect(denied).not.toContain(GMAIL_DRAFT_TOOL);
   });
 
   it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
@@ -133,14 +146,15 @@ const flag = (args: string[], name: string) => (args.includes(name) ? args[args.
 describe('per-skill tools (#20)', () => {
   const WEB: Skill[] = ['scout', 'research', 'freshness'];
   const FETCH: Skill[] = ['tailor', 'score', 'fill'];
-  const PP_ONLY: Skill[] = ['inbox', 'learn', 'onboard'];
+  const PP_ONLY: Skill[] = ['learn', 'onboard'];
 
   it('the allowlist covers every skill: web search + fetch for scout/research/freshness, fetch for JD/portal reads, pp only otherwise', () => {
     expect(Object.keys(SKILL_TOOLS).sort()).toEqual([...SKILLS].sort());
     for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
     for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
-    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
+    expect(skillAllowedTools('inbox')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
+    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL]);
   });
 
   it('claude: each skill pre-approves exactly its tools, narrows built-ins to them, denies the rest (dontAsk)', () => {
@@ -151,7 +165,10 @@ describe('per-skill tools (#20)', () => {
       expect(flag(args, '--tools')).toBe(SKILL_TOOLS[skill].web.join(','));
       expect(flag(args, '--permission-mode')).toBe('dontAsk');
       expect(flag(args, '--permission-prompts')).toBe('none');
-      expect(args).toContain('--strict-mcp-config');
+      // A skill with Gmail tools (inbox) loads the claude.ai connector: no strict MCP config, Gmail writes denied.
+      const gmail = SKILL_TOOLS[skill].gmail.length > 0;
+      expect(args.includes('--strict-mcp-config')).toBe(!gmail);
+      expect(flag(args, '--disallowedTools')).toBe(gmail ? gmailDeniedTools(skill).join(',') : undefined);
       for (const broad of ['Bash', 'Write', 'Edit', 'Read']) {
         expect(flag(args, '--allowedTools')?.split(',')).not.toContain(broad);
         expect(flag(args, '--tools')?.split(',')).not.toContain(broad);
@@ -159,6 +176,27 @@ describe('per-skill tools (#20)', () => {
     }
     expect(flag(spec('claude', 'scout').args, '--allowedTools')).toBe('mcp__pp,WebSearch,WebFetch');
     expect(flag(spec('claude', 'inbox').args, '--tools')).toBe('');
+  });
+
+  it('inbox (#80): Gmail search + read pre-approved, the connector loads, every Gmail write denied', () => {
+    const { args } = spec('claude', 'inbox');
+    expect(flag(args, '--allowedTools')).toBe(['mcp__pp', ...GMAIL_READ_TOOLS].join(','));
+    expect(args).not.toContain('--strict-mcp-config');
+    expect(flag(args, '--permission-mode')).toBe('dontAsk');
+    expect(flag(args, '--disallowedTools')?.split(',')).toEqual(GMAIL_WRITE_TOOLS);
+    for (const t of [
+      'send_message',
+      'reply',
+      'forward',
+      'create_draft',
+      'update_draft',
+      'delete_draft',
+      'trash_message',
+      'mark_message_spam',
+      'label_thread',
+      'update_message_labels',
+    ])
+      expect(GMAIL_WRITE_TOOLS).toContain(`${GMAIL_PREFIX}${t}`);
   });
 
   it('codex: live web search for web skills, disabled otherwise; cursor: WebFetch only for web skills, never shell or writes', () => {
@@ -170,6 +208,68 @@ describe('per-skill tools (#20)', () => {
       expect(perms.allow.includes('WebFetch(*)')).toBe(web);
       expect(perms.deny).toEqual(['Shell(*)', 'Write(**)']);
     }
+  });
+});
+
+/** The tools a SKILL.md's `## Tools` section declares (`- \`tool\`: why` bullets). */
+function declaredTools(skillMd: string): string[] | null {
+  const m = /^## Tools\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(skillMd);
+  return m ? [...(m[1] as string).matchAll(/^- `([^`]+)`/gm)].map((x) => x[1] as string) : null;
+}
+
+describe('SKILL.md tools vs the allowlist (#79, #80)', () => {
+  const read = (skill: Skill) => readFileSync(join(DEFAULT_SKILLS_DIR, skill, 'SKILL.md'), 'utf8');
+  // The claude.ai Gmail connector's tools, read and write: a SKILL.md naming one by its short name counts too.
+  const GMAIL_SHORT = new Set(
+    [...GMAIL_WRITE_TOOLS, ...GMAIL_READ_TOOLS, `${GMAIL_PREFIX}get_draft`, `${GMAIL_PREFIX}list_drafts`, `${GMAIL_PREFIX}list_labels`].map(
+      (t) => t.slice(GMAIL_PREFIX.length),
+    ),
+  );
+  /** Read-only skills: never granted a Gmail write (or any built-in write). */
+  const READ_ONLY: Skill[] = SKILLS.filter((s) => s !== 'connect');
+
+  it('every SKILL.md declares exactly its allowlist in a ## Tools section', () => {
+    for (const skill of SKILLS) {
+      const declared = declaredTools(read(skill));
+      expect(declared, `${skill}: SKILL.md has no ## Tools section`).not.toBeNull();
+      expect(declared, `${skill}: SKILL.md ## Tools vs SKILL_TOOLS`).toEqual(skillAllowedTools(skill));
+    }
+  });
+
+  it('every tool a SKILL.md tells the agent to call is granted to its skill', () => {
+    for (const skill of SKILLS) {
+      const md = read(skill);
+      const allowed = new Set(skillAllowedTools(skill));
+      // Full MCP tool names anywhere (mcp__pp__<op> is covered by mcp__pp).
+      for (const [name] of md.matchAll(/\bmcp__[A-Za-z0-9_]+/g))
+        if (!name.startsWith(`mcp__${MCP_SERVER_NAME}`)) expect(allowed, `${skill}: ${name}`).toContain(name);
+      // Gmail connector short names in backticks, and made-up Gmail tool names (gmail_search_messages, #80).
+      for (const [, name] of md.matchAll(/`([a-z_]+)`/g)) {
+        if (GMAIL_SHORT.has(name as string)) expect(allowed, `${skill}: \`${name}\``).toContain(`${GMAIL_PREFIX}${name}`);
+        expect(name, `${skill}: not a real Gmail tool`).not.toMatch(/^gmail_(search|read|get|list|send|create)/);
+      }
+    }
+  });
+
+  it('read-only skills are granted no write tool; connect gets create_draft and no other Gmail write', () => {
+    const writes = new Set(GMAIL_WRITE_TOOLS);
+    for (const skill of READ_ONLY) {
+      for (const t of skillAllowedTools(skill)) {
+        expect(writes.has(t), `${skill}: ${t}`).toBe(false);
+        expect(['Bash', 'Write', 'Edit', 'NotebookEdit']).not.toContain(t);
+      }
+      if (SKILL_TOOLS[skill].gmail.length) {
+        const denied = flag(spec('claude', skill).args, '--disallowedTools')?.split(',') ?? [];
+        for (const t of GMAIL_WRITE_TOOLS) expect(denied, `${skill}: ${t} not denied`).toContain(t);
+      }
+    }
+    expect(skillAllowedTools('connect').filter((t) => writes.has(t))).toEqual([GMAIL_DRAFT_TOOL]);
+    expect(GMAIL_DENIED_TOOLS).toEqual(gmailDeniedTools('connect'));
+  });
+
+  it('the inbox prompt names its Gmail tools', () => {
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'inbox' });
+    expect(p).toContain(`Tools: the pp MCP tools and ${GMAIL_READ_TOOLS.join(', ')}, nothing else.`);
   });
 });
 

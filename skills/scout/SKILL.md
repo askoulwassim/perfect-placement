@@ -36,7 +36,11 @@ Optional, only when the posting states it: `url`, `ats_job_id`, `company_domain`
 
 ## Tools
 
-The pp MCP tools plus web search and web fetch (a headless run pre-approves exactly these). If one is denied, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebSearch`: run the plan's queries on job boards and the open market.
+- `WebFetch`: open each hit to capture the candidate fields.
 
 ## Rules
 

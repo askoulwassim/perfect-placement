@@ -114,33 +114,85 @@ export interface PromptContext {
 /** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
 export type WebTool = 'WebSearch' | 'WebFetch';
 
+/** Claude Code's claude.ai Gmail connector tool name prefix. */
+export const GMAIL_PREFIX = 'mcp__claude_ai_Gmail__';
+/**
+ * Gmail search and read tools (#37, #80): the inbox run classifies replies with them, a full `connect`
+ * run finds contacts' addresses in threads and signatures. Nothing else in Gmail is read.
+ */
+export const GMAIL_READ_TOOLS = [`${GMAIL_PREFIX}search_threads`, `${GMAIL_PREFIX}get_thread`, `${GMAIL_PREFIX}get_message`] as const;
+/** The one Gmail write a run may make: a draft (`connect` only; AGENTS.md rule 4: never send). */
+export const GMAIL_DRAFT_TOOL = `${GMAIL_PREFIX}create_draft`;
+/**
+ * Every Gmail connector tool that changes the mailbox. A run that loads the connector denies all of
+ * these except what its skill is granted (`connect`: `create_draft`; `inbox`: none).
+ */
+export const GMAIL_WRITE_TOOLS = [
+  'send_message',
+  'reply',
+  'forward',
+  'create_draft',
+  'update_draft',
+  'delete_draft',
+  'trash_message',
+  'trash_thread',
+  'untrash_message',
+  'untrash_thread',
+  'mark_message_spam',
+  'mark_thread_spam',
+  'unmark_message_spam',
+  'unmark_thread_spam',
+  'label_message',
+  'label_thread',
+  'unlabel_message',
+  'unlabel_thread',
+  'update_message_labels',
+  'apply_sensitive_message_label',
+  'apply_sensitive_thread_label',
+  'create_label',
+  'update_label',
+  'delete_label',
+].map((t) => `${GMAIL_PREFIX}${t}`);
+/** Gmail tools denied to a `connect` run and the Gmail draft step: every write but `create_draft`. */
+export const GMAIL_DENIED_TOOLS = GMAIL_WRITE_TOOLS.filter((t) => t !== GMAIL_DRAFT_TOOL);
+
 /**
  * The single per-skill tool allowlist for headless runs (#20). Every run gets the pp MCP tools; web
- * tools only where the SKILL.md needs them. Nothing else (no Bash, no Write/Edit, no file reads):
- * every read and write goes through ops. `connect` keeps its own Chrome / Gmail handling.
+ * tools only where the SKILL.md needs them; Gmail connector tools only for `inbox` (search + read,
+ * #80) and `connect` (search + read + create_draft, #37, #79). Nothing else (no Bash, no Write/Edit,
+ * no file reads): every read and write goes through ops. Each SKILL.md declares the same list in its
+ * `## Tools` section (runner.test.ts checks they match).
  */
-export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why: string }>> = {
-  scout: { web: ['WebSearch', 'WebFetch'], why: 'runs the plan.md queries on job boards and career pages, reads each posting' },
-  research: { web: ['WebSearch', 'WebFetch'], why: 'builds a sourced, dated company dossier from the web' },
-  freshness: { web: ['WebSearch', 'WebFetch'], why: 'judges unsure postings from the live page when asked' },
-  tailor: { web: ['WebFetch'], why: 'captures the full JD from the posting when only a title is on file' },
-  score: { web: ['WebFetch'], why: 'captures the full JD from the posting when only a title is on file' },
-  fill: { web: ['WebFetch'], why: 'reads the real portal questions (a headless run has no browser)' },
-  inbox: { web: [], why: 'Gmail read-only plus ops' },
-  learn: { web: [], why: 'ops only' },
+export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; gmail: readonly string[]; why: string }>> = {
+  scout: { web: ['WebSearch', 'WebFetch'], gmail: [], why: 'runs the plan.md queries on job boards and career pages, reads each posting' },
+  research: { web: ['WebSearch', 'WebFetch'], gmail: [], why: 'builds a sourced, dated company dossier from the web' },
+  freshness: { web: ['WebSearch', 'WebFetch'], gmail: [], why: 'judges unsure postings from the live page when asked' },
+  tailor: { web: ['WebFetch'], gmail: [], why: 'captures the full JD from the posting when only a title is on file' },
+  score: { web: ['WebFetch'], gmail: [], why: 'captures the full JD from the posting when only a title is on file' },
+  fill: { web: ['WebFetch'], gmail: [], why: 'reads the real portal questions (a headless run has no browser)' },
+  inbox: { web: [], gmail: GMAIL_READ_TOOLS, why: 'Gmail search + read (read-only) to classify replies, plus ops' },
+  learn: { web: [], gmail: [], why: 'ops only' },
   onboard: {
     web: [],
+    gmail: [],
     why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract, follow-ups with onboard.propose_questions',
   },
   connect: {
     web: [],
-    why: 'LinkedIn via Claude in Chrome (--chrome); Gmail search + read for contact emails (#37); Gmail draft step via the Gmail connector',
+    gmail: [...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL],
+    why: 'LinkedIn via Claude in Chrome (--chrome); Gmail search + read for contact emails (#37); Gmail create_draft to finish the draft (#79)',
   },
 };
 
-/** Claude Code tool names a skill's headless run pre-approves. `connect` also reads Gmail (#37). */
+/** Claude Code tool names a skill's headless run pre-approves. */
 export function skillAllowedTools(skill: Skill): string[] {
-  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web, ...(skill === 'connect' ? GMAIL_READ_TOOLS : [])];
+  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web, ...SKILL_TOOLS[skill].gmail];
+}
+
+/** Gmail write tools a skill's run denies outright: every write it is not granted. */
+export function gmailDeniedTools(skill: Skill): string[] {
+  const granted = new Set(SKILL_TOOLS[skill].gmail);
+  return GMAIL_WRITE_TOOLS.filter((t) => !granted.has(t));
 }
 
 /**
@@ -165,7 +217,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
   const file = join(skillsDir, c.skill, 'SKILL.md');
   const skill = existsSync(file) ? readFileSync(file, 'utf8').trim() : `# ${c.skill}\n\n(SKILL.md not found at ${file})`;
   const ids = [`run_id: ${c.runId}`, ...(c.roleId ? [`role_id: ${c.roleId}`] : []), ...(c.contactId ? [`contact_id: ${c.contactId}`] : [])];
-  const web = SKILL_TOOLS[c.skill].web;
+  const extra = [...SKILL_TOOLS[c.skill].web, ...SKILL_TOOLS[c.skill].gmail];
   const assets = (SKILL_ASSETS[c.skill] ?? []).map((name) => {
     const abs = join(skillsDir, c.skill, name);
     return `## ${name} (skill file, ${abs})\n\n${readAsset(abs)}`;
@@ -177,36 +229,13 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     '',
     `The run already exists (runs.start was called for you). Pass run_id in your work and finish with runs.finish { run_id: "${c.runId}", status }.`,
     '',
-    `Tools: the ${MCP_SERVER_NAME} MCP tools${web.length ? ` and ${web.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
+    `Tools: the ${MCP_SERVER_NAME} MCP tools${extra.length ? ` and ${extra.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     '',
     skill,
     ...(assets.length ? ['', ...assets] : []),
   ].join('\n');
 }
-
-/**
- * Claude Code's Gmail connector (claude.ai) tool names. The Gmail draft run may call `create_draft`
- * only; sending tools are denied outright (AGENTS.md rule 4).
- */
-export const GMAIL_DRAFT_TOOL = 'mcp__claude_ai_Gmail__create_draft';
-export const GMAIL_DENIED_TOOLS = [
-  'mcp__claude_ai_Gmail__send_message',
-  'mcp__claude_ai_Gmail__reply',
-  'mcp__claude_ai_Gmail__forward',
-  'mcp__claude_ai_Gmail__delete_draft',
-  'mcp__claude_ai_Gmail__trash_message',
-  'mcp__claude_ai_Gmail__trash_thread',
-] as const;
-/**
- * Gmail read tools a full `connect` run may use to find contacts' addresses in threads and signatures
- * (#37): search and read only. Everything else in Gmail stays unlisted (denied headless) or denied.
- */
-export const GMAIL_READ_TOOLS = [
-  'mcp__claude_ai_Gmail__search_threads',
-  'mcp__claude_ai_Gmail__get_thread',
-  'mcp__claude_ai_Gmail__get_message',
-] as const;
 
 /** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
 export function gmailStepSection(skillMd: string): string | null {
@@ -291,7 +320,7 @@ export function buildRunnerSpec(opts: {
   mcp: McpServerSpec;
   /**
    * The Gmail draft step (`runs.start` with `outreach_id`). Claude: no `--strict-mcp-config` (the claude.ai
-   * Gmail connector must load), only its create_draft tool allowed next to pp, sending tools denied, no Chrome.
+   * Gmail connector must load), only its create_draft tool allowed next to pp, every other Gmail write denied, no Chrome.
    * Codex and Cursor use whatever Gmail MCP server the user configured for them.
    */
   gmailDraft?: boolean;
@@ -315,16 +344,20 @@ export function buildRunnerSpec(opts: {
           ...(opts.gmailDraft
             ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
             : opts.skill === 'connect'
-              ? // No strict MCP config: the claude.ai Gmail connector loads for its read tools (#37).
-                ['--allowedTools', skillAllowedTools('connect').join(','), '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
+              ? // No strict MCP config: the claude.ai Gmail connector loads for search, read and create_draft
+                // (#37, #79); every other Gmail write is denied.
+                ['--allowedTools', skillAllowedTools('connect').join(','), '--disallowedTools', gmailDeniedTools('connect').join(',')]
               : [
-                  '--strict-mcp-config',
+                  // A skill with Gmail tools (inbox, #80) loads the claude.ai Gmail connector, so no strict
+                  // MCP config for it, and every Gmail write is denied outright.
+                  ...(SKILL_TOOLS[opts.skill].gmail.length ? [] : ['--strict-mcp-config']),
                   // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
                   // dontAsk denies anything else instead of falling back to the user's permission mode.
                   '--tools',
                   SKILL_TOOLS[opts.skill].web.join(','),
                   '--allowedTools',
                   skillAllowedTools(opts.skill).join(','),
+                  ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
                   '--permission-mode',
                   'dontAsk',
                 ]),

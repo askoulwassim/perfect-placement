@@ -48,6 +48,12 @@ Do only the resume extraction in `extract.md`: read the kept resume, `onboard.ex
 drafts with a confidence), optionally `onboard.propose_questions` (follow-ups where the resume is silent or
 ambiguous), `runs.finish`. Do not answer interview questions, calibrate or confirm: those are the user's.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+
 ## Rules
 
 - The user is the only source of preferences. If you run this as an agent (not on the user's behalf in a live session),

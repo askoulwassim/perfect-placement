@@ -40,6 +40,14 @@ Answer **no** (not accepting) only on positive evidence the posting is gone:
 
 Answer **yes** when the page shows the JD with a live apply path. If the page is a bot wall, a login wall, empty, or unrelated, you do not know: give a low probability rather than guess. A wrong close loses a role; a wrong open costs one more check tomorrow.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebSearch`: find the live posting when the stored URL is unclear.
+- `WebFetch`: read the live posting page when you are the judge.
+
 ## Rules
 
 - Supply judgment only; every write is an op (`roles.check_freshness`; humans accept or undo through `decisions.resolve` / `decisions.undo`).

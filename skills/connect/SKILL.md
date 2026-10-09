@@ -25,7 +25,7 @@ You supply judgment (who is in the JD, the draft text). Code does mechanics (Lin
 
 5. **Pick the best path.** Draft for the top contact per tier, in order warm_hiring, warm_other, bridge, cold_hiring. Usually one to four drafts per role. Skip `cold_other` unless asked.
 6. **Email (judgment: what you saw; code: the guess).** For each contact you will draft to (bridge: the mutual), find addresses, read-only:
-   - **Gmail** (your Gmail tool, search and read only: `search_threads`, `get_thread`, `get_message`): threads with the person (`from:` / `to:` their name) and signatures; also any addresses at the company domain (`@<domain>`), which teach the company's format.
+   - **Gmail** (read-only here: `mcp__claude_ai_Gmail__search_threads`, `mcp__claude_ai_Gmail__get_thread`, `mcp__claude_ai_Gmail__get_message`): threads with the person (`from:` / `to:` their name) and signatures; also any addresses at the company domain (`@<domain>`), which teach the company's format.
    - **LinkedIn** contact info for 1st-degree connections, inside the same caps (never message or connect).
    - **Public pages**: the JD, the company team page, talks, GitHub, a personal site.
    Then call `people.find_email { contact_id, role_id, hints: [{ email, name?, source: "gmail" | "linkedin" | "public" }], domain? }`. Pass every address you saw at the company with whose it is when you know; pass `domain` when the company has none on file (dossier or website). The op keeps a known address, else learns the format (`first.last`, `flast`, `first`, `firstl`, `f.last`, `last`), checks the domain's MX record and ranks candidates: a confident pick is stored as confirmed; an unsure one is stored as a guess and goes to Needs you with the alternatives. Never guess the address yourself, never probe a mail server, never send a test email, and never use a paid finder.
@@ -43,17 +43,29 @@ You supply judgment (who is in the JD, the draft text). Code does mechanics (Lin
    - No em dashes, no en dashes. No flattery ("huge fan", "I admire", "amazing team" are refused). No facts beyond STORY.
    Bridge drafts are addressed to the mutual, not the target.
 8. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask, signoff? }`. Agent-written drafts pass the same `checkDraft` as engine-written ones: it refuses rule breaks with the exact issue (`em_dash`, `too_long`, `too_many_sentences`, `ungrounded_number`, `flattery`, `empty`); fix and call again.
-9. **To Gmail.** Follow "Gmail draft step" below. It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+9. **To Gmail.** For each saved draft, follow "Gmail draft step" below in this same run (`mcp__claude_ai_Gmail__create_draft` is granted to every `connect` run). It creates a Gmail **draft** and stops. The user opens Gmail and sends.
 
 ## Gmail draft step
 
-The engine has no Gmail client. You create the draft with your own Gmail draft tool, then record it. This works from any MCP client that has a Gmail draft tool next to the `pp` server: Claude Code uses the Gmail connector (`create_draft`); Codex and Cursor need their own Gmail MCP server configured for this step. The web UI's **Create Gmail draft** starts a headless `connect` run for one outreach (`runs.start { skill: "connect", outreach_id }`) that does only this step.
+The engine has no Gmail client. You create the draft with your own Gmail draft tool, then record it. This works from any MCP client that has a Gmail draft tool next to the `pp` server: Claude Code uses the claude.ai Gmail connector (`mcp__claude_ai_Gmail__create_draft`); Codex and Cursor need their own Gmail MCP server configured for this step. A full `connect` run does this step itself for each draft it saved. The web UI's **Create Gmail draft** starts a headless `connect` run for one outreach (`runs.start { skill: "connect", outreach_id }`) that does only this step (for a draft saved earlier, or one the user edited).
 
 1. **Read the draft.** `outreach.get { outreach_id }`: subject, hook, proof, ask, signoff and `body`. No subject: the role title plus " at " and the company (`roles.get`).
 2. **Recipient.** `outreach.get` returns `to`: the contact, or the mutual for bridge drafts (never the target). To = `to.email`. When `to.email` is null, leave To empty: `to.reason` says why (no address found, or an unconfirmed guess waiting in Needs you). Never use `to.guess`.
 3. **Create a Gmail DRAFT.** Body = the `body` field exactly as returned: greeting line, blank line, Hook, blank line, Proof, blank line, Ask, blank line, sign-off (plain text, built from the stored blocks, which the user may have edited). Never send, reply or forward. No Gmail draft tool: stop and finish the run as `error` with a note.
 4. **Record it.** `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }`. Medium impact: with `confidence` the policy grid decides; without it, or unsure, it waits in Needs you. It re-checks the writing rules, stores the id, sets the outreach `in_gmail` and moves the application to Fill.
 5. **Finish** (headless run): `runs.finish { run_id, status: "ok", summary: { outreach_id, gmail_draft_id, to, to_reason } }` (`to` null and `to_reason` set when the draft has no To).
+
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `mcp__claude_ai_Gmail__search_threads`: search Gmail for threads with a contact or the company domain.
+- `mcp__claude_ai_Gmail__get_thread`: read a thread (addresses, signatures).
+- `mcp__claude_ai_Gmail__get_message`: read one message.
+- `mcp__claude_ai_Gmail__create_draft`: create the Gmail **draft** (Gmail draft step). Never send.
+
+LinkedIn reads go through Claude in Chrome (`--chrome`) and the `people.find` adapter. Every other Gmail write (send, reply, forward, draft update / delete, trash, spam, labels) is denied. Other MCP clients (Codex, Cursor) use the Gmail MCP server the user configured for them.
 
 ## Never
 

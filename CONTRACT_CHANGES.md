@@ -695,3 +695,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: the engine applied remote required to hybrid roles in an accepted location (NYC) and archived them as `dealbreaker` (#83).
 - Shim: none for callers (all new fields optional). A profile that really is remote only sets `remote_only: true` (fixtures do). Existing archives are not touched until the owner runs `roles.reevaluate_filters` and accepts each restore.
 - Status: accepted
+
+## Gmail tools per skill
+
+### `SKILL_TOOLS[skill].gmail`; `GMAIL_WRITE_TOOLS`, `gmailDeniedTools`; inbox reads Gmail, connect creates drafts (#80, #79)
+- Lane: r2/02-gmail-tools (B, H, runs)
+- Date: 2026-10-09
+- Contract: engine runner `SKILL_TOOLS` (new `gmail` field per skill), `skillAllowedTools`, new `GMAIL_PREFIX`, `GMAIL_WRITE_TOOLS`, `gmailDeniedTools`; `GMAIL_DENIED_TOOLS` widened; every `skills/<skill>/SKILL.md` gains a `## Tools` section
+- Change: `inbox` is granted the claude.ai Gmail connector's `search_threads`, `get_thread`, `get_message` (was pp only); its Claude Code run drops `--strict-mcp-config` so the connector loads, keeps `--tools ""` and `dontAsk`, and denies every Gmail write (`GMAIL_WRITE_TOOLS`: send, reply, forward, draft create / update / delete, trash / untrash, spam, labels). A full `connect` run is granted `create_draft` too and finishes its own Gmail drafts (chosen over always queuing a `connect { outreach_id }` run: one run, no extra queue hop, same draft-only guard); every other Gmail write is denied (`GMAIL_DENIED_TOOLS` = writes minus `create_draft`, also used by the Gmail draft step, which stays for the UI's Create Gmail draft). The run prompt's Tools line lists the Gmail tools. Each SKILL.md declares its allowlist in `## Tools`; `runner.test.ts` fails on drift, on a Gmail tool a SKILL.md names but its skill lacks, on made-up `gmail_*` tool names, and on any write granted to a read-only skill.
+- Why: the inbox run was denied `gmail_search_messages` / `gmail_read_message` (wrong names, empty allowlist) (#80); the full connect run was denied `create_draft` (#79).
+- Shim: none. Codex and Cursor are unchanged (they use the Gmail MCP server the user configured).
+- Status: accepted
