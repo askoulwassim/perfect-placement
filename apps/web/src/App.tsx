@@ -1,13 +1,15 @@
 import { groundGlow } from '@perfect-placement/contracts';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ClientProvider, useApp, useOp } from './client/context';
 import type { OpClient } from './client/types';
+import { Cue } from './components/Cue';
 import { Toast } from './components/controls';
 import { AskPill, MobileFrame, NavRail, type NavTarget, TabBar } from './components/shell';
 import { C, F } from './components/theme';
 import { LayoutCtx } from './layout';
+import { CUE_TARGET, CUES, cueFor, pendingCue } from './lib/cues';
 import { useMobile } from './lib/useMobile';
-import { go, href, type Route, useRoute } from './router';
+import { go, href, type Route, replaceRoute, useRoute } from './router';
 import { Ask } from './screens/Ask';
 import { NeedsYou } from './screens/NeedsYou';
 import { Now } from './screens/Now';
@@ -27,10 +29,45 @@ export function App({ client, now, pollMs }: { client: OpClient; now?: () => Dat
   );
 }
 
+/** Screens that show the Onboarding redirect until a profile exists (Settings and the rest stay reachable). */
+export const GATED_SCREENS: ReadonlyArray<Route['screen']> = ['now', 'needs-you', 'river'];
+
+/**
+ * Fresh vault = no confirmed profile (`profile.get` answers not_found). Re-checked after every write;
+ * `null` while the answer for the current version is unknown. `last`: the latest known answer.
+ */
+function useFresh(): { now: boolean | null; last: boolean | null } {
+  const { client, version } = useApp();
+  const [known, setKnown] = useState<{ v: number; fresh: boolean } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void client.run('profile.get', {}).then((o) => {
+      // Only a definite "no profile" counts; an offline backend never redirects.
+      if (live) setKnown({ v: version, fresh: o.status === 'error' && o.code === 'not_found' });
+    });
+    return () => {
+      live = false;
+    };
+  }, [client, version]);
+  return { now: known && known.v === version ? known.fresh : null, last: known ? known.fresh : null };
+}
+
+/**
+ * What to render for a route: mobile has no Onboarding or Settings screen (they show Now), and on a
+ * fresh vault the gated screens show Onboarding. `null` = wait (fresh-or-unknown, not answered yet).
+ */
+export function shownRoute(route: Route, opts: { mobile: boolean; fresh: boolean | null; lastFresh: boolean | null }): Route | null {
+  const r: Route = opts.mobile && (route.screen === 'onboarding' || route.screen === 'settings') ? { screen: 'now' } : route;
+  if (!GATED_SCREENS.includes(r.screen) || opts.lastFresh === false) return r;
+  if (opts.fresh === true) return { screen: 'onboarding' };
+  return opts.fresh === false ? r : null;
+}
+
 function Shell() {
   const route = useRoute();
   const mobile = useMobile();
-  const { toast } = useApp();
+  const { toast, cuesSeen, markCue } = useApp();
+  const fresh = useFresh();
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
   const [askOpen, setAskOpen] = useState(false);
@@ -69,10 +106,25 @@ function Shell() {
     [roleId],
   );
 
+  // Fresh start: the first open (any route) and the gated screens land on Onboarding step 1.
+  const firstAnswer = useRef(true);
+  useEffect(() => {
+    if (fresh.now === null) return;
+    const first = firstAnswer.current;
+    firstAnswer.current = false;
+    if (fresh.now && route.screen !== 'onboarding' && (first || GATED_SCREENS.includes(route.screen)))
+      replaceRoute({ screen: 'onboarding' });
+  }, [fresh.now, route]);
+
   const need = sum.data?.needs_you ?? 0;
   const railActive = route.screen === 'outreach-draft' ? 'people' : route.screen;
   const onboarding = route.screen === 'onboarding';
+  const shown = shownRoute(route, { mobile, fresh: fresh.now, lastFresh: fresh.last });
   const ask = askOpen && <Ask roleId={roleId} onClose={() => setAskOpen(false)} />;
+  const cue = pendingCue(cueFor(shown?.screen ?? null, askOpen), cuesSeen);
+  const dismissCue = useCallback(() => {
+    if (cue) markCue(cue);
+  }, [cue, markCue]);
 
   return (
     <LayoutCtx.Provider value={{ mobile, slot }}>
@@ -93,17 +145,16 @@ function Shell() {
               />
             }
           >
-            <ScreenFor route={onboarding || route.screen === 'settings' ? { screen: 'now' } : route} />
+            {shown && <ScreenFor route={shown} />}
           </MobileFrame>
         ) : (
           <div style={{ display: 'flex', minHeight: '100vh' }}>
-            {!onboarding && <NavRail active={railActive} needsBadge={need > 0} onNavigate={navigate} />}
-            <main style={{ flex: 1, minWidth: 0, padding: '32px 48px 140px', maxWidth: 1440 }}>
-              <ScreenFor route={route} />
-            </main>
+            {(!onboarding || fresh.last === true) && <NavRail active={railActive} needsBadge={need > 0} onNavigate={navigate} />}
+            <main style={{ flex: 1, minWidth: 0, padding: '32px 48px 140px', maxWidth: 1440 }}>{shown && <ScreenFor route={shown} />}</main>
           </div>
         )}
         <Toast text={toast} />
+        {cue && <Cue key={cue} id={cue} label={CUES[cue]} target={CUE_TARGET[cue]} onDismiss={dismissCue} />}
         {!askOpen && !mobile && !onboarding && <AskPill onOpen={() => setAskOpen(true)} />}
         {ask}
       </div>

@@ -1,9 +1,11 @@
 import { type HardHumanSubject, isHardHuman, type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
+import { Toggle } from '../components/controls';
 import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
+import { CUE_IDS } from '../lib/cues';
 
 type ScheduleKey = keyof PolicyConfig['schedules'];
 const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
@@ -52,7 +54,9 @@ export const cadence = (spec: string) => {
 };
 
 export function Settings() {
-  const { config, thresholds, setThresholds, now, showToast } = useApp();
+  const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues } = useApp();
+  // On while any cue is still to come; flipping it on shows every cue again, off retires them all.
+  const cuesOn = !CUE_IDS.every((id) => cuesSeen?.includes(id));
   const act = useAct();
   const backends = useOp('system.backends', {});
   const [schedules, setSchedules] = useState(config.schedules);
@@ -109,6 +113,22 @@ export function Settings() {
               />
             );
           })}
+        </div>
+        <div>
+          <div style={{ ...eyebrow(), marginBottom: 6 }}>Cues</div>
+          <div
+            className="cues-row"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              height: 60,
+              borderBottom: `1px solid ${C.line}`,
+            }}
+          >
+            <span style={{ fontSize: 15, fontWeight: 600 }}>Show cues</span>
+            <Toggle on={cuesOn} label="Show cues" op="config.update" onChange={(v) => void setCues(v ? [] : CUE_IDS)} />
+          </div>
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 14 }}>Data home</div>

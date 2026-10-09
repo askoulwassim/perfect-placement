@@ -114,10 +114,21 @@ export function SecondaryButton({
   );
 }
 
-export function Toggle({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
+export function Toggle({
+  on,
+  label,
+  onChange,
+  op = 'local',
+}: {
+  on: boolean;
+  label: string;
+  onChange: (on: boolean) => void;
+  /** The op a flip calls; view state by default. */
+  op?: ButtonOp;
+}) {
   return (
     <Btn
-      op="local"
+      op={op}
       role="switch"
       aria-checked={on}
       aria-label={label}

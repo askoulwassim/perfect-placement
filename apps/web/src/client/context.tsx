@@ -27,6 +27,15 @@ interface Ctx {
    * polls `runs.get` until it leaves `running`, then refreshes every read and calls `onDone`.
    */
   watchRun: (runId: string, onDone?: (run: Run) => void) => void;
+  /**
+   * First-visit cues already dismissed (wave1-decisions #27), from `config.ui.cues_seen`.
+   * `null` until config has loaded (no cue shows before we know).
+   */
+  cuesSeen: readonly string[] | null;
+  /** Dismiss a cue for good: saved in the vault with `config.update`; in memory when that fails (mock). */
+  markCue: (id: string) => void;
+  /** Replace the seen list (Settings "Show cues": [] shows every cue again). */
+  setCues: (ids: readonly string[]) => Promise<void>;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -80,6 +89,36 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
     return () => clearInterval(id);
   }, [watching, client, pollMs, bump]);
 
+  // Seen cues live apart from `config` so saving one never resets a screen's unsaved config edits.
+  const [cuesSeen, setCuesSeen] = useState<readonly string[] | null>(null);
+  const seenRef = useRef<readonly string[] | null>(null);
+  /** True once a save failed (mock, offline): the in-memory list is then the truth. */
+  const seenLocal = useRef(false);
+  const seenSaving = useRef(0);
+  const putSeen = useCallback((ids: readonly string[]) => {
+    seenRef.current = ids;
+    setCuesSeen(ids);
+  }, []);
+  const saveSeen = useCallback(
+    async (ids: readonly string[]) => {
+      putSeen(ids);
+      // Not through useAct: no refetch, no toast. The mock refuses writes; the list stays in memory.
+      seenSaving.current++;
+      const o = await client.run('config.update', { patch: { ui: { cues_seen: [...ids] } } }).finally(() => {
+        seenSaving.current--;
+      });
+      if (o.status !== 'ok') seenLocal.current = true;
+    },
+    [client, putSeen],
+  );
+  const markCue = useCallback(
+    (id: string) => {
+      const cur = seenRef.current ?? [];
+      if (!cur.includes(id)) void saveSeen([...cur, id]);
+    },
+    [saveSeen],
+  );
+
   useEffect(() => {
     void version;
     let live = true;
@@ -87,16 +126,34 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
       if (live && o.status === 'ok') {
         setConfig(o.output);
         setThresholds(o.output.policy);
+        const stored = o.output.ui?.cues_seen ?? [];
+        // The vault's list wins, unless a save is in flight or failed (mock): then in-memory dismissals are kept.
+        const cur = seenRef.current;
+        putSeen(cur && (seenLocal.current || seenSaving.current > 0) ? [...cur, ...stored.filter((x) => !cur.includes(x))] : stored);
       }
     });
     return () => {
       live = false;
     };
-  }, [client, version]);
+  }, [client, version, putSeen]);
 
   const value = useMemo<Ctx>(
-    () => ({ client, version, bump, now: now ?? (() => new Date()), config, thresholds, setThresholds, toast, showToast, watchRun }),
-    [client, version, bump, now, config, thresholds, toast, showToast, watchRun],
+    () => ({
+      client,
+      version,
+      bump,
+      now: now ?? (() => new Date()),
+      config,
+      thresholds,
+      setThresholds,
+      toast,
+      showToast,
+      watchRun,
+      cuesSeen,
+      markCue,
+      setCues: saveSeen,
+    }),
+    [client, version, bump, now, config, thresholds, toast, showToast, watchRun, cuesSeen, markCue, saveSeen],
   );
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

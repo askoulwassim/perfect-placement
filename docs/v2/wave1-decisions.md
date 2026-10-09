@@ -48,3 +48,6 @@ Wassim's answers to the questions the ten Wave 1 lanes raised. Wave 2 applies th
 
 ## Fresh start (cleanup)
 26. **Fresh start: no v1 data is imported; v1 migration code removed in this cleanup; decisions #19 and #20 are void.** Gone: `pp migrate`, the v1 importer, the v1 profile converter, the scoring backtest, the freshness `--v1` dry run and the resolver eval's v1 loaders. Migration 003 drops archive reason `legacy`, role source `migration`, flag `verify_remote` and the `v1_sections` profile field. The first real run follows `wave2-plan.md`, "Fresh-start runbook".
+
+## First launch
+27. **First-visit cues: one-time spotlight on the primary action with a 1-3 word label; logged exception to design.md 'no tips' rule, owner-approved 2026-10-08.** Soft scrim plus an emerald halo on the screen's primary action, dismissed by any click or key, never shown again. Seen cues persist in the vault (`config.ui.cues_seen`); Settings "Show cues" resets them. No paragraphs, no multi-step tour.

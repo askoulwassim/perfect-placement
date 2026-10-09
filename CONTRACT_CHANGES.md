@@ -505,3 +505,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: drafts read as bare fragments; Wassim wants real emails grounded in his Story, the role and the company, in his own voice, with several writing samples as style exemplars.
 - Shim: none (all additions optional on input; older drafts without a sign-off get the default).
 - Status: accepted
+
+## First launch
+
+### Seen first-visit cues in config
+- Lane: first-launch (D)
+- Date: 2026-10-08
+- Contract: packages/contracts/src/policy.ts (`PolicyConfig.ui`, `DEFAULT_CONFIG.ui`)
+- Change: optional `ui: { cues_seen: string[] }` (default `[]`): ids of the one-time first-visit cues already dismissed (wave1-decisions #27). The web UI saves it with `config.update { patch: { ui: { cues_seen } } }` (arrays replace); Settings "Show cues" saves `[]`. `DEFAULT_CONFIG` gains `ui: { cues_seen: [] }`. Mock mode keeps it in memory.
+- Why: cues are shown once per screen and must stay dismissed across browsers and restarts, so the state lives in the vault, not localStorage.
+- Shim: none (optional; a config.json without `ui` parses as before).
+- Status: accepted

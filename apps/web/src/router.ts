@@ -55,6 +55,12 @@ export function go(r: Route) {
   window.location.hash = href(r);
 }
 
+/** Navigate without a history entry (a redirect), so Back does not bounce. */
+export function replaceRoute(r: Route) {
+  window.history.replaceState(window.history.state, '', href(r));
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   useEffect(() => {

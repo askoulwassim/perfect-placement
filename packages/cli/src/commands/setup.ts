@@ -35,6 +35,19 @@ function describe(c: ClientChange): string {
   return `mcp: ${label}: ${c.status} server "pp" -> ${c.target}${c.backup ? ` (backup ${c.backup})` : ''}`;
 }
 
+/**
+ * What to do after registering (or finding pp already registered): the client reads its MCP config
+ * only at launch. Claude Desktop lists local servers under Settings > Developer (not Connectors).
+ */
+export function restartHint(client: ClientId, platform: NodeJS.Platform = process.platform): string {
+  const label = CLIENT_LABEL[client];
+  if (client === 'claude-desktop')
+    return platform === 'darwin'
+      ? 'Quit Claude Desktop (Cmd+Q) and reopen it; pp appears under Settings > Developer'
+      : 'Quit Claude Desktop fully and reopen it; pp appears under Settings > Developer';
+  return `restart ${label}; then ask it to call the pp tools`;
+}
+
 export async function setupCommand(args: Args, home: string, io: Io, opts: SetupOptions = {}): Promise<number> {
   const yes = args.has('yes');
   const d = sysOf(io);
@@ -85,6 +98,7 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
       const change = registerClient(client, spec, d);
       if (change.status === 'failed') failed = true;
       (change.status === 'failed' ? io.err : io.out)(describe(change));
+      if (change.status !== 'failed') io.out(`mcp: ${label}: ${restartHint(client, d.platform)}`);
     }
   }
 
