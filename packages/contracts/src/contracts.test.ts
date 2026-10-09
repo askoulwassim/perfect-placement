@@ -92,6 +92,11 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'apply.resolve_claim': 'low',
   // #37
   'people.find_email': 'low',
+  // #78
+  'people.fallback': 'low',
+  'apply.skip_connect': 'low',
+  // #81
+  'apply.set_questions': 'low',
 };
 
 /** Wave 2 read ops. */

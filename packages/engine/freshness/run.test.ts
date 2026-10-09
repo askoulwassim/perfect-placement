@@ -106,9 +106,9 @@ describe('roles.check_freshness over fixtures (runOp)', () => {
   it('daily run: scope only, ladder outcomes, events, run log', async () => {
     const before = protectedSnapshot();
     const out = okOut(await e.runOp('roles.check_freshness', { all_in_scope: true }, ctx));
-    expect(out.results).toHaveLength(16);
+    expect(out.results).toHaveLength(19);
 
-    // Applied-or-later and archived/inbox roles: untouched and never fetched.
+    // Applied-or-later and archived roles: untouched and never fetched.
     const after = protectedSnapshot() as Array<{ id: string }>;
     expect(after).toHaveLength(before.length + 3);
     expect(after.filter((r) => ![R.ddCost.id, R.rampActive.id, R.plaidOnDeck.id].includes(r.id))).toEqual(before);
@@ -173,7 +173,7 @@ describe('roles.check_freshness over fixtures (runOp)', () => {
     // Run row + log (the fixture vault already has today's freshness log, so this one is -2).
     const runRow = e.db.prepare(`SELECT * FROM run WHERE op = 'freshness' AND started_at = ?`).get(FIXTURE_NOW) as Record<string, string>;
     expect(runRow).toMatchObject({ status: 'ok', log_path: 'runs/2026-10-08_freshness-2.md' });
-    expect(JSON.parse(runRow.summary_json as string)).toMatchObject({ checked: 16, closed: 3, unsure: 4, open: 9, stale: 1, errors: 0 });
+    expect(JSON.parse(runRow.summary_json as string)).toMatchObject({ checked: 19, closed: 3, unsure: 4, open: 12, stale: 1, errors: 0 });
     expect(readFileSync(join(e.home, 'runs/2026-10-08_freshness-2.md'), 'utf8')).toMatch(/^---\nid: rn_[0-9A-Z]{26}\ntype: run\n---/);
   });
 
@@ -258,12 +258,113 @@ describe('roles.check_freshness over fixtures (runOp)', () => {
     expect(e.kev.calls).toHaveLength(0);
     expect(count()).toEqual(c0);
     expect(snapshot()).toEqual(s0);
-    expect(out.results).toHaveLength(16);
+    expect(out.results).toHaveLength(19);
     expect(out.results.filter((r: { freshness: string }) => r.freshness === 'closed')).toHaveLength(5);
   });
 
   it('validates input against the contract', async () => {
     expect(await e.runOp('roles.check_freshness', { role_ids: 'x' }, ctx)).toMatchObject({ status: 'error', code: 'invalid_input' });
+  });
+});
+
+describe('inbox and unverified postings (#77)', () => {
+  const snow = id('snowflake', 'Principal PM, AI Observability');
+  const DAY2 = '2026-10-09T12:00:00.000Z';
+  let reply: { status: number; body?: string } = { status: 403, body: page('Access denied') };
+  let kevSays: { value: boolean; p: number } | 'down' = 'down';
+
+  function inboxEngine(config?: Record<string, unknown>) {
+    e.cleanup();
+    f = fakeFetch((url) => (url === snow.url ? reply : route(url)));
+    e = openFixtureEngine({
+      services: { fetch: f },
+      ...(config ? { config } : {}),
+      kev: (_q, req) => (req.subject?.id === snow.id && kevSays !== 'down' ? kevSays : undefined),
+    });
+  }
+  const decisions = (rid: string) =>
+    e.db.prepare(`SELECT * FROM decision WHERE subject_id = ? AND kind = 'freshness.closed' ORDER BY ts, id`).all(rid) as Array<
+      Record<string, string | number | null>
+    >;
+  const check = (now = FIXTURE_NOW) =>
+    e.runOp('roles.check_freshness', { role_ids: [snow.id] }, { actor: 'schedule', now: () => new Date(now) });
+
+  beforeEach(() => {
+    reply = { status: 403, body: page('Access denied') };
+    kevSays = 'down';
+  });
+
+  it('the daily run covers inbox roles', async () => {
+    expect(FRESHNESS_SCOPE).toContain('inbox');
+    const out = okOut(await e.runOp('roles.check_freshness', { all_in_scope: true }, ctx));
+    const inbox = fixtureRoles.filter((r) => r.status === 'inbox').map((r) => r.id);
+    expect(inbox).toHaveLength(3);
+    for (const rid of inbox) expect(out.results.map((r: { role_id: string }) => r.role_id)).toContain(rid);
+    expect(role(snow.id).last_checked_at).toBe(FIXTURE_NOW);
+  });
+
+  it('two checks that cannot confirm open (bot wall) close it as auto + undo; undo restores the inbox', async () => {
+    inboxEngine();
+    okOut(await check());
+    expect(role(snow.id)).toMatchObject({ status: 'inbox', freshness: 'unsure' });
+    expect(JSON.parse(role(snow.id).flags_json)).toMatchObject({ unverified_checks: 1 });
+    const [first] = decisions(snow.id);
+    expect(first).toMatchObject({ backend: 'human', policy_outcome: 'human', status: 'pending' });
+
+    const out = okOut(await check(DAY2));
+    expect(out.results[0]).toMatchObject({ role_id: snow.id, freshness: 'closed', method: 'resolver' });
+    expect(role(snow.id)).toMatchObject({ status: 'archived', archive_reason: 'closed', freshness: 'closed' });
+    const flags = JSON.parse(role(snow.id).flags_json);
+    expect(flags.unverified_checks).toBe(2);
+    expect(flags.closed.reason).toContain('not confirmed open in 2 checks (blocked)');
+    const all = decisions(snow.id);
+    // The day-1 pending close and the day-2 ask are replaced by the rule decision.
+    expect(all.filter((d) => d.status === 'pending')).toHaveLength(0);
+    expect(all.filter((d) => d.status === 'expired')).toHaveLength(2);
+    const rule = all.find((d) => d.backend === 'rule') as Record<string, string>;
+    expect(rule).toMatchObject({ policy_outcome: 'auto_undo', status: 'applied', p: 0.93, undo_until: '2026-10-10T12:00:00.000Z' });
+    expect(JSON.parse(rule.question_json)).toMatchObject({ id: 'open', rule: 'unverified', basis: 'blocked', unverified_checks: 2 });
+    expect(JSON.parse(rule.action_json)).toMatchObject({ op: 'roles.archive', undo: { op: 'roles.move', input: { to: 'inbox' } } });
+
+    okOut(await e.runOp('decisions.undo', { decision_id: rule.id }, ctxAt('human', {}, DAY2)));
+    expect(role(snow.id)).toMatchObject({ status: 'inbox', archive_reason: null });
+  });
+
+  it('a page that loads but shows nothing decisive goes to Needs you on the second check, never archived', async () => {
+    inboxEngine();
+    reply = { status: 200, body: page('<h1>Principal PM</h1><p>About the team.</p>') };
+    okOut(await check());
+    okOut(await check(DAY2));
+    expect(role(snow.id)).toMatchObject({ status: 'inbox', freshness: 'unsure' });
+    const pending = decisions(snow.id).filter((d) => d.status === 'pending');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ backend: 'rule', policy_outcome: 'human', p: 0.75 });
+    // A human accepting "not open" archives it.
+    okOut(await e.runOp('decisions.resolve', { decision_id: pending[0]?.id, action: 'accept' }, ctxAt('human', {}, DAY2)));
+    expect(role(snow.id)).toMatchObject({ status: 'archived', archive_reason: 'closed' });
+  });
+
+  it('a check that confirms open resets the count', async () => {
+    inboxEngine();
+    okOut(await check());
+    kevSays = { value: true, p: 0.96 };
+    okOut(await check(DAY2));
+    expect(role(snow.id)).toMatchObject({ status: 'inbox', freshness: 'open' });
+    expect(JSON.parse(role(snow.id).flags_json).unverified_checks).toBeUndefined();
+    kevSays = 'down';
+    okOut(await check('2026-10-10T12:00:00.000Z'));
+    expect(role(snow.id).status).toBe('inbox');
+    expect(JSON.parse(role(snow.id).flags_json).unverified_checks).toBe(1);
+  });
+
+  it('precheck closes hard closed evidence on a rule decision without asking a backend', async () => {
+    inboxEngine();
+    reply = { status: 404, body: page('Not found') };
+    const out = okOut(await e.runOp('roles.check_freshness', { role_ids: [snow.id], precheck: true }, ctx));
+    expect(out.results[0]).toMatchObject({ freshness: 'closed' });
+    expect(e.kev.calls).toHaveLength(0);
+    expect(role(snow.id)).toMatchObject({ status: 'archived', archive_reason: 'closed' });
+    expect(decisions(snow.id)[0]).toMatchObject({ backend: 'rule', policy_outcome: 'auto', status: 'applied', p: 0.97 });
   });
 });
 
@@ -274,7 +375,7 @@ describe('backfill dry run', () => {
       delayMs: 0,
       now: () => new Date(FIXTURE_NOW),
     });
-    expect(res.summary.checked).toBe(16);
+    expect(res.summary.checked).toBe(19);
     expect(res.report).toContain('# Freshness backfill dry run');
     expect(res.report).toMatch(/## Closed \(5\)/);
   });

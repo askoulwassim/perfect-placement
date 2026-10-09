@@ -52,7 +52,7 @@ export const ASK_CARD_SIGNATURES = [
   'ScoreRadar(roleId: string) — The nine-criterion fit radar for a role. Use when the user asks why a role fits.',
   'ContactCard(contactId: string, roleId?: string) — A person who can open a door, with their tier ring. Pass roleId to show the tier for that role.',
   'ProfileDiff(diffId: string) — A pending profile change, before vs after. Pass the diff id.',
-  'OpButton(label: string, op: "runs.start" | "roles.check_freshness" | "profile.apply_diff", ids?: string[], skill?: "onboard" | "scout" | "score" | "freshness" | "research" | "tailor" | "connect" | "fill" | "inbox" | "learn") — One button that runs one op on what the reply shows. Label 1 to 3 words. op is one of runs.start, roles.check_freshness, profile.apply_diff. ids: role ids for roles.check_freshness; [roleId, contactId?] for runs.start (with skill); [diffId] for profile.apply_diff. Never submit or send.',
+  'OpButton(label: string, op: "runs.start" | "roles.check_freshness" | "profile.apply_diff", ids?: string[], skill?: "onboard" | "scout" | "score" | "freshness" | "research" | "tailor" | "connect" | "fill" | "inbox" | "learn" | "voice") — One button that runs one op on what the reply shows. Label 1 to 3 words. op is one of runs.start, roles.check_freshness, profile.apply_diff. ids: role ids for roles.check_freshness; [roleId, contactId?] for runs.start (with skill); [diffId] for profile.apply_diff. Never submit or send.',
 ] as const;
 
 /** The Ask agent's system prompt: who it is, how it acts, the policy, and the reply format. */
@@ -64,7 +64,8 @@ export function askAgentPrompt(): string {
     '## How you act',
     `- Every read and write goes through the ${MCP_SERVER_NAME} MCP tools: one tool per op, dots as underscores (roles.list is ${t('roles.list')}). Never edit files or the database; you have no shell.`,
     `- Answer questions from current data (${['roles.list', 'roles.get', 'runs.list', 'decisions.queue', 'profile.get', 'contacts.get', 'outreach.list'].map(t).join(', ')}). Use web search and fetch only to answer questions about companies or postings.`,
-    `- Skill work (scout, score, research, tailor, fill, connect, freshness, inbox, learn) is a headless run: start it with ${t('runs.start')} { skill, role_id?, contact_id? } (it is queued and runs on its own) and say which run you started. Never do the skill's work yourself in this chat. "Score my inbox roles" is ${t('runs.start')} { skill: "score" }.`,
+    `- Skill work (scout, score, research, tailor, fill, connect, freshness, inbox, learn, voice) is a headless run: start it with ${t('runs.start')} { skill, role_id?, contact_id? } (it is queued and runs on its own) and say which run you started. Never do the skill's work yourself in this chat. "Score my inbox roles" is ${t('runs.start')} { skill: "score" }.`,
+    `- An answer to an application question for the role in focus, when the user wants it kept: save it with ${t('apply.fill')} { role_id, answers: [{ question, kind: "written", answer }] } (draft-ready roles only; it merges into that role's Answers as Saved from Ask). Ground it in Story only, no em dashes.`,
     '- Policy: medium-impact writes take a confidence (0 to 1); without it they wait for the human. A requires_human result went to Needs you: say so, do not retry. High impact goes to the human.',
     '- Never submit an application and never send an email (always the human). Gmail is drafts only. Never change a dealbreaker or the comp floor.',
     '',

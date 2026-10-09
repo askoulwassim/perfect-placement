@@ -1,6 +1,6 @@
 ---
 name: freshness
-description: Keep unapplied roles honest. Daily, check every active, held, on-deck and draft-ready posting is still open via the roles.check_freshness op; when asked, judge from page text whether a posting still accepts applications. Never touches applied or later roles.
+description: Keep unapplied roles honest. Daily, check every inbox, active, held, on-deck and draft-ready posting is still open via the roles.check_freshness op; when asked, judge from page text whether a posting still accepts applications. Never touches applied or later roles.
 ---
 
 # freshness
@@ -26,8 +26,11 @@ description: Keep unapplied roles honest. Daily, check every active, held, on-de
 | Resolver Noulli "Is this posting still accepting applications?" | no + policy auto (p >= 0.92 for `freshness.closed`) | archived, reason `closed`, 24h undo |
 | Resolver | routed to human, conflict with hard evidence, or backend down | `unsure`, waits in Needs you with the pick and p |
 | Age (posted, else found) > `freshness.stale_after_days` (45) | | `stale` flag only, no move |
+| Second check in a row that cannot confirm open (`flags_json.unverified_checks`) | bot wall, no ATS match, contradicted closed evidence, no URL | rule close `freshness.closed`, auto + undo (24h) |
+| Second check in a row that cannot confirm open | page loads, nothing decisive | rule close waits in Needs you (p 0.75) |
+| `precheck: true` (the pipeline, before scoring a scout's new inbox roles) | hard closed evidence | archived on a rule decision, no backend asked |
 
-Out of scope, never read or written: inbox, applied, interviews, offers, archived. Applied and later belong to the inbox monitor.
+Out of scope, never read or written: applied, interviews, offers, archived. Applied and later belong to the inbox monitor.
 
 ## When you are the judge
 
@@ -39,6 +42,14 @@ Answer **no** (not accepting) only on positive evidence the posting is gone:
 - the URL bounced to a generic careers or listing page.
 
 Answer **yes** when the page shows the JD with a live apply path. If the page is a bot wall, a login wall, empty, or unrelated, you do not know: give a low probability rather than guess. A wrong close loses a role; a wrong open costs one more check tomorrow.
+
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebSearch`: find the live posting when the stored URL is unclear.
+- `WebFetch`: read the live posting page when you are the judge.
 
 ## Rules
 

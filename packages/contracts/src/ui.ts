@@ -53,6 +53,10 @@ export const COMPONENTS = {
   CommandBar: { props: ['open', 'query', 'suggestions[]', 'reply'], states: ['collapsed', 'input', 'streaming'] },
   PolicyGrid: { props: ['thresholds[2]', 'cells[3][3]'] },
   Toggle: { props: ['on'] },
+  /** Added (#75): every multi-value field. Enter / Tab add, Backspace on empty removes the last, paste splits. */
+  ChipInput: { props: ['value[]', 'onChange', 'label', 'max?'], states: ['empty', 'filled', 'full'] },
+  /** Added (#73): an exact number field and a slider kept in sync; money shown as `$212.5k`. */
+  SliderInput: { props: ['value', 'min', 'max', 'step?', 'unit?: money|percent', 'label'] },
   BackendCard: { props: ['name', 'mode', 'status', 'latencyMs'] },
   Toast: { props: ['text'] },
   NavRail: { props: ['active', 'needsBadge'] },

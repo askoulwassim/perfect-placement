@@ -1,6 +1,7 @@
 import {
   type Criterion,
   cleanDictation,
+  formatMoneyRange,
   type OpContext,
   type OpInput,
   type OpOutput,
@@ -8,6 +9,7 @@ import {
   PROFILE_COMPONENT_KIND,
   type ProfileComponentKey,
   type ProfileDiff,
+  VOICE_DEFAULT_STYLE,
   vaultPath,
 } from '@perfect-placement/contracts';
 import { renderMarkdown, stripFrontmatter } from '../ops/vault.js';
@@ -16,10 +18,11 @@ import { parseComponentData, rubricWeights, weightsByComponent } from './compone
 import { newId, type ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
 import { checkFacts, describeClaims, inSource, storySourceText } from './facts.js';
-import { type ComponentHint, describeData, makeHint, resumeHints, storyHintFrom } from './hints.js';
+import { type ComponentHint, describeData, makeHint, resumeHints, resumeOptions, storyHintFrom, withTitles } from './hints.js';
 import { clone, deepEqual } from './json.js';
 import { componentMdPath, MD_COMPONENTS, renderComponentMd } from './markdown.js';
 import type { FillSource, OnboardSession, OnboardStore } from './onboard-store.js';
+import { OPTION_KEYS, type PersonaOptions, uniq } from './persona.js';
 import { profileProposeDiff } from './profile-ops.js';
 import {
   type AnswerValue,
@@ -32,6 +35,7 @@ import {
   optionsOf,
   type ProposedQuestion,
   QUESTION_BANK,
+  questionsFor,
   suggestedFor,
 } from './questions.js';
 import { parseResumeHeuristic, statedYears, yearsFromDates } from './resume.js';
@@ -110,7 +114,7 @@ const nextOf = (s: OnboardSession) => nextQuestion(s.draft, s.answered, s.scope,
 
 export function stateOf(s: OnboardSession, parseRunId: string | null = null): OnboardState {
   const q = s.step === 'interview' ? nextOf(s) : null;
-  const options = q ? optionsOf(q, s.draft) : undefined;
+  const options = q ? optionsOf(q, s.draft, s.interview) : undefined;
   const suggested = q ? suggestedFor(q, s.draft, s.interview) : undefined;
   const resume_drafts = PROFILE_COMPONENT_KEYS.flatMap((component) => {
     const h = s.interview.hints[component];
@@ -142,9 +146,12 @@ export function stateOf(s: OnboardSession, parseRunId: string | null = null): On
           ...(options ? { options } : {}),
           ...(q.min != null ? { min: q.min } : {}),
           ...(q.max != null ? { max: q.max } : {}),
+          ...(q.step != null ? { step: q.step } : {}),
+          ...(q.unit ? { unit: q.unit } : {}),
           ...(q.max_items != null ? { max_items: q.max_items } : {}),
           ...(q.max_chars != null ? { max_chars: q.max_chars } : {}),
           ...(q.items ? { items: q.items(s.draft) } : {}),
+          ...(q.other ? { other: true } : {}),
         }
       : null,
   };
@@ -240,7 +247,10 @@ export async function onboardIngestResume(
     addSource(s, key, 'resume');
   }
   // What the resume implies per component, with a confidence (#22). A confirm already answered keeps its hint.
-  setHints(s, resumeHints(text, parsed));
+  const hints = resumeHints(text, parsed);
+  setHints(s, hints);
+  // Persona-dependent options from the resume (#74); the agent's options, once in, are kept.
+  if (s.interview.options?.by !== 'agent') s.interview.options = resumeOptions(parsed, hints);
   s.draft.story ??= {};
   const story = s.draft.story;
   delete story.source_path;
@@ -369,6 +379,11 @@ export async function onboardExtract(
       );
       if (h) drafts.craft = h;
     }
+    // The resume's titles stay a craft.titles suggestion (#74) unless the agent's draft names titles.
+    const prevTitles = live.interview.hints.craft?.suggest.titles;
+    if (drafts.craft && Array.isArray(prevTitles) && drafts.craft.data.titles === undefined && drafts.craft.suggest.titles === undefined)
+      drafts.craft = withTitles(drafts.craft, prevTitles as string[]) ?? drafts.craft;
+    if (input.options) live.interview.options = agentOptions(input.options, live.interview.options);
     setHints(live, { story: storyHintFrom(text, next), ...drafts });
     addSource(live, 'story', 'resume');
     if (Object.keys(craft).length) addSource(live, 'craft', 'resume');
@@ -401,6 +416,23 @@ export async function onboardExtract(
     return { target: 'diff', diff_id: (o.output as { diff: ProfileDiff }).diff.id };
   }
   return { target: 'diff', diff_id: profileProposeDiff(deps, diffInput, ctx).output.diff.id };
+}
+
+/**
+ * The agent's persona-dependent options (#74) over the preview's: each list it sent replaces the preview's.
+ * Judgment, not facts (no resume check), but no em or en dashes and no duplicates.
+ */
+function agentOptions(input: NonNullable<OpInput<'onboard.extract'>['options']>, prev: PersonaOptions | undefined): PersonaOptions {
+  const out: PersonaOptions = { ...(prev ?? { persona: null }), by: 'agent' };
+  if (input.persona) out.persona = input.persona.trim().toLowerCase();
+  for (const k of OPTION_KEYS) {
+    const xs = input[k];
+    if (!xs) continue;
+    const bad = xs.find((x) => /[\u2014\u2013]/.test(x));
+    if (bad) throw new OpError('invalid_input', `options.${k}: no em or en dashes ("${bad}")`);
+    out[k] = uniq(xs, 12);
+  }
+  return out;
 }
 
 /** Most follow-up questions one onboarding session takes from the agent. */
@@ -546,8 +578,21 @@ export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'
   if (s.scope && !s.scope.includes(q.component)) throw new OpError('invalid_input', `${q.id} is outside this re-interview`);
   if (input.skip) {
     // "I don't know" (#23): answered with nothing; the draft is unchanged.
-    if (!s.answered.includes(q.id)) s.answered.push(q.id);
-    if (!s.interview.skipped.includes(q.id)) s.interview.skipped.push(q.id);
+    // Skip the component (#76: the Voice step's Skip): every remaining question of it is skipped too.
+    const ids = input.skip_component
+      ? questionsFor(s.interview, s.answered, s.scope)
+          .filter((x) => x.component === q.component && !s.answered.includes(x.id))
+          .map((x) => x.id)
+      : [];
+    for (const id of [q.id, ...ids]) {
+      if (!s.answered.includes(id)) s.answered.push(id);
+      if (!s.interview.skipped.includes(id)) s.interview.skipped.push(id);
+    }
+    // No style of their own: drafts use the neutral default (Story facts, plain sentences).
+    if (input.skip_component && q.component === 'voice' && !s.draft.voice?.style) {
+      s.draft.voice = { ...(s.draft.voice ?? {}), style: VOICE_DEFAULT_STYLE };
+      addSource(s, 'voice', 'interview');
+    }
     advance(s);
     s.updated_at = ctx.now().toISOString();
     if (!ctx.dryRun) store(deps).save(s);
@@ -749,13 +794,7 @@ export function onboardState(deps: ProfileDeps): OnboardState {
   return { step: 'resume', components_filled: [], resume_drafts: [], next_question: null };
 }
 
-const money = (n: number) => `$${Math.round(n / 1000)}k`;
-function compLabel(min: number | null | undefined, max: number | null | undefined): string {
-  if (min && max) return `${money(min)} to ${money(max)}`;
-  if (min) return `${money(min)}+`;
-  if (max) return `up to ${money(max)}`;
-  return 'Not listed';
-}
+const compLabel = (min: number | null | undefined, max: number | null | undefined): string => formatMoneyRange(min, max) ?? 'Not listed';
 
 /** onboard.samples (read-only): the calibration cards and the baseline weights the bars start from. */
 export function onboardSamples(deps: ProfileDeps): OpOutput<'onboard.samples'> {

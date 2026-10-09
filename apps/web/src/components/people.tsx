@@ -1,7 +1,8 @@
-import type { ContactTier, OutreachStatus } from '@perfect-placement/contracts';
+import type { ConnectFallback, ContactTier, OutreachStatus } from '@perfect-placement/contracts';
 import { Fragment } from 'react';
+import { FALLBACK_LABEL } from '../lib/people';
 import { Btn } from './Btn';
-import { DraftStatusChip } from './controls';
+import { DraftStatusChip, SecondaryButton } from './controls';
 import { C, ellipsis, eyebrow, mono, X } from './theme';
 
 // ------------------------------------------------------------ tiers (prototype TIER table)
@@ -385,6 +386,51 @@ export function OutreachBlock({ label, text, mobile }: { label: 'Hook' | 'Proof'
     >
       <div style={{ ...eyebrow(C.emerald, 10), letterSpacing: '.12em', paddingTop: 5 }}>{label}</div>
       <div style={{ fontSize: 18, lineHeight: 1.55, textWrap: 'pretty' }}>{text}</div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ Connect fallback (#78)
+
+/**
+ * Which no-contact fallback Connect used ("Hiring team", "Cold leader", "Skipped") and, on the Connect
+ * stage, the Skip action (`apply.skip_connect`). Renders nothing when neither applies.
+ */
+export function ConnectFallbackBar({
+  fallback,
+  onSkip,
+  mobile,
+}: {
+  fallback: ConnectFallback | null;
+  /** Set only while the role is on the Connect stage. */
+  onSkip?: (() => void) | null;
+  mobile?: boolean;
+}) {
+  if (!fallback && !onSkip) return null;
+  return (
+    <div className="connect-fallback" style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 12px', flexWrap: 'wrap' }}>
+      {fallback && (
+        <span
+          data-fallback={fallback}
+          style={{
+            ...eyebrow(fallback === 'skipped' ? C.muted : C.sky, mobile ? 9.5 : 10),
+            border: `1px solid ${C['line-2']}`,
+            borderRadius: 999,
+            padding: '4px 10px',
+          }}
+        >
+          {FALLBACK_LABEL[fallback]}
+        </span>
+      )}
+      {onSkip && (
+        <SecondaryButton
+          op="apply.skip_connect"
+          label="Skip"
+          height={mobile ? 26 : 30}
+          onClick={onSkip}
+          style={{ fontSize: mobile ? 12 : 13, borderRadius: 999 }}
+        />
+      )}
     </div>
   );
 }

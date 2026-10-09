@@ -56,7 +56,7 @@ export function policyOutcome(
 }
 
 /** Effective thresholds: base config, then the per-kind override, then a per-call override. */
-export function effectiveThresholds(config: PolicyConfig, kind: DecisionKind, perCall?: Partial<Thresholds>): KindThresholds {
+export function effectiveThresholds(config: PolicyConfig, kind: DecisionKind, perCall?: Partial<KindThresholds>): KindThresholds {
   return { ...thresholdsFor(config, kind), ...(perCall ?? {}) };
 }
 

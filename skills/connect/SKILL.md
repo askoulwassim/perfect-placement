@@ -7,15 +7,23 @@ description: Find people who can open doors for a picked role, classify each one
 
 **Owner: lane H.** Stage 06 of the flow: runs on pick, outputs contacts + Gmail **drafts**.
 
-You supply judgment (who is in the JD, the draft text). Code does mechanics (LinkedIn reads, caps, dedupe, tiers, files, Gmail). Every write is an op.
+You supply judgment (who is in the JD, who you read on LinkedIn, the draft text). Code does mechanics (URL allowlist, caps, budget, dedupe, tiers, files). Every write is an op.
 
 ## Steps
 
 1. **Check the role is picked.** `roles.get { role_id }`. Status must be `on-deck` or later (not archived). `people.find` refuses anything else.
 2. **Collect hints (judgment).** Read the JD (`roles/<role_id>.md`) and, if useful, the company team page. List people named there: name, headline, URL or email if shown. Do not search for personal emails (the email step below looks for work addresses only).
-3. **Find.** `people.find { role_id, hints?: [{ name, headline?, linkedin_url?, email?, source: "jd" | "company_site" }] }`.
-   Add `dry_run: true` first if the user wants a preview. The LinkedIn adapter reads 1st-degree connections at the company, the company People page filtered by the role title, and mutuals for a few 2nd-degree people. It is capped per day (`config.linkedin.max_profiles_per_day`) and slow (`min_delay_s` .. 2x between pages). `capped: true` means try again tomorrow; do not work around it.
-4. **Classify.** For each found contact: `people.classify { contact_id, role_id }`. The resolver answers; low confidence lands in Needs you with the pick shown. Tier is mechanics:
+3. **Read LinkedIn (judgment, read-only, #82).** Only when the prompt's LinkedIn line says it is on (`config.linkedin.mode: "live"`) and only for this picked role. Use Claude in Chrome's read and navigate tools (listed under Tools); nothing that clicks, types or runs script is granted. Open a new tab, then, waiting the stated delay (`min_delay_s` to 2x) before every page, read in this order and stop at the page cap (`max_pages_per_run`) or the profile budget the prompt states:
+   - **Your 1st-degree connections at the company:** `https://www.linkedin.com/search/results/people/?keywords=<Company>&network=["F"]`.
+   - **The company People page,** filtered by the role title's keywords: `https://www.linkedin.com/company/<linkedin-slug>/people/?keywords=<title keywords>`.
+   - **Mutuals** for the top 2nd-degree candidates (at most `max_mutual_expansions`): the "N mutual connections" link on their card (a `/search/results/people/` URL).
+   - **Hiring team:** if the posting is on LinkedIn and lists "Meet the hiring team", note those names (`hiring_team: true`).
+   Read only names, headlines, profile URLs (`https://www.linkedin.com/in/<slug>`), the degree badge (1st, 2nd, 3rd+) and the mutual. Never open a profile, messaging, invitation, follow or feed page; never press Connect, Message, Follow, Like or any button. A sign-in wall, checkpoint, captcha or "unusual activity" page: stop at once, read nothing more, and report it (`skipped: "checkpoint"` or `"signed_out"`). No Chrome tools in this session (Codex, Cursor, no extension): `skipped: "no_browser"`.
+4. **Find.** `people.find { role_id, hints, linkedin: { pages_opened, skipped? } }`. Hints:
+   - From the JD and team page: `{ name, headline?, linkedin_url?, email?, source: "jd" | "company_site" }`.
+   - From your LinkedIn read: `{ name, headline, linkedin_url, source: "linkedin", degree: "1" | "2" | "cold", via?: { name, headline, linkedin_url } (2nd degree, the mutual), hiring_team?: true }`.
+   Always pass `linkedin.pages_opened` (0 if you opened none) and, if you read nothing, `skipped` (`no_browser`, `signed_out`, `checkpoint`, `capped`, `not_found`, `error`). The engine keeps only `/in/<slug>` profile URLs, counts every person and mutual against the daily budget, drops hints beyond it (`capped: true`: stop for today, do not work around it) and records `linkedin_mode: "agent"` only when you really read LinkedIn. Add `dry_run: true` first if the user wants a preview.
+5. **Classify.** For each found contact: `people.classify { contact_id, role_id }`. The resolver answers; low confidence lands in Needs you with the pick shown. Tier is mechanics:
 
    | | Hiring team (hiring manager, hiring team, recruiter) | Not hiring team |
    | --- | --- | --- |
@@ -23,13 +31,12 @@ You supply judgment (who is in the JD, the draft text). Code does mechanics (Lin
    | 2nd degree | `bridge`: note to the mutual + forwardable blurb | same |
    | Cold | `cold_hiring`: their problem, one proof, one ask | `cold_other`: skip unless the user asks |
 
-5. **Pick the best path.** Draft for the top contact per tier, in order warm_hiring, warm_other, bridge, cold_hiring. Usually one to four drafts per role. Skip `cold_other` unless asked.
-6. **Email (judgment: what you saw; code: the guess).** For each contact you will draft to (bridge: the mutual), find addresses, read-only:
-   - **Gmail** (your Gmail tool, search and read only: `search_threads`, `get_thread`, `get_message`): threads with the person (`from:` / `to:` their name) and signatures; also any addresses at the company domain (`@<domain>`), which teach the company's format.
-   - **LinkedIn** contact info for 1st-degree connections, inside the same caps (never message or connect).
+6. **Pick the best path.** Draft for the top contact per tier, in order warm_hiring, warm_other, bridge, cold_hiring. Usually one to four drafts per role. Skip `cold_other` unless asked. No usable contact (none found, or every one is `cold_other`): follow "No usable contact" below; the role must never stall in Connect.
+7. **Email (judgment: what you saw; code: the guess).** For each contact you will draft to (bridge: the mutual), find addresses, read-only:
+   - **Gmail** (read-only here: `mcp__claude_ai_Gmail__search_threads`, `mcp__claude_ai_Gmail__get_thread`, `mcp__claude_ai_Gmail__get_message`): threads with the person (`from:` / `to:` their name) and signatures; also any addresses at the company domain (`@<domain>`), which teach the company's format.
    - **Public pages**: the JD, the company team page, talks, GitHub, a personal site.
    Then call `people.find_email { contact_id, role_id, hints: [{ email, name?, source: "gmail" | "linkedin" | "public" }], domain? }`. Pass every address you saw at the company with whose it is when you know; pass `domain` when the company has none on file (dossier or website). The op keeps a known address, else learns the format (`first.last`, `flast`, `first`, `firstl`, `f.last`, `last`), checks the domain's MX record and ranks candidates: a confident pick is stored as confirmed; an unsure one is stored as a guess and goes to Needs you with the alternatives. Never guess the address yourself, never probe a mail server, never send a test email, and never use a paid finder.
-7. **Write the draft (judgment).** The draft must read like a real email from the user, in their voice. Gather the writer inputs, keeping the two kinds of facts apart:
+8. **Write the draft (judgment).** The draft must read like a real email from the user, in their voice. Gather the writer inputs, keeping the two kinds of facts apart:
    - **CONTEXT** (facts about them, usable for the hook): the contact's headline, the role's JD (`roles/<role_id>.md`, the JD section), the company dossier (`companies/<slug>/dossier.md`: snapshot, why, hooks, news). Never present CONTEXT as a fact about the user.
    - **STORY** (`profile/story.md` plus the Story component data): the only source of facts about the user.
    - **VOICE** (`profile/voice.md` plus the Voice component: `style`, `rules`, `signoff`, `samples`): tone only. Treat every writing sample as a style exemplar: match its tone, rhythm and phrasing; never reuse its facts, names or numbers. Use all of them, even when voice.md has text.
@@ -42,12 +49,24 @@ You supply judgment (who is in the JD, the draft text). Code does mechanics (Lin
    - **Subject**: short, plain. Max 80 chars.
    - No em dashes, no en dashes. No flattery ("huge fan", "I admire", "amazing team" are refused). No facts beyond STORY.
    Bridge drafts are addressed to the mutual, not the target.
-8. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask, signoff? }`. Agent-written drafts pass the same `checkDraft` as engine-written ones: it refuses rule breaks with the exact issue (`em_dash`, `too_long`, `too_many_sentences`, `ungrounded_number`, `flattery`, `empty`); fix and call again.
-9. **To Gmail.** Follow "Gmail draft step" below. It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+9. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask, signoff? }`. Agent-written drafts pass the same `checkDraft` as engine-written ones: it refuses rule breaks with the exact issue (`em_dash`, `too_long`, `too_many_sentences`, `ungrounded_number`, `flattery`, `empty`); fix and call again.
+10. **To Gmail.** For each saved draft, follow "Gmail draft step" below in this same run (`mcp__claude_ai_Gmail__create_draft` is granted to every `connect` run). It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+
+## No usable contact
+
+When `people.find` returns nobody usable, Connect falls back automatically (#78). You find (judgment); `people.fallback` picks (code), in this order:
+
+1. **Hiring team or recruiting address.** Search the JD, the careers page, the dossier (`companies/<slug>/dossier.md`) and the company site for a team mailbox (`recruiting@`, `talent@`, `jobs@`, `careers@`, `hiring@`) or a named recruiter with a work address. Public pages only; never a personal address.
+2. **The likely hiring leader.** From the dossier: who this role most likely reports to (e.g. the CPO or VP Product), with headline and LinkedIn URL if the dossier has it.
+3. Call `people.fallback { role_id, team_inbox: [{ email, name?, source: "jd" | "careers" | "dossier" | "company_site", url? }], leader?: { name, headline?, linkedin_url? }, domain?, email_hints?, reason? }` with everything you found (or nothing). The engine also scans the JD and dossier for team mailboxes, keeps only addresses at the company domain, and then:
+   - **`team_inbox`**: a contact "Hiring team" (or the named recruiter), `email_source: public`, linked `cold_hiring`. Draft to it.
+   - **`cold_leader`**: the leader as a `cold_hiring` contact; `people.find_email` guesses the address (flagged as a guess; an unsure one waits in Needs you, so the Gmail draft has no To until confirmed). Draft to them.
+   - **`skipped`**: nothing usable; the application moves from Connect to Fill. Stop: no draft. (`apply.skip_connect { role_id, reason }` does the same on its own; the UI's **Skip** calls it.)
+4. **Fallback draft (judgment).** The draft is a shortened version of the tailored **cover letter** (`applications/<role_id>/cover_letter.md`), in the user's voice: Hook = greeting ("Hi <Company> team," for a team inbox, else the first name) plus why this role; Proof = two or three first-person sentences from the cover letter; Ask = team inbox: pass it to the hiring manager; leader: a short call. The cover letter counts as a fact source next to STORY for these drafts only (it passed the tailor fact check); everything else in step 8 applies, and `outreach.draft` runs the same `checkDraft`. Then the Gmail draft step as usual.
 
 ## Gmail draft step
 
-The engine has no Gmail client. You create the draft with your own Gmail draft tool, then record it. This works from any MCP client that has a Gmail draft tool next to the `pp` server: Claude Code uses the Gmail connector (`create_draft`); Codex and Cursor need their own Gmail MCP server configured for this step. The web UI's **Create Gmail draft** starts a headless `connect` run for one outreach (`runs.start { skill: "connect", outreach_id }`) that does only this step.
+The engine has no Gmail client. You create the draft with your own Gmail draft tool, then record it. This works from any MCP client that has a Gmail draft tool next to the `pp` server: Claude Code uses the claude.ai Gmail connector (`mcp__claude_ai_Gmail__create_draft`); Codex and Cursor need their own Gmail MCP server configured for this step. A full `connect` run does this step itself for each draft it saved. The web UI's **Create Gmail draft** starts a headless `connect` run for one outreach (`runs.start { skill: "connect", outreach_id }`) that does only this step (for a draft saved earlier, or one the user edited).
 
 1. **Read the draft.** `outreach.get { outreach_id }`: subject, hook, proof, ask, signoff and `body`. No subject: the role title plus " at " and the company (`roles.get`).
 2. **Recipient.** `outreach.get` returns `to`: the contact, or the mutual for bridge drafts (never the target). To = `to.email`. When `to.email` is null, leave To empty: `to.reason` says why (no address found, or an unconfirmed guess waiting in Needs you). Never use `to.guess`.
@@ -55,13 +74,31 @@ The engine has no Gmail client. You create the draft with your own Gmail draft t
 4. **Record it.** `outreach.to_gmail { outreach_id, gmail_draft_id, confidence }`. Medium impact: with `confidence` the policy grid decides; without it, or unsure, it waits in Needs you. It re-checks the writing rules, stores the id, sets the outreach `in_gmail` and moves the application to Fill.
 5. **Finish** (headless run): `runs.finish { run_id, status: "ok", summary: { outreach_id, gmail_draft_id, to, to_reason } }` (`to` null and `to_reason` set when the draft has no To).
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `mcp__claude_ai_Gmail__search_threads`: search Gmail for threads with a contact or the company domain.
+- `mcp__claude_ai_Gmail__get_thread`: read a thread (addresses, signatures).
+- `mcp__claude_ai_Gmail__get_message`: read one message.
+- `mcp__claude_ai_Gmail__create_draft`: create the Gmail **draft** (Gmail draft step). Never send.
+- `mcp__claude-in-chrome__tabs_context_mcp`: see the open Chrome tabs (LinkedIn read, step 3).
+- `mcp__claude-in-chrome__tabs_create_mcp`: open a new tab for the LinkedIn read.
+- `mcp__claude-in-chrome__navigate`: open an allowlisted LinkedIn people page.
+- `mcp__claude-in-chrome__get_page_text`: read the people cards as text.
+- `mcp__claude-in-chrome__read_page`: read the page's structure when the text is not enough.
+- `mcp__claude-in-chrome__find`: locate the people list or a "mutual connections" link (read only, never click).
+
+The Chrome tools load with `--chrome` only when `config.linkedin.mode` is `live` (`off` or `dry-run`: no Chrome, report `skipped`). Every Chrome tool that clicks, types, fills a form, runs script, uploads or records (`computer`, `form_input`, `javascript_tool`, `browser_batch`, ...) is denied, as are Bash and file writes. Every other Gmail write (send, reply, forward, draft update / delete, trash, spam, labels) is denied. Other MCP clients (Codex, Cursor) use the Gmail MCP server the user configured for them and have no Chrome: they report `skipped: "no_browser"`.
+
 ## Never
 
 - Never send an email. `outreach.send` is unimplemented on purpose.
-- Never connect, message, follow or InMail on LinkedIn. The adapter cannot; do not try another way.
+- Never connect, message, follow, like or InMail on LinkedIn, and never click a LinkedIn button. Read people listings only, within the caps; do not try another way.
 - Never store more than name, headline, URL, relationship and email (with its source and confidence).
 - Gmail is search, read and draft only. Never send, reply, forward, delete or trash.
 - Never run people.find on a role the user has not picked.
 - Never commit anything from the vault. Placeholders only in examples.
 
-Wave 2 live run: see `RUNBOOK.md`.
+First live LinkedIn run (owner present): see `RUNBOOK.md`.

@@ -17,6 +17,8 @@ import {
 import {
   ArchiveReason,
   Band,
+  ConnectFallback,
+  ContactDegree,
   ContactRole,
   ContactTier,
   Criterion,
@@ -163,12 +165,18 @@ const OnboardState = z.object({
       id: z.string(),
       component: ProfileComponentKey,
       label: z.string(),
-      answer_type: z.enum(['chips', 'multi_chips', 'slider', 'text']),
+      /**
+       * `list` (#75): free entries kept as chips (Enter adds one); answered with a string[] (a comma
+       * separated string is still accepted).
+       */
+      answer_type: z.enum(['chips', 'multi_chips', 'slider', 'text', 'list']),
       options: z.array(z.string()).optional(),
       min: z.number().optional(),
       max: z.number().optional(),
       /** Slider step (Wave 2, lane D request). */
       step: z.number().optional(),
+      /** Added (#73): what a slider measures, so the UI formats it (`money`: `$212.5k`; `percent`: `40%`). */
+      unit: z.enum(['money', 'percent']).optional(),
       /**
        * Added (outreach voice): a text question that keeps a list (voice.sample). A string answer appends
        * one item; a string[] answer replaces the list (removes items). Up to `max_items` of `max_chars`.
@@ -187,6 +195,12 @@ const OnboardState = z.object({
       kind: z.enum(['ask', 'confirm', 'follow_up']).default('ask'),
       /** Added (#22): the answer the resume suggests (low confidence or after `edit`); the UI pre-fills it. */
       suggested: z.union([z.string(), z.number(), z.array(z.string())]).optional(),
+      /**
+       * Added (#74): free entry is allowed besides `options` (chips / multi_chips): the UI shows an Other
+       * chip with a text field. Persona-dependent questions (Craft functions, level, titles; Domain;
+       * Growth scope) carry it; their options come from the resume, the static list only as a fallback.
+       */
+      other: z.boolean().optional(),
     })
     .nullable(),
   /**
@@ -296,12 +310,29 @@ export const onboardAnswer = defineOp({
     skip: z.boolean().optional(),
     /** Added (#38): the dictated original of a text answer whose cleaned `value` the user confirmed (kept for provenance). */
     raw: z.string().optional(),
+    /**
+     * Added (#76): with `skip`, skip every remaining question of this question's component (the Voice step's
+     * Skip). Skipping Voice stores the neutral default style (`VOICE_DEFAULT_STYLE`) when none is set.
+     */
+    skip_component: z.boolean().optional(),
   }),
   output: OnboardState,
   impact: 'low',
   emits: [],
   owner: 'E',
 });
+
+const OptionList = z.array(z.string().trim().min(1).max(60)).min(2).max(12);
+/** Added (#74): persona-dependent interview options (see `onboard.extract`). */
+export const OnboardOptions = z.object({
+  persona: z.string().trim().min(1).max(40).optional(),
+  functions: OptionList.optional(),
+  levels: OptionList.optional(),
+  titles: OptionList.optional(),
+  domains: OptionList.optional(),
+  scopes: OptionList.optional(),
+});
+export type OnboardOptions = z.infer<typeof OnboardOptions>;
 
 /**
  * Added (#38): the resume facts an agent extracted verbatim from the kept source resume. Every value must
@@ -332,6 +363,14 @@ export const onboardExtract = defineOp({
         }),
       )
       .optional(),
+    /**
+     * Added (#74): the persona-dependent answer options the agent generated from the resume (judgment, not
+     * facts): `functions`, `levels`, `titles` (typical job titles), `domains`, `scopes` (Growth scope
+     * ceilings), 2 to 12 short options each, plus a `persona` name ("sales", "product"). Kept with the
+     * onboarding session; they replace the instant preview's options and the static fallback lists. The
+     * interview always allows free entry (Other) besides them. Ignored once onboarding is done.
+     */
+    options: OnboardOptions.optional(),
   }),
   output: z.object({
     /** `session`: merged into the onboarding draft; `diff`: proposed as a Story diff (onboarding was done). */
@@ -370,6 +409,37 @@ export const onboardProposeQuestions = defineOp({
   }),
   impact: 'low',
   emits: [],
+  owner: 'E',
+});
+
+/**
+ * Added (#76): the Voice a `voice` run (You > Voice > Learn voice) learned from the user's own writing, with
+ * consent: recent sent Gmail messages (read-only) and, when `config.linkedin.mode` is `live`, their LinkedIn
+ * posts (read-only, Claude in Chrome). Never auto-applied: it becomes a pending Voice diff only a human can
+ * accept (`profile.apply_diff` from any other actor is `human_only`). Samples are the user's own words, short,
+ * with other people's names, addresses, links and quoted content removed; the op refuses a sample with an
+ * email address, phone number, URL, @handle, a greeting to someone by name, or an em dash. New samples are
+ * added after the kept ones, up to VOICE_SAMPLES_MAX.
+ */
+export const profileProposeVoice = defineOp({
+  name: 'profile.propose_voice',
+  description:
+    "Propose the Voice learned from the user's own sent emails and LinkedIn posts (style, traits, up to 3 short anonymized samples) as a pending diff for the user to accept. Never applies it.",
+  input: z.object({
+    style: z.string().trim().min(1).max(40).optional(),
+    traits: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
+    samples: z.array(z.string().trim().min(1)).max(3).default([]),
+    /** How much was read (counts only). */
+    sources: z.object({ gmail_sent: z.number().int().min(0).default(0), linkedin_posts: z.number().int().min(0).default(0) }),
+  }),
+  output: z.object({
+    /** Null when nothing would change. */
+    diff: ProfileDiff.nullable(),
+    /** Samples not added because Voice already holds VOICE_SAMPLES_MAX. */
+    dropped: z.number().int().min(0).default(0),
+  }),
+  impact: 'low',
+  emits: ['profile_diff_proposed'],
   owner: 'E',
 });
 
@@ -476,6 +546,28 @@ export const rolesAdd = defineOp({
   owner: 'B',
 });
 
+/**
+ * Added (#74): the scout's query ingredients from the profile, persona-aware: `titles` are the title
+ * variations (Craft `titles` first, then each Craft function's typical titles at the Craft level and one
+ * level up), so a sales profile scouts sales roles; `domains` the ranked Domain; `locations` Work mode.
+ */
+export const scoutPlan = defineOp({
+  name: 'scout.plan',
+  description:
+    "The profile's scout query ingredients: title variations from Craft (titles, functions, level; persona-aware, not product-only), ranked domains and work locations.",
+  input: z.object({}),
+  output: z.object({
+    persona: z.string().nullable(),
+    titles: z.array(z.string()),
+    domains: z.array(z.string()),
+    locations: z.array(z.string()),
+  }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
+  owner: 'B',
+});
+
 export const scoutWatchlistScan = defineOp({
   name: 'scout.watchlist_scan',
   description:
@@ -562,6 +654,39 @@ export const rolesScore = defineOp({
   owner: 'F',
 });
 
+/** Added (#83): a `dealbreaker` archive whose only hits were work-mode rules, re-checked against the current profile. */
+export const ReevaluatedRole = z.object({
+  role_id: Id,
+  /** The work-mode hits that archived it (latest score). */
+  old_hits: z.array(z.string()),
+  /** Hits under the current profile (empty = it now passes the filters). */
+  hits: z.array(z.string()),
+  verify: z.array(z.string()),
+  passes: z.boolean(),
+  total: z.number().int(),
+  band: Band,
+  /** The Needs-you decision queued to restore it (null on a dry run, or when not queued). */
+  decision_id: Id.nullable(),
+  /** Why no decision was queued: `fails`, `below_threshold`, `pending` (one is already waiting), `dry_run`. */
+  skipped: z.enum(['fails', 'below_threshold', 'pending', 'dry_run']).nullable(),
+});
+
+export const rolesReevaluateFilters = defineOp({
+  name: 'roles.reevaluate_filters',
+  description:
+    'Re-check dealbreaker archives whose only hits were work-mode rules against the current profile; queue a Needs-you restore decision (rescore) per role that now passes. Never restores on its own.',
+  input: z.object({
+    /** List what would be queued; write nothing. */
+    dry_run: z.boolean().optional(),
+    /** Limit to these roles (default: every `dealbreaker` archive). */
+    role_ids: z.array(Id).optional(),
+  }),
+  output: z.object({ items: z.array(ReevaluatedRole), queued: z.number().int() }),
+  impact: 'low',
+  emits: [],
+  owner: 'F',
+});
+
 export const rolesMove = defineOp({
   name: 'roles.move',
   description: 'Change status with the no-downgrade guard.',
@@ -585,7 +710,15 @@ export const rolesArchive = defineOp({
 export const rolesCheckFreshness = defineOp({
   name: 'roles.check_freshness',
   description: 'Check if postings are still open. Medium impact when it closes a role.',
-  input: z.object({ role_ids: z.array(Id).optional(), all_in_scope: z.boolean().optional() }),
+  input: z.object({
+    role_ids: z.array(Id).optional(),
+    all_in_scope: z.boolean().optional(),
+    /**
+     * Pipeline pre-check before scoring (#77): hard closed evidence from the ATS API or the page closes the
+     * role on a rule decision without asking a backend; only an inconclusive check asks the resolver.
+     */
+    precheck: z.boolean().optional(),
+  }),
   output: z.object({
     results: z.array(
       z.object({
@@ -605,6 +738,16 @@ export const rolesCheckFreshness = defineOp({
   owner: 'G',
 });
 
+/** Added (#78): which no-contact fallback Connect used for a role, and why. */
+export const ConnectState = z.object({
+  fallback: ConnectFallback,
+  reason: z.string().nullable(),
+  /** The fallback contact (team inbox or cold leader); null when skipped. */
+  contact_id: Id.nullable(),
+  at: IsoTimestamp,
+});
+export type ConnectState = z.infer<typeof ConnectState>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -619,6 +762,8 @@ export const rolesGet = defineOp({
     application: Application.nullable(),
     contacts: z.array(z.object({ contact: Contact, link: ContactLink })),
     md_body: z.string().nullable(),
+    /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
+    connect: ConnectState.nullable().default(null),
   }),
   impact: 'low',
   readOnly: true,
@@ -749,6 +894,14 @@ const FillQuestion = z
   })
   .refine((a) => !a.needs_human || !!a.reason?.trim(), { message: 'needs_human needs a one-line reason', path: ['reason'] });
 
+/**
+ * Added (#81): who saved an answer. `fill`: a fill run; `ask`: the Ask panel (answers given in Ask for the role in
+ * focus, merged into that role's Answers and shown as "Saved from Ask").
+ */
+export const ANSWER_SOURCES = ['fill', 'ask'] as const;
+export const AnswerSource = z.enum(ANSWER_SOURCES);
+export type AnswerSource = z.infer<typeof AnswerSource>;
+
 const FilledAnswer = z.object({
   question: z.string(),
   kind: z.enum(FILL_KINDS),
@@ -757,6 +910,8 @@ const FilledAnswer = z.object({
   needs_human: z.boolean(),
   /** One line: why it needs you ("no saved answer for relocation to Canada"). */
   reason: z.string().optional(),
+  /** Added (#81): who saved it. Absent on answers filed before #81 (read as `fill`). */
+  source: AnswerSource.optional(),
 });
 
 export const applyFill = defineOp({
@@ -767,6 +922,12 @@ export const applyFill = defineOp({
     role_id: Id,
     portal_url: z.string().url().optional(),
     answers: z.array(FillQuestion),
+    /**
+     * Added (#81): who is saving. `fill` (default): the answers replace the file, keeping earlier Ask answers to
+     * questions this call does not answer. `ask`: merged into the saved answers (same question replaced, others
+     * kept). An Ask session's MCP server sets `ask` when it is absent.
+     */
+    source: AnswerSource.default('fill'),
   }),
   output: z.object({
     application: Application,
@@ -784,6 +945,35 @@ export const applyFill = defineOp({
     fact_check: z
       .object({ checked: z.number().int().min(0), needs_you: z.array(FactNeedsYou.extend({ doc: z.literal('answers') })) })
       .default({ checked: 0, needs_you: [] }),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added (#81): the paste fallback for portals a fill run cannot read (questions on other tabs or steps, a
+ * login wall). Saves the pasted questions to `applications/<role_id>/questions.md` (package path `questions`)
+ * and queues a fill run that answers them instead of reading the portal (`run: false` saves only).
+ */
+export const applySetQuestions = defineOp({
+  name: 'apply.set_questions',
+  description:
+    'Save portal questions the user pasted for a draft-ready role and queue a fill run that answers them instead of reading the portal.',
+  input: z.object({
+    role_id: Id,
+    /** The questions as pasted, one or more per line; blank lines are dropped. */
+    questions_text: z.string().trim().min(1).max(20000),
+    /** Queue the fill run (default true). */
+    run: z.boolean().default(true),
+  }),
+  output: z.object({
+    application: Application,
+    path: VaultPath,
+    /** Non-empty lines saved. */
+    count: z.number().int().min(1),
+    /** The queued (or already active) fill run; null with `run: false`. */
+    run: Run.nullable(),
   }),
   impact: 'low',
   emits: [],
@@ -822,26 +1012,79 @@ export const applyMarkSubmitted = defineOp({
   owner: 'B',
 });
 
+/**
+ * Added (#78): skip Connect for a role so it never stalls (no usable contact, or the user's call): the
+ * application moves from `connect` to `fill`. Already past Connect: a no-op (`skipped: false`).
+ */
+export const applySkipConnect = defineOp({
+  name: 'apply.skip_connect',
+  description: 'Skip Connect for a role (no usable contact, or the user chose to): the application moves from Connect to Fill.',
+  input: z.object({ role_id: Id, reason: z.string().min(1).max(200) }),
+  output: z.object({ application: Application, skipped: z.boolean() }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
 // ------------------------------------------------------------------ people (H)
+
+/**
+ * Why a people.find run read no LinkedIn (#82). The agent reports the first six; the engine adds `off`
+ * and `dry_run` (config), `invalid` (no hint passed the profile URL allowlist) and `not_reported`.
+ */
+export const LINKEDIN_SKIP_REASONS = [
+  'no_browser',
+  'signed_out',
+  'checkpoint',
+  'capped',
+  'not_found',
+  'error',
+  'off',
+  'dry_run',
+  'invalid',
+  'not_reported',
+] as const;
+export const LinkedInSkipReason = z.enum(LINKEDIN_SKIP_REASONS);
+export type LinkedInSkipReason = z.infer<typeof LinkedInSkipReason>;
+/** Where people.find's LinkedIn people came from (#82): the agent's Claude in Chrome read, the recorded test adapter, or nothing (off). */
+export const LINKEDIN_PROVENANCE = ['agent', 'dry-run', 'off'] as const;
+export const LinkedInProvenance = z.enum(LINKEDIN_PROVENANCE);
+export type LinkedInProvenance = z.infer<typeof LinkedInProvenance>;
+
+/** One person the connect skill found (JD, team page, the user, or its own LinkedIn read via Claude in Chrome, #82). */
+export const PeopleFindHint = z.object({
+  name: z.string().min(1),
+  headline: z.string().nullable().optional(),
+  linkedin_url: z.string().url().nullable().optional(),
+  email: z.string().email().nullable().optional(),
+  source: z.enum(['jd', 'company_site', 'manual', 'linkedin']),
+  /** LinkedIn only: relationship shown on the card (`1` connection, `2` via a mutual, `cold`). Default `cold`. */
+  degree: ContactDegree.optional(),
+  /** LinkedIn only, degree 2: the 1st-degree mutual this person is reachable through. */
+  via: z
+    .object({ name: z.string().min(1), headline: z.string().nullable().optional(), linkedin_url: z.string().url() })
+    .nullable()
+    .optional(),
+  /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
+  hiring_team: z.boolean().optional(),
+});
+export type PeopleFindHint = z.infer<typeof PeopleFindHint>;
 
 export const peopleFind = defineOp({
   name: 'people.find',
-  description: 'Find people for a picked role via LinkedIn (read-only, rate-limited), Gmail and the JD.',
+  description:
+    'Find people for a picked role: the LinkedIn people the agent read (read-only via Claude in Chrome, capped), Gmail and the JD.',
   input: z.object({
     role_id: Id,
     dry_run: z.boolean().optional(),
-    /** People the skill found in the JD, on the company site, or that the user named. */
-    hints: z
-      .array(
-        z.object({
-          name: z.string().min(1),
-          headline: z.string().nullable().optional(),
-          linkedin_url: z.string().url().nullable().optional(),
-          email: z.string().email().nullable().optional(),
-          source: z.enum(['jd', 'company_site', 'manual']),
-        }),
-      )
-      .max(20)
+    /** People the skill found: in the JD, on the company site, named by the user, or on LinkedIn (source `linkedin`). */
+    hints: z.array(PeopleFindHint).max(60).optional(),
+    /** What the agent's LinkedIn read did (#82): pages opened, or why it read nothing. */
+    linkedin: z
+      .object({
+        pages_opened: z.number().int().min(0).default(0),
+        skipped: LinkedInSkipReason.extract(['no_browser', 'signed_out', 'checkpoint', 'capped', 'not_found', 'error']).optional(),
+      })
       .optional(),
     /** LinkedIn vanity slug when it differs from the company slug. */
     linkedin_company_slug: z
@@ -849,7 +1092,20 @@ export const peopleFind = defineOp({
       .regex(/^[a-z0-9-]+$/)
       .optional(),
   }),
-  output: z.object({ found: z.array(z.object({ contact: Contact, link: ContactLink })), capped: z.boolean() }),
+  output: z.object({
+    found: z.array(z.object({ contact: Contact, link: ContactLink })),
+    capped: z.boolean(),
+    /** #82: where LinkedIn people came from, how many were kept, and why none were read. */
+    linkedin: z
+      .object({
+        mode: LinkedInProvenance,
+        people: z.number().int().min(0),
+        rejected: z.number().int().min(0),
+        budget_left: z.number().int().min(0),
+        reason: LinkedInSkipReason.nullable(),
+      })
+      .optional(),
+  }),
   impact: 'low',
   emits: ['contact_found'],
   owner: 'H',
@@ -946,6 +1202,74 @@ export const peopleFindEmail = defineOp({
   }),
   impact: 'low',
   emits: [],
+  owner: 'H',
+});
+
+/** Added (#78): an address the agent found for the hiring team (JD, careers page, dossier, company site). */
+export const TeamInboxHint = z.object({
+  email: z.string().email(),
+  /** A named recruiter or talent partner; omitted for a team mailbox (`recruiting@`, `talent@`, `jobs@`). */
+  name: z.string().min(1).max(120).optional(),
+  source: z.enum(['jd', 'careers', 'dossier', 'company_site']),
+  url: z.string().url().optional(),
+});
+export type TeamInboxHint = z.infer<typeof TeamInboxHint>;
+
+/**
+ * Added (#78): the no-contact fallback for a picked role, chosen by the engine in order. With no usable
+ * contact (every link `cold_other`, or none): (1) a hiring-team or recruiting address (the agent's
+ * `team_inbox` hints plus team mailboxes in the JD and dossier, at the company domain) becomes a contact
+ * "Hiring team" (or the named recruiter), `email_source: public`, linked `cold_hiring`; else (2) the
+ * likely hiring leader from the dossier (`leader`) becomes a `cold_hiring` contact and `people.find_email`
+ * guesses the address (flagged; low confidence goes to Needs you); else (3) Connect is skipped and the
+ * application moves to Fill. A role that already has a usable contact returns `fallback: null`.
+ */
+export const peopleFallback = defineOp({
+  name: 'people.fallback',
+  description:
+    'No usable contact for a picked role: use a hiring-team or recruiting address, else a cold note to the likely hiring leader (guessed email), else skip Connect so the application moves to Fill.',
+  input: z.object({
+    role_id: Id,
+    team_inbox: z.array(TeamInboxHint).max(10).optional(),
+    /** The likely hiring leader from the dossier (e.g. the CPO or VP Product). */
+    leader: z
+      .object({
+        name: z.string().min(1).max(120),
+        headline: z.string().max(200).nullable().optional(),
+        linkedin_url: z.string().url().nullable().optional(),
+      })
+      .optional(),
+    /** The company's email domain when the company row has none. */
+    domain: z
+      .string()
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i)
+      .optional(),
+    /** Addresses seen at the company (teach the leader's address format), as for people.find_email. */
+    email_hints: peopleFindEmail.input.shape.hints,
+    /** Why there is no contact (recorded when Connect is skipped). Default "no contacts". */
+    reason: z.string().min(1).max(200).optional(),
+  }),
+  output: z.object({
+    fallback: ConnectFallback.nullable(),
+    contact: Contact.nullable(),
+    link: ContactLink.nullable(),
+    /** The leader's address (people.find_email); null for a team inbox or a skip. */
+    email: z
+      .object({
+        email: z.string().email().nullable(),
+        confidence: z.number().min(0).max(1).nullable(),
+        confirmed: z.boolean(),
+        decision_id: Id.nullable(),
+        outcome: PolicyOutcome.nullable(),
+        reason: z.string().nullable(),
+      })
+      .nullable(),
+    application: Application.nullable(),
+    /** Why this fallback (or none) was used. */
+    reason: z.string().nullable(),
+  }),
+  impact: 'low',
+  emits: ['contact_found'],
   owner: 'H',
 });
 
@@ -1369,6 +1693,7 @@ export const OPS = {
   'profile.undo_diff': profileUndoDiff,
   'profile.set_defaults': profileSetDefaults,
   'profile.learn': profileLearn,
+  'profile.propose_voice': profileProposeVoice,
   'onboard.start': onboardStart,
   'onboard.state': onboardState,
   'onboard.samples': onboardSamples,
@@ -1379,8 +1704,10 @@ export const OPS = {
   'onboard.extract': onboardExtract,
   'onboard.propose_questions': onboardProposeQuestions,
   'roles.add': rolesAdd,
+  'scout.plan': scoutPlan,
   'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,
+  'roles.reevaluate_filters': rolesReevaluateFilters,
   'roles.move': rolesMove,
   'roles.archive': rolesArchive,
   'roles.check_freshness': rolesCheckFreshness,
@@ -1391,12 +1718,15 @@ export const OPS = {
   'companies.dossier.write': companiesDossierWrite,
   'apply.tailor': applyTailor,
   'apply.fill': applyFill,
+  'apply.set_questions': applySetQuestions,
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
+  'apply.skip_connect': applySkipConnect,
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,
   'people.find_email': peopleFindEmail,
+  'people.fallback': peopleFallback,
   'contacts.get': contactsGet,
   'outreach.get': outreachGet,
   'outreach.list': outreachList,

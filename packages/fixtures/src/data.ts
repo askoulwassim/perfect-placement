@@ -78,7 +78,7 @@ const COMPONENT_DATA: Record<ProfileComponentKey, { confidence: number; data: Re
   },
   craft: { confidence: 0.85, data: { functions: ['PM', 'TPM'], level: 'principal', mode: 'lead' } },
   domain: { confidence: 0.7, data: { ranked: ['data infrastructure', 'AI tooling', 'developer platforms', 'fintech'] } },
-  work_mode: { confidence: 0.95, data: { modes: ['remote'], locations: ['US'], travel_max_pct: 15 } },
+  work_mode: { confidence: 0.95, data: { modes: ['remote'], remote_only: true, locations: ['US'], travel_max_pct: 15 } },
   terms: { confidence: 0.8, data: { comp_floor: 200000, comp_target: 240000, currency: 'USD', equity: 'medium' } },
   company: {
     confidence: 0.6,

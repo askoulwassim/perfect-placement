@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
 import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
-import { bestPath, emailTag, type Person } from './people';
+import { bestPath, emailTag, linkedinState, type Person } from './people';
 import { sourcesOf } from './role';
 import {
   activeLabel,
@@ -213,5 +213,33 @@ describe('emailTag (#37)', () => {
     });
     expect(emailTag({ email: 'a.b@example.com', email_source: 'public', email_confidence: 0.9 })?.tag).toBe('Public 90%');
     expect(valueLabel('people.email', 'a.b@example.com')).toBe('a.b@example.com');
+  });
+});
+
+describe('linkedinState (#82)', () => {
+  const find = (id: string, started: string, summary: Record<string, unknown>) =>
+    ({
+      id,
+      op: 'people.find',
+      status: 'ok',
+      started_at: started,
+      finished_at: started,
+      summary_json: { role_id: 'r_1', ...summary },
+    }) as unknown as Run;
+  it('reads the latest people.find run for the role: agent = people, anything else = not read with a reason', () => {
+    expect(linkedinState([], 'r_1')).toEqual({ read: false, label: 'LinkedIn not read', reason: 'Not run' });
+    const old = find('rn_1', '2026-10-08T00:00:00Z', { linkedin_mode: 'agent', linkedin_people: 4 });
+    expect(linkedinState([old], 'r_1')).toEqual({ read: true, label: 'LinkedIn: 4 people', people: 4 });
+    const later = find('rn_2', '2026-10-09T00:00:00Z', { linkedin_mode: 'dry-run', linkedin_reason: 'no_browser' });
+    expect(linkedinState([old, later], 'r_1')).toMatchObject({ read: false, reason: 'No browser' });
+    // Runs from before #82 carry only linkedin_mode.
+    expect(linkedinState([find('rn_3', '2026-10-09T00:00:00Z', { linkedin_mode: 'dry-run' })], 'r_1')).toMatchObject({ reason: 'Dry run' });
+    expect(linkedinState([find('rn_4', '2026-10-09T00:00:00Z', { linkedin_mode: 'off', linkedin_reason: 'off' })], 'r_1')).toMatchObject({
+      reason: 'Off',
+    });
+    expect(linkedinState([later], 'other')).toMatchObject({ reason: 'Not run' });
+    expect(linkedinState([find('rn_5', '2026-10-09T00:00:00Z', { linkedin_mode: 'agent', linkedin_people: 1 })], 'r_1').label).toBe(
+      'LinkedIn: 1 person',
+    );
   });
 });

@@ -16,8 +16,8 @@ export type RoleStatus = z.infer<typeof RoleStatus>;
  */
 export const PROTECTED_STATUSES = ['draft-ready', 'applied', 'interviews', 'offers'] as const satisfies readonly RoleStatus[];
 
-/** Statuses the freshness check covers (blueprint.md "Freshness"). */
-export const FRESHNESS_SCOPE = ['active', 'held', 'on-deck', 'draft-ready'] as const satisfies readonly RoleStatus[];
+/** Statuses the freshness check covers (blueprint.md "Freshness"; inbox since #77). */
+export const FRESHNESS_SCOPE = ['inbox', 'active', 'held', 'on-deck', 'draft-ready'] as const satisfies readonly RoleStatus[];
 
 /**
  * Manual moves a human may make by dragging in River (design handoff §4).
@@ -221,6 +221,15 @@ export const EMAIL_SOURCES = ['gmail', 'linkedin', 'public', 'pattern', 'provide
 export const EmailSource = z.enum(EMAIL_SOURCES);
 export type EmailSource = z.infer<typeof EmailSource>;
 
+/**
+ * Added (#78): the no-contact fallback Connect used for a role, in the order it tries them: a hiring-team
+ * or recruiting address (`team_inbox`), a cold note to the likely hiring leader (`cold_leader`), else
+ * Connect is skipped (`skipped`) and the application moves to Fill.
+ */
+export const CONNECT_FALLBACKS = ['team_inbox', 'cold_leader', 'skipped'] as const;
+export const ConnectFallback = z.enum(CONNECT_FALLBACKS);
+export type ConnectFallback = z.infer<typeof ConnectFallback>;
+
 export const OUTREACH_STATUSES = ['drafted', 'in_gmail', 'replied', 'ignored'] as const;
 export const OutreachStatus = z.enum(OUTREACH_STATUSES);
 export type OutreachStatus = z.infer<typeof OutreachStatus>;
@@ -311,7 +320,19 @@ export const SUBJECT_TYPES = [
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
 
-/** Skills a run can start (`runs.start`). */
-export const SKILLS = ['onboard', 'scout', 'score', 'freshness', 'research', 'tailor', 'connect', 'fill', 'inbox', 'learn'] as const;
+/** Skills a run can start (`runs.start`). `voice` (#76): learn the Voice component from the user's own writing. */
+export const SKILLS = [
+  'onboard',
+  'scout',
+  'score',
+  'freshness',
+  'research',
+  'tailor',
+  'connect',
+  'fill',
+  'inbox',
+  'learn',
+  'voice',
+] as const;
 export const Skill = z.enum(SKILLS);
 export type Skill = z.infer<typeof Skill>;

@@ -2,6 +2,7 @@ import {
   ARCHIVE_REASONS,
   CRITERIA,
   type Criterion,
+  formatMoneyRange,
   nextFire,
   OPS,
   type OpName,
@@ -139,6 +140,7 @@ function readOp(
         application: fx.applications.find((a) => a.role_id === role.id) ?? null,
         contacts: peopleFor(role),
         md_body: read(role.md_path),
+        connect: null,
       });
     }
     case 'companies.get': {
@@ -275,7 +277,7 @@ function calibrationSamples() {
         company: name,
         letter: name.slice(0, 1),
         title: r.title,
-        comp: r.comp_min && r.comp_max ? `$${Math.round(r.comp_min / 1000)}–${Math.round(r.comp_max / 1000)}K` : '—',
+        comp: formatMoneyRange(r.comp_min, r.comp_max) ?? 'Not listed',
         mode: r.workplace,
         criteria: Object.fromEntries(CRITERIA.map((c) => [c, sc ? sc[c] : 3])) as Record<Criterion, number>,
       };

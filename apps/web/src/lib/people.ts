@@ -1,4 +1,4 @@
-import type { Contact, ContactLink, ContactTier, EmailSource } from '@perfect-placement/contracts';
+import type { ConnectFallback, Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
 
 export interface Person {
   contact: Contact;
@@ -63,3 +63,44 @@ export function emailTag(
   const label = c.email_source ? EMAIL_SOURCE_LABEL[c.email_source] : 'Known';
   return { address: c.email, tag: p !== null && p < 1 ? `${label} ${Math.round(p * 100)}%` : label, sure };
 }
+
+/** Why LinkedIn was not read for a role (#82), one to three words. */
+export const LINKEDIN_REASON_LABEL: Record<string, string> = {
+  no_browser: 'No browser',
+  signed_out: 'Signed out',
+  checkpoint: 'Checkpoint',
+  capped: 'Daily cap',
+  not_found: 'No page',
+  error: 'Read failed',
+  off: 'Off',
+  dry_run: 'Dry run',
+  invalid: 'Bad links',
+  not_reported: 'Not read',
+  not_run: 'Not run',
+};
+
+export type LinkedInState = { read: true; label: string; people: number } | { read: false; label: string; reason: string };
+
+/**
+ * LinkedIn for a role (#82), from its latest people.find run: "LinkedIn: N people" only when the agent
+ * really read LinkedIn (`linkedin_mode: agent`); otherwise "LinkedIn not read" with the reason.
+ */
+export function linkedinState(runs: readonly Run[], roleId: string): LinkedInState {
+  const last = runs
+    .filter((r) => r.op === 'people.find' && (r.summary_json as { role_id?: string } | null)?.role_id === roleId)
+    .sort((a, b) => b.started_at.localeCompare(a.started_at) || b.id.localeCompare(a.id))[0];
+  const s = (last?.summary_json ?? {}) as { linkedin_mode?: string; linkedin_people?: number; linkedin_reason?: string | null };
+  if (s.linkedin_mode === 'agent') {
+    const n = s.linkedin_people ?? 0;
+    return { read: true, label: `LinkedIn: ${n} ${n === 1 ? 'person' : 'people'}`, people: n };
+  }
+  const key = !last ? 'not_run' : (s.linkedin_reason ?? (s.linkedin_mode === 'off' ? 'off' : 'dry_run'));
+  return { read: false, label: 'LinkedIn not read', reason: LINKEDIN_REASON_LABEL[key] ?? 'Not read' };
+}
+
+/** Which no-contact fallback Connect used for a role (#78), one or two words. */
+export const FALLBACK_LABEL: Record<ConnectFallback, string> = {
+  team_inbox: 'Hiring team',
+  cold_leader: 'Cold leader',
+  skipped: 'Skipped',
+};

@@ -16,6 +16,8 @@ import {
 } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
+import { connectStateFor } from '../../people/queries.js';
+import { personaOfCraft, titleVariations } from '../../profile/persona.js';
 import { getComponent, getCurrentVersion } from '../../profile/versions.js';
 import { watchlistFrom } from '../../scoring/source-mix.js';
 import {
@@ -146,7 +148,11 @@ export function scoutRunOf(db: Database.Database, runId: string | undefined): Ru
 }
 
 /** Roles a scout run added so far, by source (role_added events linked to it; unlinked since it started without a run id). */
-export function scoutRunAdds(db: Database.Database, run: Run, linked: boolean): Array<{ source: string; company_id: string }> {
+export function scoutRunAdds(
+  db: Database.Database,
+  run: Run,
+  linked: boolean,
+): Array<{ role_id: string; source: string; company_id: string }> {
   const rows = linked
     ? select(db, 'event', `type = 'role_added' AND json_extract(payload_json, '$.run_id') = ? ORDER BY ts ASC, id ASC`, [run.id])
     : select(db, 'event', `type = 'role_added' AND ts >= ? AND json_extract(payload_json, '$.run_id') IS NULL ORDER BY ts ASC, id ASC`, [
@@ -154,7 +160,7 @@ export function scoutRunAdds(db: Database.Database, run: Run, linked: boolean): 
       ]);
   return rows.map((e) => {
     const p = (e.payload_json ?? {}) as { source?: unknown; company_id?: unknown };
-    return { source: String(p.source ?? ''), company_id: String(p.company_id ?? '') };
+    return { role_id: e.subject_id, source: String(p.source ?? ''), company_id: String(p.company_id ?? '') };
   });
 }
 
@@ -464,6 +470,26 @@ export const rolesAdd = defineHandler('roles.add', {
   },
 });
 
+// --------------------------------------------------------- scout.plan
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String).filter(Boolean) : typeof v === 'string' && v ? [v] : []);
+
+/** The scout's query ingredients from the profile (#74): persona-aware title variations, domains, locations. */
+export const scoutPlanHandler = defineHandler('scout.plan', {
+  run(_input, h) {
+    const version = getCurrentVersion(h.repos);
+    const comp = (key: 'craft' | 'work_mode' | 'domain') =>
+      version ? ((getComponent(h.repos, version.id, key)?.data_json as Record<string, unknown> | undefined) ?? {}) : {};
+    const craft = comp('craft');
+    return {
+      persona: personaOfCraft(craft)?.id ?? null,
+      titles: titleVariations(craft),
+      domains: strings(comp('domain').ranked),
+      locations: strings(comp('work_mode').locations),
+    };
+  },
+});
+
 // --------------------------------------------------------- scout.watchlist_scan
 
 const titleCase = (slug: string) => slug.replace(/(^|-)([a-z])/g, (_m, sep: string, ch: string) => `${sep ? ' ' : ''}${ch.toUpperCase()}`);
@@ -570,6 +596,7 @@ export const rolesGet = defineHandler('roles.get', {
       application: applicationFor(h.db, role.id),
       contacts,
       md_body: md === null ? null : stripFrontmatter(md),
+      connect: connectStateFor(h.repos, role.id),
     };
   },
 });

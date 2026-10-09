@@ -1,4 +1,4 @@
-import type { Role } from '@perfect-placement/contracts';
+import { formatMoneyRange, type Role } from '@perfect-placement/contracts';
 
 export function ago(iso: string | null | undefined, now: Date): string {
   if (!iso) return '';
@@ -11,13 +11,9 @@ export function ago(iso: string | null | undefined, now: Date): string {
   return `${Math.round(h / 24)}d`;
 }
 
-export const k = (n: number) => `${Math.round(n / 1000)}k`;
-
-export function compRange(role: Pick<Role, 'comp_min' | 'comp_max'>): string | null {
-  if (role.comp_min == null && role.comp_max == null) return null;
-  if (role.comp_min != null && role.comp_max != null) return `${k(role.comp_min)} to ${k(role.comp_max)}`;
-  return k((role.comp_min ?? role.comp_max) as number);
-}
+/** A role's comp range through the shared money formatter (#73): `$180k to $240k`. */
+export const compRange = (role: Pick<Role, 'comp_min' | 'comp_max'> & { comp_currency?: string | null }): string | null =>
+  formatMoneyRange(role.comp_min, role.comp_max, { currency: role.comp_currency });
 
 export const humanize = (s: string) => {
   const t = s.replace(/[_-]+/g, ' ').trim();

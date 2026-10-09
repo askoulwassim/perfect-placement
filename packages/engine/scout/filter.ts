@@ -1,3 +1,4 @@
+import { isRemoteOnly } from '@perfect-placement/contracts';
 import { titleTokens } from '../ops/dedupe.js';
 
 /*
@@ -120,7 +121,7 @@ export interface ScanRules {
   exclude: Set<string>;
   /** Lowest acceptable posting level (profile level minus two); null = no seniority rule. */
   minLevel: number | null;
-  /** Work mode is exactly remote (lane F dealbreaker). */
+  /** Work mode explicitly requires remote (`remote_only`, #83); `modes: ['remote']` alone does not. */
   remoteOnly: boolean;
   /** Profile locations are US-only: postings placed only outside the US are dropped. */
   usOnly: boolean;
@@ -134,7 +135,7 @@ export interface ProfileForScan {
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String).filter(Boolean) : typeof v === 'string' && v ? [v] : []);
 
 /**
- * Rules from Craft (functions, target, adjacent, explore, level) and Work mode (modes, locations).
+ * Rules from Craft (functions, target, adjacent, explore, titles, level) and Work mode (modes, locations).
  * `include` replaces the Craft phrases; `exclude` adds words that drop a title.
  */
 export function rulesFromProfile(p: ProfileForScan, overrides: { include?: string[]; exclude?: string[] } = {}): ScanRules {
@@ -142,7 +143,14 @@ export function rulesFromProfile(p: ProfileForScan, overrides: { include?: strin
   const wm = p.work_mode ?? {};
   const source = overrides.include?.length
     ? overrides.include
-    : [...strList(craft.functions), ...strList(craft.target), ...strList(craft.adjacent), ...strList(craft.explore)];
+    : [
+        ...strList(craft.functions),
+        ...strList(craft.target),
+        ...strList(craft.adjacent),
+        ...strList(craft.explore),
+        // #74: the persona's own titles ("Account Executive"), so a non-product profile is not filtered as PM.
+        ...strList(craft.titles),
+      ];
   const phrases: string[][] = [];
   const families = new Set<string>();
   for (const s of source) {
@@ -152,14 +160,13 @@ export function rulesFromProfile(p: ProfileForScan, overrides: { include?: strin
     if (core.length) phrases.push(core);
   }
   const level = typeof craft.level === 'string' ? minLevelOf(craft.level) : null;
-  const modes = strList(wm.modes).map((m) => m.toLowerCase());
   const locs = strList(wm.locations).map((l) => l.toLowerCase());
   return {
     phrases,
     families,
     exclude: new Set((overrides.exclude ?? []).flatMap((x) => [...titleTokens(x)])),
     minLevel: level === null ? null : Math.max(0, level - 2),
-    remoteOnly: modes.length === 1 && modes[0] === 'remote',
+    remoteOnly: isRemoteOnly(wm),
     usOnly: locs.length > 0 && locs.every((l) => US_MARKERS.test(l)),
   };
 }

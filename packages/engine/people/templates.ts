@@ -1,4 +1,4 @@
-import type { ContactTier } from '@perfect-placement/contracts';
+import { type ConnectFallback, type ContactTier, VOICE_DEFAULT_STYLE } from '@perfect-placement/contracts';
 import { BRIDGE_ASK_MAX, defaultSignoff, LIMITS, PROOF_MAX_SENTENCES } from './style.js';
 import type { DraftText, WriterPrompt } from './types.js';
 
@@ -69,7 +69,67 @@ export interface DraftContext {
   story: { data: Record<string, unknown>; text: string };
   /** Voice component: data_json (style, rules, samples, signoff) + markdown text (notes). */
   voice: { data: Record<string, unknown>; text: string };
+  /** #78: the no-contact fallback this contact came from (a hiring-team inbox or the likely hiring leader). */
+  fallback?: Exclude<ConnectFallback, 'skipped'> | null;
+  /** #78: the tailored cover letter body (fact-checked by apply.tailor), trimmed. Proof / Ask basis for fallbacks. */
+  cover?: string | null;
 }
+
+/** #78: how a fallback draft differs from the cold_hiring template. Proof and Ask come from the cover letter. */
+export const FALLBACK_TEMPLATES: Record<Exclude<ConnectFallback, 'skipped'>, { goal: string; ask: string }> = {
+  team_inbox: {
+    goal: 'No contact found: write to the hiring team or recruiting inbox. A short, warm version of the cover letter: why this role, one or two proofs, one ask.',
+    ask: 'Could you pass this to the hiring manager for the role?',
+  },
+  cold_leader: {
+    goal: 'No contact found: a cold note to the likely hiring leader. Their problem, one or two proofs from the cover letter, one ask.',
+    ask: 'Open to a short call about the role?',
+  },
+};
+
+/** Prompt budget for the cover letter block. */
+export const COVER_MAX_CHARS = 1500;
+
+const SALUTATION = /^(dear|hi|hello|hey|to whom)\b[^.!?]{0,60}[,:]?\s*$/i;
+const CLOSING = /^(best|thanks|thank you|sincerely|regards|kind regards|warm regards|cheers|warmly|yours)\b[^.!?]{0,30}[,.!]?\s*$/i;
+
+/** The cover letter's body for a prompt: no title, salutation or closing; trimmed. */
+export function coverExcerpt(md: string | null | undefined, max = COVER_MAX_CHARS): string | null {
+  if (!md?.trim()) return null;
+  const lines: string[] = [];
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (CLOSING.test(line)) break;
+    if (/^#/.test(line) || SALUTATION.test(line)) continue;
+    lines.push(raw);
+  }
+  const text = lines.join('\n').trim();
+  return text ? trimTo(text, max) : null;
+}
+
+const FIRST_PERSON = /\b(I|I'm|I've|I'd|my|me)\b/;
+
+/** Up to two first-person sentences from the cover letter that fit the Proof limit. Never adds facts. */
+export function coverProof(cover: string | null | undefined): string | null {
+  if (!cover) return null;
+  const sentences = cover
+    .replace(/\s*\[\.\.\.\]$/, '')
+    .split(/\n+/)
+    .flatMap((p) => p.replace(/^[-*]\s*/, '').split(/(?<=[.!])\s+/))
+    .map((x) => x.trim())
+    .filter((x) => /[.!]$/.test(x) && FIRST_PERSON.test(x) && !DASH.test(x) && x.length <= LIMITS.proof);
+  const [a, b] = sentences;
+  if (!a) return null;
+  const two = b ? `${a} ${b}` : a;
+  return two.length <= LIMITS.proof ? two : a;
+}
+
+/** The Hook greeting name: the company team for a hiring-team inbox, else the first name. */
+const greetingName = (c: DraftContext, recipient: { name: string }): string =>
+  c.fallback === 'team_inbox' && recipient.name === TEAM_INBOX_GREETING_NAME ? `${c.company.name} team` : firstName(recipient.name);
+
+/** Contact name of a team inbox with no named recruiter (people.fallback, TEAM_INBOX_NAME). */
+const TEAM_INBOX_GREETING_NAME = 'Hiring team';
 
 /** Prompt budget for each CONTEXT block. */
 export const JD_MAX_CHARS = 2000;
@@ -148,8 +208,13 @@ function storyBlock(story: DraftContext['story']): string {
 function voiceBlock(voice: DraftContext['voice']): string {
   const d = voice.data;
   const lines: string[] = [];
-  if (typeof d.style === 'string') lines.push(`Style: ${d.style}`);
+  // #76: no style of their own (the Voice step was skipped): the neutral default, grounded in Story.
+  const style = typeof d.style === 'string' && d.style.trim() ? d.style : VOICE_DEFAULT_STYLE;
+  lines.push(
+    style === VOICE_DEFAULT_STYLE ? `Style: ${VOICE_DEFAULT_STYLE} (plain, clear sentences; no samples to match)` : `Style: ${style}`,
+  );
   if (Array.isArray(d.rules) && d.rules.length) lines.push(`Rules: ${(d.rules as unknown[]).join('; ')}`);
+  if (Array.isArray(d.traits) && d.traits.length) lines.push(`Traits: ${(d.traits as unknown[]).join('; ')}`);
   if (typeof d.signoff === 'string') lines.push(`Sign-off: ${JSON.stringify(d.signoff)}`);
   const notes = voiceNotes(voice.text);
   if (notes) lines.push(`Notes:\n${notes}`);
@@ -161,23 +226,29 @@ export function buildWriterPrompt(c: DraftContext): WriterPrompt {
   const t = TIER_TEMPLATES[c.tier];
   const recipient = t.recipient === 'via' && c.via ? c.via : c.contact;
   const signoff = defaultSignoff(c.voice.data, userName(c.story));
+  const fb = c.fallback ? FALLBACK_TEMPLATES[c.fallback] : null;
+  const greet = greetingName(c, recipient);
   const system = [
     'You write short outreach emails in the user’s voice. They must read like a real email from a person.',
     'Return JSON: {"subject","hook","proof","ask","signoff"}.',
-    `Hook: open with a greeting to ${firstName(recipient.name)} (e.g. "Hi ${firstName(recipient.name)},"), then one or two lines about their world, drawn from CONTEXT (the role, the team, the company).`,
-    `Proof: two or three sentences (max ${PROOF_MAX_SENTENCES}), first person, taken only from STORY. Tie them to what the role needs. No numbers that are not in STORY.`,
-    'Ask: one small, specific ask (the close).',
+    `Hook: open with a greeting to ${greet} (e.g. "Hi ${greet},"), then one or two lines about their world, drawn from CONTEXT (the role, the team, the company).`,
+    fb
+      ? `Proof: two or three sentences (max ${PROOF_MAX_SENTENCES}), first person, a shortened version of the COVER LETTER (STORY may fill gaps). No numbers that are not in the COVER LETTER or STORY.`
+      : `Proof: two or three sentences (max ${PROOF_MAX_SENTENCES}), first person, taken only from STORY. Tie them to what the role needs. No numbers that are not in STORY.`,
+    fb ? 'Ask: one small, specific ask (the close), drawn from the cover letter’s close.' : 'Ask: one small, specific ask (the close).',
     `Signoff: in the user’s voice; default ${JSON.stringify(signoff)}.`,
-    'Sources: CONTEXT is facts about them (usable for the hook). STORY is the ONLY source of facts about the user. VOICE and SAMPLES set tone only.',
+    fb
+      ? 'Sources: CONTEXT is facts about them (usable for the hook). STORY and the COVER LETTER (the user’s own fact-checked letter for this role) are the ONLY sources of facts about the user. VOICE and SAMPLES set tone only.'
+      : 'Sources: CONTEXT is facts about them (usable for the hook). STORY is the ONLY source of facts about the user. VOICE and SAMPLES set tone only.',
     'Samples: match their tone, rhythm and phrasing; never reuse facts, names or numbers from samples.',
-    'Rules: no em dashes, no en dashes; punchy (hook, reframe, close); no flattery; no facts beyond STORY; never invent metrics.',
+    `Rules: no em dashes, no en dashes; punchy (hook, reframe, close); no flattery; no facts beyond STORY${fb ? ' and the COVER LETTER' : ''}; never invent metrics.`,
     `Limits: subject ${LIMITS.subject} chars, hook ${LIMITS.hook}, proof ${LIMITS.proof}, ask ${c.tier === 'bridge' ? BRIDGE_ASK_MAX : LIMITS.ask}, signoff ${LIMITS.signoff}.`,
   ].join('\n');
   const samples = voiceSamples(c.voice);
   const user = [
-    `TIER: ${c.tier}`,
-    `GOAL: ${t.goal}`,
-    `DEFAULT ASK: ${t.ask}`,
+    `TIER: ${c.tier}${c.fallback ? ` (fallback: ${c.fallback})` : ''}`,
+    `GOAL: ${fb?.goal ?? t.goal}`,
+    `DEFAULT ASK: ${fb?.ask ?? t.ask}`,
     `RECIPIENT: ${t.recipient === 'via' && c.via ? `${c.via.name} (${c.via.headline ?? 'connection'}), mutual of ${c.contact.name}` : `${c.contact.name} (${c.contact.headline ?? 'unknown'})`}`,
     [
       'CONTEXT (facts about them; usable for the hook, never as facts about the user):',
@@ -186,7 +257,14 @@ export function buildWriterPrompt(c: DraftContext): WriterPrompt {
       `JD:\n${c.role.jd ?? '(none on file)'}`,
       `Company dossier:\n${c.company.dossier ?? '(none on file)'}`,
     ].join('\n'),
-    `STORY (the only source of facts about the user):\n${storyBlock(c.story)}`,
+    fb
+      ? `STORY (with the cover letter, the only source of facts about the user):\n${storyBlock(c.story)}`
+      : `STORY (the only source of facts about the user):\n${storyBlock(c.story)}`,
+    ...(fb
+      ? [
+          `COVER LETTER (the user's tailored, fact-checked letter for this role; shorten it for Proof and Ask):\n${c.cover ?? '(none on file)'}`,
+        ]
+      : []),
     `VOICE (style and notes):\n${voiceBlock(c.voice)}`,
     samples.length
       ? `SAMPLES (style exemplars; match tone, rhythm and phrasing; never reuse their facts):\n${samples.map((s, i) => `[${i + 1}]\n${s}`).join('\n\n')}`
@@ -254,6 +332,26 @@ export function templateDraft(c: DraftContext): DraftText {
   const about = theme ? ` The JD puts it plainly: ${theme}.` : '';
   /** The Hook with the JD theme when it fits the limit, else without. */
   const fit = (withTheme: string, plain: string) => (theme && withTheme.length <= LIMITS.hook ? withTheme : plain);
+  if (c.fallback) {
+    // #78: no contact found. Proof is the cover letter, shortened (else Story); the Ask is the fallback's.
+    const hello = `Hi ${greetingName(c, c.contact)},`;
+    const fbProof = coverProof(c.cover) ?? proof;
+    if (c.fallback === 'team_inbox')
+      return {
+        subject: `${role} at ${co}`,
+        hook: fit(`${hello} I am applying for the ${role} role.${about}`, `${hello} I am applying for the ${role} role.`),
+        proof: fbProof,
+        ask: `Could you pass this to the hiring manager for the ${role} role? Happy to send anything else.`,
+        signoff,
+      };
+    return {
+      subject: `${role}: one idea for ${co}`,
+      hook: fit(`${hello} your team is hiring a ${role}.${about}`, `${hello} your team is hiring a ${role}.`),
+      proof: fbProof,
+      ask: FALLBACK_TEMPLATES.cold_leader.ask,
+      signoff,
+    };
+  }
   switch (c.tier) {
     case 'warm_hiring':
       return {

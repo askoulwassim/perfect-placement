@@ -42,3 +42,9 @@ Wave 2); this skill is the judgment the loop asks for when an LLM backend is an 
 writing model (the default), you draft each diff and call `profile.propose_diff`; then call `profile.apply_diff` with your
 confidence in the op context, and the policy decides. Applied weighted and filter changes create profile v+1 and rescore
 the movable roles (inbox, active, held; never a role the user picked).
+
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).

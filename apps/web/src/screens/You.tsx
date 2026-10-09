@@ -2,10 +2,11 @@ import { type OpOutput, PROFILE_COMPONENT_KEYS, PROFILE_COMPONENT_KIND, type Pro
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
+import { addEntries, ChipInput, splitEntries } from '../components/inputs';
 import { Constellation, DiffBlock, KIND_HEX, KIND_LABEL, type NodeData, ProfileNode, VersionTimeline } from '../components/profile';
 import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText } from '../lib/profile';
+import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText, LIST_DEFAULTS } from '../lib/profile';
 import { timeline } from '../lib/view';
 import { go, type YouFlow } from '../router';
 import { Onboarding } from './Onboarding';
@@ -97,6 +98,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
               ))}
             </div>
             {reinterview && <Reinterview onClick={reinterview} />}
+            {selected === 'voice' && <LearnVoice />}
             {source && <ResumeSource path={source} />}
             {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
@@ -207,6 +209,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
                 ))}
               </div>
               {reinterview && <Reinterview onClick={reinterview} />}
+              {selected === 'voice' && <LearnVoice />}
               {source && <ResumeSource path={source} />}
               {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
@@ -241,12 +244,22 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
   );
 }
 
-/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You). */
-function ProfileAction({ className, label, onClick }: { className: string; label: string; onClick: () => void }) {
+/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You), or another op. */
+function ProfileAction({
+  className,
+  label,
+  onClick,
+  op = 'onboard.start',
+}: {
+  className: string;
+  label: string;
+  onClick: () => void;
+  op?: 'onboard.start' | 'runs.start';
+}) {
   return (
     <div style={{ marginTop: 18 }}>
       <Btn
-        op="onboard.start"
+        op={op}
         className={className}
         onClick={onClick}
         style={{
@@ -264,6 +277,28 @@ function ProfileAction({ className, label, onClick }: { className: string; label
         {label}
       </Btn>
     </div>
+  );
+}
+
+/**
+ * Learn voice (#76): queue a `voice` run that reads the user's own sent mail (and LinkedIn posts when LinkedIn
+ * is live) and proposes a Voice diff to accept here. The click is the consent.
+ */
+function LearnVoice() {
+  const act = useAct();
+  const { showToast, activeRun } = useApp();
+  const running = activeRun({ skill: 'voice' });
+  return (
+    <ProfileAction
+      className="learn-voice"
+      op="runs.start"
+      label={running ? 'Reading your writing' : 'Learn voice'}
+      onClick={async () => {
+        if (running) return;
+        const o = await act('runs.start', { skill: 'voice' });
+        if (o.status === 'ok') showToast('Learning voice');
+      }}
+    />
   );
 }
 
@@ -335,36 +370,53 @@ function Defaults({ data, mobile }: { data: unknown; mobile?: boolean }) {
   const { showToast } = useApp();
   const saved = defaultsText((data ?? undefined) as Record<string, unknown> | undefined);
   const [text, setText] = useState(saved);
-  const dirty = DEFAULT_FIELDS.some(([f]) => text[f].trim() !== saved[f].trim());
+  /** Chip list fields (#75): the entry still being typed, counted before Enter. */
+  const [drafts, setDrafts] = useState<Partial<Record<DefaultField, string>>>({});
+  const listOf = (f: DefaultField) => splitEntries(text[f]);
+  const withDrafts = { ...text };
+  for (const f of LIST_DEFAULTS) withDrafts[f] = addEntries(listOf(f), splitEntries(drafts[f] ?? '')).join(', ');
+  const dirty = DEFAULT_FIELDS.some(([f]) => withDrafts[f].trim() !== saved[f].trim());
   const save = async () => {
-    const o = await act('profile.set_defaults', { defaults: defaultsInput(text) });
-    if (o.status === 'ok') showToast('Defaults saved');
+    const o = await act('profile.set_defaults', { defaults: defaultsInput(withDrafts) });
+    if (o.status === 'ok') {
+      setText(withDrafts);
+      setDrafts({});
+      showToast('Defaults saved');
+    }
   };
+  const field = { minWidth: 0, height: 32, background: C['bg-2'], border: `1px solid ${C['line-2']}`, borderRadius: 8 } as const;
   return (
     <div className="app-defaults" style={{ marginTop: 22 }}>
       <div style={{ ...eyebrow(), marginBottom: 12 }}>Application defaults</div>
       <div style={{ display: 'grid', gridTemplateColumns: mobile ? '96px 1fr' : '110px 1fr', gap: '8px 12px', alignItems: 'center' }}>
-        {DEFAULT_FIELDS.map(([f, label, hint]) => (
-          <label key={f} style={{ display: 'contents' }}>
-            <span style={mono(11, C.muted)}>{label}</span>
-            <input
-              name={f}
-              value={text[f]}
-              placeholder={hint}
-              onChange={(e) => setText((t) => ({ ...t, [f as DefaultField]: e.target.value }))}
-              style={{
-                minWidth: 0,
-                height: 32,
-                background: C['bg-2'],
-                border: `1px solid ${C['line-2']}`,
-                borderRadius: 8,
-                color: C.fg,
-                padding: '0 10px',
-                fontSize: 13,
-              }}
-            />
-          </label>
-        ))}
+        {DEFAULT_FIELDS.map(([f, label, hint]) =>
+          LIST_DEFAULTS.has(f) ? (
+            <div key={f} style={{ display: 'contents' }}>
+              <span style={mono(11, C.muted)}>{label}</span>
+              <ChipInput
+                size="sm"
+                name={f}
+                label={label}
+                placeholder={hint}
+                value={listOf(f)}
+                onChange={(next) => setText((t) => ({ ...t, [f]: next.join(', ') }))}
+                draft={drafts[f] ?? ''}
+                onDraftChange={(d) => setDrafts((x) => ({ ...x, [f]: d }))}
+              />
+            </div>
+          ) : (
+            <label key={f} style={{ display: 'contents' }}>
+              <span style={mono(11, C.muted)}>{label}</span>
+              <input
+                name={f}
+                value={text[f]}
+                placeholder={hint}
+                onChange={(e) => setText((t) => ({ ...t, [f as DefaultField]: e.target.value }))}
+                style={{ ...field, color: C.fg, padding: '0 10px', fontSize: 13 }}
+              />
+            </label>
+          ),
+        )}
       </div>
       <Btn
         op="profile.set_defaults"

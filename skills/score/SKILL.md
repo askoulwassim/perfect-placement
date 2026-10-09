@@ -15,7 +15,7 @@ description: Score inbox roles. Call roles.score without criteria so Kev judges 
 
 ## Steps per role
 
-1. **Facts.** Extract, never guess: `workplace` (remote | hybrid | onsite | flexible | unspecified), `remote_ok` (true | false | null), `comp_min`, `comp_max`, and `dealbreaker_hits` (hard nos from the Dealbreakers component the JD clearly hits; empty if none). Unknown stays null; the engine flags it to verify.
+1. **Facts.** Extract, never guess: `workplace` (remote | hybrid | onsite | flexible | unspecified), `remote_ok` (true | false | null), `location` (where the role sits, as the JD says it, e.g. "New York, NY"), `comp_min`, `comp_max`, and `dealbreaker_hits` (hard nos from the Dealbreakers component the JD clearly hits; empty if none). Do not put work mode in `dealbreaker_hits`: the engine applies Work mode itself (accepted places, mode hard nos, remote only only when the profile sets `remote_only`). Unknown stays null; the engine flags it to verify.
 2. **Let Kev judge (preferred).** Call `roles.score { role_id, facts, brand_terms?, notes? }` **without `criteria`**. The engine asks the decision layer: one Kev call with the masked JD for C1, C2, C3, C4, C9 (company, products, domain and URLs replaced by `[company]`; add product names or founders in `brand_terms`) and one with the full state for C5..C8. Every criterion becomes a decision row (backend, p, latency) linked from the score.
 3. **Kev unavailable.** If the call answers `backend_unavailable` ("Kev did not answer"), judge C1..C9 yourself:
    - Blind pass (C1, C2, C3, C4, C9): mask the company name, products, domain and URLs as `[company]` and score from the masked JD only.
@@ -42,10 +42,18 @@ description: Score inbox roles. Call roles.score without criteria so Kev judges 
 
 - Weights from the profile version; total, band (green 75, yellow 55).
 - Company affinity nudge, capped at `config.scoring.affinity_cap`. A company you love does not raise C1..C9.
-- Dealbreakers gate first. **No company bypasses a dealbreaker**, dream company or not.
+- Dealbreakers gate first. **No company bypasses a dealbreaker**, dream company or not. Work mode: hybrid in an accepted place passes; hybrid elsewhere is a verify flag unless the profile says fail; a mode hard no fails; unknown mode is a verify flag.
+- After a Work mode change, `roles.reevaluate_filters { dry_run: true }` lists work-mode archives that now pass; without `dry_run` it queues a Needs-you restore per role. Never restore a role yourself.
 - Per company, the top `config.scoring.company_active_cap` roles stay `active`; the rest go `held` and are promoted automatically when a slot frees.
 - Never moves on-deck or later backwards. Records profile version and rubric snapshot on every score.
 - Records who judged each criterion in `facts_json.criteria_source` (`kev`, `agent` or `human`, with p and the decision id) and, for agent criteria, `second_opinion` (`kev` or `unavailable`) and `disagreements`.
+
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebFetch`: capture the full JD from the posting when only a title is on file.
 
 ## Rules
 

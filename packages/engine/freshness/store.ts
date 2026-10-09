@@ -39,6 +39,8 @@ export interface FreshnessStore {
   recordCheck(u: { roleId: string; freshness: 'open' | 'unsure'; at: string; flags: Record<string, unknown> }): MaybePromise<boolean>;
   /** Closed: archive with reason `closed`. Must refuse roles outside scope. Returns false if refused. */
   archiveClosed(u: { roleId: string; at: string; flags: Record<string, unknown>; decisionId: string | null }): MaybePromise<boolean>;
+  /** Expire the role's pending `freshness.closed` decisions (a newer close proposal replaces them). Optional. */
+  expirePendingCloses?(roleId: string, at: string): MaybePromise<number>;
   emit(e: FreshnessEvent): MaybePromise<string>;
   startRun(op: string, at: string): MaybePromise<string>;
   finishRun(id: string, u: { at: string; status: RunStatus; summary: Record<string, unknown>; logPath: string | null }): MaybePromise<void>;

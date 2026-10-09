@@ -4,6 +4,7 @@ export * from './Btn';
 export * from './controls';
 export * from './decision';
 export * from './glyphs';
+export * from './inputs';
 export * from './meters';
 export * from './people';
 export * from './profile';

@@ -189,6 +189,38 @@ describe('onboarding end to end via ops', () => {
       expect(c.data_json).toEqual(prev.components.find((x) => x.key === c.key)?.data_json);
   });
 
+  it('list questions take chips as an array, a comma string still parses; money sliders say so (#73, #75)', async () => {
+    e = openFixtureEngine();
+    let state = (await op('onboard.start', { components: ['work_mode'] })) as State;
+    while (state.next_question && state.next_question.id !== 'work_mode.locations')
+      state = (await op('onboard.answer', { question_id: state.next_question.id, skip: true })) as State;
+    expect(state.next_question).toMatchObject({ id: 'work_mode.locations', answer_type: 'list' });
+    await expect(
+      (e as FixtureEngine).runOp('onboard.answer', { question_id: 'work_mode.locations', value: [] }, ctx()),
+    ).resolves.toMatchObject({
+      status: 'error',
+    });
+    state = (await op('onboard.answer', { question_id: 'work_mode.locations', value: ['New York', ' US remote ', 'New York'] })) as State;
+    expect(state.next_question).toMatchObject({ id: 'work_mode.travel', answer_type: 'slider', unit: 'percent', step: 5 });
+    await op('onboard.answer', { question_id: 'work_mode.travel', skip: true });
+    await op('onboard.confirm', {});
+    let p = await comps();
+    expect(p.components.find((c) => c.key === 'work_mode')?.data_json.locations).toEqual(['New York', 'US remote']);
+
+    state = (await op('onboard.start', { components: ['network', 'terms'] })) as State;
+    expect(state.next_question).toMatchObject({ id: 'terms.floor', unit: 'money', step: 1000, min: 0, max: 600000 });
+    state = (await op('onboard.answer', { question_id: 'terms.floor', value: 212500 })) as State;
+    while (state.next_question && state.next_question.id !== 'network.warm')
+      state = (await op('onboard.answer', { question_id: state.next_question.id, skip: true })) as State;
+    expect(state.next_question?.answer_type).toBe('list');
+    state = (await op('onboard.answer', { question_id: 'network.warm', value: 'Stripe, Figma\nLinear' })) as State;
+    while (state.next_question) state = (await op('onboard.answer', { question_id: state.next_question.id, skip: true })) as State;
+    await op('onboard.confirm', {});
+    p = await comps();
+    expect(p.components.find((c) => c.key === 'network')?.data_json.warm_companies).toEqual(['Stripe', 'Figma', 'Linear']);
+    expect(p.components.find((c) => c.key === 'terms')?.data_json.comp_floor).toBe(212500);
+  });
+
   it('fixtures: recalibrate (onboard.start with calibrate) starts from the current weights and saves only weighted components (#25)', async () => {
     e = openFixtureEngine();
     const prev = await comps();
@@ -508,6 +540,19 @@ describe('the interview adapts to the resume (#22)', () => {
     state = (await op('onboard.answer', { question_id: 'craft.mode', value: 'lead' })) as State;
     expect(state.next_question?.id).toBe('craft.facing'); // the resume is silent: asked open
     state = (await op('onboard.answer', { question_id: 'craft.facing', skip: true })) as State;
+    // #74: the titles to search for, the resume's own first (suggested), free entry allowed.
+    expect(state.next_question).toMatchObject({
+      id: 'craft.titles',
+      other: true,
+      suggested: ['Principal Product Manager', 'Senior Product Manager', 'Analyst'],
+    });
+    expect(state.next_question?.options?.slice(0, 4)).toEqual([
+      'Principal Product Manager',
+      'Senior Product Manager',
+      'Analyst',
+      'Product Manager',
+    ]);
+    state = (await op('onboard.answer', { question_id: 'craft.titles', skip: true })) as State;
     expect(state.next_question?.id).toBe('confirm.domain');
     state = (await op('onboard.answer', { question_id: 'confirm.domain', value: 'yes' })) as State;
     // Domain ranked is confirmed, not asked again.

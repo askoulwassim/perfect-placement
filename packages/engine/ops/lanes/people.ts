@@ -2,6 +2,7 @@ import { type ContactTier, type OpOutcome, OUTREACH_TONES } from '@perfect-place
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { defaultMx } from '../../people/dns.js';
 import { draftRecipient, findEmail } from '../../people/email.js';
+import { fallbackPeople } from '../../people/fallback.js';
 import { findPeople } from '../../people/find.js';
 import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
 import { composeBody } from '../../people/style.js';
@@ -53,6 +54,7 @@ export const LANE_H_HANDLERS = {
   'people.link': defineHandler('people.link', { run: async (i, h) => unwrap(await linkContact(i, h.ctx, peopleDeps(h))) }),
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
   'people.find_email': defineHandler('people.find_email', { run: async (i, h) => unwrap(await findEmail(i, h.ctx, peopleDeps(h))) }),
+  'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
   'outreach.to_gmail': defineHandler('outreach.to_gmail', {
     decisionKind: 'outreach.to_gmail',

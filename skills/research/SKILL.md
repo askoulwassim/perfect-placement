@@ -29,6 +29,14 @@ On pick (role moved to on-deck), before tailoring, or before an interview (refre
 3. `companies.dossier.write { company_id, markdown }`. The op writes `companies/<slug>/dossier.md`, sets the company's `md_path` and links the dossier into every open application at that company.
 4. `runs.finish { run_id, status: "ok" }`.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebSearch`: find sources for the dossier.
+- `WebFetch`: read each source.
+
 ## Rules
 
 - Never fabricate funding, news or people. Flag anything stale or unverifiable.

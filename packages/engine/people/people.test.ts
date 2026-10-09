@@ -185,6 +185,137 @@ describe('people.find', () => {
   });
 });
 
+describe('people.find: the agent reads LinkedIn via Claude in Chrome (#82)', () => {
+  /** No recorded adapter: LinkedIn people come only from the agent's hints. Placeholder people only. */
+  const agentOnly = (config?: Record<string, unknown>) => open({ services: { linkedin: undefined }, ...(config ? { config } : {}) });
+  const li = (slug: string, extra: Record<string, unknown> = {}) => ({
+    name: `Fixture ${slug}`,
+    headline: 'Product at Airtable',
+    linkedin_url: `https://www.linkedin.com/in/fixture-${slug}/?miniProfile=x`,
+    source: 'linkedin',
+    degree: '1',
+    ...extra,
+  });
+  /** Insertion order: runs in one test share a timestamp, and ulid order within a millisecond is random. */
+  const lastFind = () => {
+    const row = v.db.prepare("SELECT summary_json FROM run WHERE op = 'people.find' ORDER BY rowid DESC").get() as { summary_json: string };
+    return JSON.parse(row.summary_json);
+  };
+
+  it('records linkedin_mode agent, keeps degree / via / hiring team, stores only the allowed fields', async () => {
+    agentOnly();
+    const out = ok(
+      await run('people.find', {
+        role_id: R.airtableOnDeck,
+        linkedin: { pages_opened: 3 },
+        hints: [
+          li('ana', { hiring_team: true }),
+          li('cara', {
+            degree: '2',
+            via: { name: 'Fixture eli', headline: 'Data', linkedin_url: 'https://www.linkedin.com/in/fixture-eli' },
+          }),
+          li('gus', { degree: 'cold' }),
+          { name: 'Omar S.', source: 'jd' },
+        ],
+      }),
+    );
+    expect(out.linkedin).toEqual({ mode: 'agent', people: 3, rejected: 0, budget_left: 36, reason: null });
+    const byName = Object.fromEntries(out.found.map((f: { contact: { name: string } }) => [f.contact.name, f]));
+    expect(byName['Fixture ana'].link).toMatchObject({ degree: '1', is_hiring_team: true, tier: 'warm_hiring' });
+    expect(byName['Fixture cara'].link).toMatchObject({ degree: '2', tier: 'bridge' });
+    expect(byName['Fixture gus'].link).toMatchObject({ degree: 'cold', tier: 'cold_other' });
+    expect(byName['Omar S.'].link).toMatchObject({ degree: 'cold' });
+    const ana = v.db.prepare("SELECT * FROM contact WHERE name = 'Fixture ana'").get() as Record<string, unknown>;
+    expect(ana).toMatchObject({ linkedin_url: 'https://www.linkedin.com/in/fixture-ana', source: 'linkedin', notes: null, email: null });
+    const eli = v.db.prepare('SELECT name FROM contact WHERE id = ?').get(byName['Fixture cara'].link.via_contact_id);
+    expect(eli).toEqual({ name: 'Fixture eli' });
+    // 3 people + the via mutual count against the daily budget.
+    expect(lastFind()).toMatchObject({
+      linkedin_mode: 'agent',
+      linkedin_people: 3,
+      linkedin_profiles_read: 4,
+      linkedin_pages_opened: 3,
+      linkedin_reason: null,
+      capped: false,
+    });
+  });
+
+  it('without the agent reading LinkedIn the run is dry-run with a reason, never agent', async () => {
+    agentOnly();
+    const none = ok(await run('people.find', { role_id: R.airtableOnDeck, hints: [{ name: 'Omar S.', source: 'jd' }] }));
+    expect(none.linkedin).toMatchObject({ mode: 'dry-run', people: 0, reason: 'not_reported' });
+    const skipped = ok(await run('people.find', { role_id: R.airtableOnDeck, linkedin: { pages_opened: 0, skipped: 'checkpoint' } }));
+    expect(skipped.linkedin).toMatchObject({ mode: 'dry-run', reason: 'checkpoint' });
+    expect(lastFind()).toMatchObject({ linkedin_mode: 'dry-run', linkedin_reason: 'checkpoint', linkedin_profiles_read: 0 });
+    // The recorded adapter (tests) is dry-run too.
+    open();
+    expect(ok(await run('people.find', { role_id: R.airtableOnDeck })).linkedin).toMatchObject({ mode: 'dry-run', reason: 'dry_run' });
+  });
+
+  it('config off or dry-run: LinkedIn hints are rejected', async () => {
+    agentOnly({ linkedin: { mode: 'off' } });
+    const off = ok(await run('people.find', { role_id: R.airtableOnDeck, hints: [li('ana')] }));
+    expect(off.found).toHaveLength(0);
+    expect(off.linkedin).toMatchObject({ mode: 'off', people: 0, rejected: 1, reason: 'off' });
+    agentOnly({ linkedin: { mode: 'dry-run' } });
+    const dry = ok(await run('people.find', { role_id: R.airtableOnDeck, hints: [li('ana')], linkedin: { pages_opened: 1 } }));
+    expect(dry.linkedin).toMatchObject({ mode: 'dry-run', rejected: 1, reason: 'dry_run' });
+  });
+
+  it('enforces the profile URL allowlist', async () => {
+    agentOnly();
+    const out = ok(
+      await run('people.find', {
+        role_id: R.airtableOnDeck,
+        linkedin: { pages_opened: 1 },
+        hints: [
+          li('ok'),
+          li('msg', { linkedin_url: 'https://www.linkedin.com/messaging/thread/1/' }),
+          li('evil', { linkedin_url: 'https://evil.example.com/in/fixture-evil' }),
+          li('nourl', { linkedin_url: null }),
+          li('company', { linkedin_url: 'https://www.linkedin.com/company/airtable/people/' }),
+          li('badvia', { degree: '2', via: { name: 'X', linkedin_url: 'https://www.linkedin.com/mynetwork/' } }),
+        ],
+      }),
+    );
+    expect(out.found.map((f: { contact: { name: string } }) => f.contact.name).sort()).toEqual(['Fixture badvia', 'Fixture ok']);
+    expect(out.linkedin).toMatchObject({ mode: 'agent', people: 2, rejected: 4 });
+    // A via outside the allowlist is dropped, the person kept.
+    expect(out.found.find((f: { contact: { name: string } }) => f.contact.name === 'Fixture badvia').link.via_contact_id).toBeNull();
+  });
+
+  it('rejects hints beyond the daily budget, the mutual cap, and flags a run over the page cap', async () => {
+    agentOnly({ linkedin: { max_profiles_per_day: 3, max_mutual_expansions: 1, max_pages_per_run: 2 } });
+    const via = (n: string) => ({ name: `Fixture ${n}`, linkedin_url: `https://www.linkedin.com/in/fixture-${n}` });
+    const first = ok(
+      await run('people.find', {
+        role_id: R.airtableOnDeck,
+        linkedin: { pages_opened: 4 },
+        hints: [li('a', { degree: '2', via: via('m1') }), li('b', { degree: '2', via: via('m2') }), li('c'), li('d')],
+      }),
+    );
+    // a + m1 = 2, b (its via dropped: 1 expansion max) = 3, then c and d are over budget.
+    expect(first.found.map((f: { contact: { name: string } }) => f.contact.name)).toEqual(['Fixture a', 'Fixture b']);
+    expect(first.found[1].link.via_contact_id).toBeNull();
+    expect(first.capped).toBe(true);
+    expect(first.linkedin).toMatchObject({ mode: 'agent', people: 2, rejected: 2, budget_left: 0 });
+    expect(lastFind()).toMatchObject({ linkedin_profiles_read: 3, linkedin_over_page_cap: true, capped: true });
+    expect(v.db.prepare("SELECT status FROM run WHERE op = 'people.find'").get()).toEqual({ status: 'partial' });
+    // Budget spent for today: the next read is refused entirely.
+    const second = ok(await run('people.find', { role_id: R.stripeOnDeck, hints: [li('e')], linkedin: { pages_opened: 1 } }));
+    expect(second.found).toHaveLength(0);
+    expect(second.linkedin).toMatchObject({ people: 0, rejected: 1, budget_left: 0 });
+    expect(second.capped).toBe(true);
+  });
+
+  it('dry run counts nothing against the budget', async () => {
+    agentOnly();
+    const out = ok(await run('people.find', { role_id: R.airtableOnDeck, dry_run: true, hints: [li('a')], linkedin: { pages_opened: 1 } }));
+    expect(out.linkedin).toMatchObject({ mode: 'agent', people: 1 });
+    expect(count("SELECT COUNT(*) n FROM run WHERE op = 'people.find'")).toBe(0);
+  });
+});
+
 describe('people.classify', () => {
   it('applies a confident pick to the link', async () => {
     const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, testCtx())).found;
@@ -452,6 +583,7 @@ describe('end to end on a picked role (dry run)', () => {
       'outreach.send',
       'outreach.to_gmail',
       'people.classify',
+      'people.fallback',
       'people.find',
       'people.find_email',
       'people.link',

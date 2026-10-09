@@ -272,7 +272,12 @@ describe('click paths', () => {
     expect(save.getAttribute('data-op')).toBe('profile.set_defaults');
     expect(save.disabled).toBe(true);
     fireEvent.change($<HTMLInputElement>(box, 'input[name="sponsorship"]'), { target: { value: 'no' } });
-    fireEvent.change($<HTMLInputElement>(box, 'input[name="authorized_countries"]'), { target: { value: 'United States, Canada' } });
+    const countries = $<HTMLInputElement>(box, 'input[name="authorized_countries"]');
+    fireEvent.change(countries, { target: { value: 'United States' } });
+    fireEvent.keyDown(countries, { key: 'Enter' });
+    expect(within(box).getByRole('button', { name: 'Remove United States' }).getAttribute('data-op')).toBe('local');
+    // Typed but not yet committed still counts on Save.
+    fireEvent.change(countries, { target: { value: 'Canada' } });
     fireEvent.click(save);
     await waitFor(() =>
       expect(live?.calls.filter((c) => c.name === 'profile.set_defaults').at(-1)?.body).toMatchObject({
@@ -358,6 +363,30 @@ describe('click paths', () => {
     expect(connect?.getAttribute('data-state')).toBe('done');
     const o = await live?.client.run('outreach.get', { outreach_id: 'or_0001' });
     expect(o?.status === 'ok' && o.output.outreach).toMatchObject({ status: 'in_gmail', gmail_draft_id: 'r-agent-1' });
+  });
+
+  it('People (#82): "LinkedIn not read" with the reason until the agent reads LinkedIn, then "LinkedIn: N people"', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`);
+    const tag = await waitFor(() => $(container, '.people-linkedin'));
+    expect(tag.getAttribute('data-linkedin')).toBe('not-read');
+    expect(tag.textContent).toBe('LinkedIn not read · Not run');
+    // One run per role here: runs in a test share a timestamp, so "latest" would be ambiguous.
+    await live?.as('agent', 'people.find', { role_id: R.airtableOnDeck, linkedin: { pages_opened: 0, skipped: 'checkpoint' } });
+    await go(`#/people/${R.airtableOnDeck}`);
+    await waitFor(() => expect($(container, '.people-linkedin').textContent).toBe('LinkedIn not read · Checkpoint'));
+    await live?.as('agent', 'people.find', {
+      role_id: R.linearDraft,
+      linkedin: { pages_opened: 2 },
+      hints: [
+        { name: 'Fixture Pat', linkedin_url: 'https://www.linkedin.com/in/fixture-pat', source: 'linkedin', degree: '1' },
+        { name: 'Fixture Lee', linkedin_url: 'https://www.linkedin.com/in/fixture-lee', source: 'linkedin', degree: 'cold' },
+      ],
+    });
+    await go(`#/people/${R.airtableOnDeck}`);
+    await go(`#/people/${R.linearDraft}`);
+    await waitFor(() => expect($(container, '.people-linkedin').getAttribute('data-linkedin')).toBe('read'));
+    expect($(container, '.people-linkedin').textContent).toBe('LinkedIn: 2 people');
+    assertButtons(container);
   });
 
   it('People: Draft for <best path> starts a connect run for that person and opens the draft it wrote', async () => {
@@ -571,6 +600,45 @@ describe('click paths', () => {
     expect($(container, '.timeline__item.is-current').textContent).toContain('Onboard: re interview growth');
   });
 
+  it('You > Voice: Learn voice queues a voice run (#76)', async () => {
+    await boot('#/you/voice');
+    const learn = await screen.findByRole('button', { name: 'Learn voice' });
+    expect(learn.getAttribute('data-op')).toBe('runs.start');
+    fireEvent.click(learn);
+    await waitFor(() => expect(live?.calls.find((c) => c.name === 'runs.start')?.body).toEqual({ skill: 'voice' }));
+  });
+
+  it('Craft offers Other with free entry (#74)', async () => {
+    const { container } = await boot('#/you/craft');
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-interview' }));
+    await waitFor(() =>
+      expect($(container, '.onboard-q__text').textContent).toBe('What kind of work do you want to do in your next role?'),
+    );
+    const other = $(container, '.chip--other');
+    expect(other.getAttribute('data-op')).toBe('local');
+    fireEvent.click(other);
+    const field = $(container, '.onboard-q__other') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'Revenue Operations' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await screen.findByRole('button', { name: 'Revenue Operations' });
+    fireEvent.click(primary(container));
+    await waitFor(() =>
+      expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toMatchObject({ question_id: 'craft.functions' }),
+    );
+    const sent = live?.calls.find((c) => c.name === 'onboard.answer')?.body as { value: string[] };
+    expect(sent.value).toContain('Revenue Operations');
+  });
+
+  it('Voice Skip skips the whole step (#76)', async () => {
+    const { container } = await boot('#/you/voice');
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-interview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'onboard.answer').at(-1)?.body).toMatchObject({ skip: true, skip_component: true }),
+    );
+    await waitFor(() => expect(primary(container).textContent).toBe('Save'));
+  });
+
   it('You: Recalibrate reuses the calibration step from the current weights; Save shows before / after and a new version (#25)', async () => {
     const { container } = await boot('#/you', async (l) => {
       // Clear the fixture's pending diffs so Recalibrate is the primary.
@@ -652,6 +720,50 @@ describe('click paths', () => {
     expect($(container, '.onboard-q__for').textContent).toBe('Q 4 · Network');
   });
 
+  it('Onboarding: a list question keeps chips (Enter, paste, remove) and sends an array (#75)', async () => {
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['company'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which company stages appeal to you?'));
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How big a company do you want to join, by headcount?'));
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which companies would you love to work at?'));
+    const entry = $<HTMLInputElement>(container, '.onboard-q .chip-input input');
+    expect(primary(container).disabled).toBe(true);
+    fireEvent.change(entry, { target: { value: 'Anthropic' } });
+    fireEvent.keyDown(entry, { key: 'Enter' });
+    fireEvent.paste(entry, { clipboardData: { getData: () => 'Stripe, Figma\nanthropic' } });
+    expect(Array.from(container.querySelectorAll('.chip-input__chip')).map((c) => c.textContent)).toEqual([
+      'Anthropic×',
+      'Stripe×',
+      'Figma×',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Stripe' }));
+    // An entry still being typed counts: Next sends it with the chips.
+    fireEvent.change(entry, { target: { value: 'Linear' } });
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.filter((c) => c.name === 'onboard.answer')).toHaveLength(3));
+    const last = live?.calls.filter((c) => c.name === 'onboard.answer').at(-1);
+    expect(last?.status).toBe('ok');
+    expect(last?.body).toEqual({ question_id: 'company.dream', value: ['Anthropic', 'Figma', 'Linear'] });
+  });
+
+  it('Onboarding: comp is typed exactly or slid, shown as $212.5k, never "300,000k" (#73)', async () => {
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['terms'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('What is the lowest base salary you would accept?'));
+    const value = () => $(container, '.slider-input__value').textContent;
+    expect(value()).toBe('$300k');
+    expect(container.textContent).not.toMatch(/\d,\d{3}k/i);
+    fireEvent.change(screen.getByRole('textbox', { name: /\(exact\)$/ }), { target: { value: '212500' } });
+    expect(value()).toBe('$212.5k');
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowLeft', shiftKey: true });
+    expect(value()).toBe('$207.5k');
+    expect(container.textContent).not.toMatch(/\d,\d{3}k/i);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.some((c) => c.name === 'onboard.answer')).toBe(true));
+    expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toEqual({ question_id: 'terms.floor', value: 207500 });
+  });
+
   it('You setup: four steps end to end', async () => {
     const { container } = await boot('#/you/setup', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));
@@ -667,8 +779,14 @@ describe('click paths', () => {
       const q = (await waitFor(() => $(container, '.onboard-q__text'))).textContent;
       const chip = container.querySelector('.onboard-q .chip');
       const text = container.querySelector('.onboard-q textarea');
-      if (chip) fireEvent.click(chip);
+      const entry = container.querySelector('.onboard-q .chip-input input');
+      // A resume suggestion is pre-selected (#74 titles): clicking it again would clear the answer.
+      if (chip && !container.querySelector('.onboard-q .chip[aria-pressed="true"]')) fireEvent.click(chip);
       if (text) fireEvent.change(text, { target: { value: 'Short and direct.' } });
+      if (entry) {
+        fireEvent.change(entry, { target: { value: 'Acme' } });
+        fireEvent.keyDown(entry, { key: 'Enter' });
+      }
       fireEvent.click(primary(container));
       await waitFor(() =>
         expect(container.querySelector('.calibrate') ?? container.querySelector('.onboard-q__text')?.textContent).not.toBe(q),
@@ -769,8 +887,10 @@ describe('click paths', () => {
     };
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     await send('Score my inbox roles', 1);
-    const thread = window.localStorage.getItem(ASK_THREAD_KEY);
-    expect(thread).toMatch(/^ask_/);
+    // #88: the app stores the thread id after the turn renders; wait for it instead of reading it once.
+    const storedThread = () => window.localStorage.getItem(ASK_THREAD_KEY) ?? '';
+    await waitFor(() => expect(storedThread()).toMatch(/^ask_/));
+    const thread = storedThread();
     unmount();
     (live as Live).restartAsk();
     render(<App client={(live as Live).client} now={now} pollMs={20} />);
@@ -778,12 +898,13 @@ describe('click paths', () => {
     await send('and now?', 1);
     const args = live?.ask.specs[1]?.args ?? [];
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
-    expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBe(thread);
+    await waitFor(() => expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBe(thread));
     fireEvent.click($(document.body, '.ask__new'));
     await waitFor(() => expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBeNull());
     await send('fresh', 1);
     expect(live?.ask.specs[2]?.args).not.toContain('--resume');
-    expect(window.localStorage.getItem(ASK_THREAD_KEY)).not.toBe(thread);
+    await waitFor(() => expect(storedThread()).toMatch(/^ask_/));
+    expect(storedThread()).not.toBe(thread);
   });
 
   it('Ask: a missing runner shows clearly; New thread starts fresh', async () => {
@@ -1059,6 +1180,170 @@ describe('run status (#21)', () => {
     await waitFor(() => expect(toast().textContent).toBe('Score done · 3 scored'));
     await waitFor(() => expect(btn().textContent).toBe('Score all'));
     expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(1);
+  });
+
+  it('Role: Pass archives an inbox role as passed (#77)', async () => {
+    const { container } = await boot(`#/role/${R.notionInbox}`, quiet);
+    const pass = () => $<HTMLButtonElement>(container, 'button[data-op="roles.archive"]');
+    await waitFor(() => expect(pass().textContent).toBe('Pass'));
+    assertButtons(container);
+    fireEvent.click(pass());
+    await waitFor(() => expect(toast().textContent).toBe('Notion passed'));
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual([
+      { role_id: R.notionInbox, reason: 'passed' },
+    ]);
+    const got = await live?.client.run('roles.get', { role_id: R.notionInbox });
+    expect(got?.status === 'ok' && [got.output.role.status, got.output.role.archive_reason]).toEqual(['archived', 'passed']);
+    await waitFor(() => expect(window.location.hash).toBe('#/river'));
+  });
+
+  it('Role: Pass shows on inbox roles only', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="roles.archive"]')).toBeNull();
+  });
+
+  it('Role: Skip on the Connect stage moves the application to Fill and shows Skipped (#78)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+    const skip = () => $<HTMLButtonElement>(container, 'button[data-op="apply.skip_connect"]');
+    await waitFor(() => expect(skip().textContent).toBe('Skip'));
+    assertButtons(container);
+    fireEvent.click(skip());
+    await waitFor(() => expect(toast().textContent).toBe('Connect skipped'));
+    expect(live?.calls.filter((c) => c.name === 'apply.skip_connect').map((c) => c.body)).toEqual([
+      { role_id: R.linearDraft, reason: 'user' },
+    ]);
+    await waitFor(() => expect($(container, '[data-fallback="skipped"]').textContent).toBe('Skipped'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
+  it('People: shows the Hiring team fallback when no contact was found (#78)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      // Synthetic: no contacts for the role and a placeholder company domain.
+      l.engine.db.prepare('DELETE FROM outreach WHERE role_id = ?').run(R.linearDraft);
+      l.engine.db.prepare('DELETE FROM contact_link WHERE role_id = ?').run(R.linearDraft);
+      l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
+      return l.as('agent', 'people.fallback', {
+        role_id: R.linearDraft,
+        team_inbox: [{ email: 'recruiting@linear.example', source: 'careers' }],
+      });
+    });
+    await waitFor(() => expect($(container, '[data-fallback="team_inbox"]').textContent).toBe('Hiring team'));
+    expect($(container, 'button[data-op="apply.skip_connect"]').textContent).toBe('Skip');
+    assertButtons(container);
+  });
+
+  it('Role -> Answers: Add questions saves the pasted questions and queues a fill run that uses them (#81)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Connect'));
+    // Off the Answers tab: no box.
+    expect(container.querySelector('button[data-op="apply.set_questions"]')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Answers' }));
+    const box = await waitFor(() => screen.getByRole('textbox', { name: 'Questions' }));
+    expect(within($(container, '.add-questions')).getByText('Add questions')).toBeTruthy();
+    const run = () => $<HTMLButtonElement>(container, 'button[data-op="apply.set_questions"]');
+    expect(run().textContent).toBe('Run');
+    expect(run().disabled).toBe(true);
+    assertButtons(container);
+    fireEvent.change(box, { target: { value: 'Why Linear?\nWhat would you change about Insights?' } });
+    expect(run().disabled).toBe(false);
+    fireEvent.click(run());
+    await waitFor(() => expect(toast().textContent).toBe('2 questions saved'));
+    expect(live?.calls.filter((c) => c.name === 'apply.set_questions').map((c) => c.body)).toEqual([
+      { role_id: R.linearDraft, questions_text: 'Why Linear?\nWhat would you change about Insights?' },
+    ]);
+    // One op: it queued the fill run itself; the headless runner got the pasted questions, not a portal crawl.
+    expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(0);
+    const spec = live?.engine.launcher.specs.at(-1);
+    expect(spec?.args[1]).toContain('# Fill');
+    expect(spec?.args[1]).toContain(`vault.read { path: "applications/${R.linearDraft}/questions.md" }`);
+    expect((box as HTMLTextAreaElement).value).toBe('');
+    await waitFor(() => expect(run().disabled).toBe(true));
+    expect(run().textContent).not.toBe('Run');
+  });
+
+  it('Role -> Answers: an answer saved from Ask shows Saved from Ask (#81)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      await l.as('agent', 'apply.fill', {
+        role_id: R.linearDraft,
+        answers: [{ question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' }],
+      });
+      return l.as('agent', 'apply.fill', {
+        role_id: R.linearDraft,
+        source: 'ask',
+        answers: [{ question: 'What would you change?', kind: 'written', answer: 'Ship insights faster.' }],
+      });
+    });
+    fireEvent.click(await waitFor(() => screen.getByRole('tab', { name: 'Answers' })));
+    const tag = await waitFor(() => $(container, '.answer-source[data-source="ask"]'));
+    expect(tag.textContent).toBe('Saved from Ask');
+    expect(container.querySelectorAll('.answer-source')).toHaveLength(1);
+    const text = container.textContent ?? '';
+    // The tag sits under the Ask answer's question, not the fill one.
+    expect(text.indexOf('What would you change?')).toBeLessThan(text.indexOf('Saved from Ask'));
+    expect(text.indexOf('Saved from Ask')).toBeLessThan(text.indexOf('Ship insights faster.'));
+  });
+
+  it('Role: no Add questions before draft-ready (#81)', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    fireEvent.click(await waitFor(() => screen.getByRole('tab', { name: 'Answers' })));
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="apply.set_questions"]')).toBeNull();
+  });
+
+  it('Role: no Skip off the Connect stage', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
+  it('River: an inbox tile passes from its menu (#77)', async () => {
+    const { container } = await boot('#/river', quiet);
+    const inbox = () => $(container, '.river-col[data-status="inbox"]');
+    const tilePass = () => $<HTMLButtonElement>(inbox(), `.inbox-tile:has([data-role="${R.notionInbox}"]) .tile-pass`);
+    await waitFor(() => expect(tilePass().textContent).toBe('Pass'));
+    expect(tilePass().getAttribute('data-op')).toBe('roles.archive');
+    expect(container.querySelector('.river-col[data-status="active"] .tile-pass')).toBeNull();
+    assertButtons(container);
+    fireEvent.click(tilePass());
+    await waitFor(() => expect(toast().textContent).toBe('Notion passed'));
+    await waitFor(() => expect(inbox().querySelector(`[data-role="${R.notionInbox}"]`)).toBeNull());
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual([
+      { role_id: R.notionInbox, reason: 'passed' },
+    ]);
+  });
+
+  it('River: Shift-click selects inbox tiles, then Pass N passes them all (#77)', async () => {
+    const { container } = await boot('#/river', quiet);
+    const inbox = () => $(container, '.river-col[data-status="inbox"]');
+    const tiles = () => Array.from(inbox().querySelectorAll<HTMLButtonElement>('.river-tile'));
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    const [a, b] = tiles() as [HTMLButtonElement, HTMLButtonElement];
+    const ids = [a.getAttribute('data-role'), b.getAttribute('data-role')];
+    fireEvent.click(a, { shiftKey: true });
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 2'));
+    expect(a.getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.hash).toBe('#/river');
+    // Shift-click again deselects; Clear drops the selection.
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 1'));
+    fireEvent.click($(inbox(), '.river-pass-clear'));
+    await waitFor(() => expect(inbox().querySelector('.river-pass')).toBeNull());
+    fireEvent.click(a, { shiftKey: true });
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 2'));
+    assertButtons(container);
+    fireEvent.click($(inbox(), '.river-pass'));
+    await waitFor(() => expect(toast().textContent).toBe('2 passed'));
+    await waitFor(() => expect(tiles()).toHaveLength(1));
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual(
+      ids.map((role_id) => ({ role_id, reason: 'passed' })),
+    );
+    expect(inbox().querySelector('.river-pass')).toBeNull();
   });
 
   it('Role: an inbox role scores in one click; an all-inbox run also shows Scoring', async () => {

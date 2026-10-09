@@ -3,7 +3,7 @@ import { type DragEvent, useMemo, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
 import { STATUS_HEX, STATUS_LABEL } from '../components/controls';
-import { ArchivedColumn, type ColumnState, RiverColumn, RiverDot, RiverTile } from '../components/roles';
+import { ArchivedColumn, type ColumnState, InboxTile, RiverColumn, RiverDot, RiverTile } from '../components/roles';
 import { C, display, eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import type { RoleView } from '../lib/role';
@@ -37,6 +37,8 @@ export function River() {
   const [zoom, setZoom] = useState<'tiles' | 'dots'>('tiles');
   const [drag, setDrag] = useState<RoleView | null>(null);
   const [bounce, setBounce] = useState<string | null>(null);
+  // Inbox multi-select (#77): Shift-click tiles, then Pass them together.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const t = now();
 
   const all = list.data?.items ?? [];
@@ -92,9 +94,65 @@ export function River() {
 
   const cols = RIVER_COLUMNS.map((s) => ({ s, roles: live.filter((v) => v.role.status === s) }));
 
+  // Pass (#77): a human archives inbox roles they will not pursue (roles.archive, reason passed).
+  const inboxIds = new Set((cols[0]?.roles ?? []).map((v) => v.role.id));
+  const selected = [...picked].filter((id) => inboxIds.has(id));
+  const toggle = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  };
+  const pass = async (views: RoleView[]) => {
+    let n = 0;
+    for (const v of views) {
+      const o = await act('roles.archive', { role_id: v.role.id, reason: 'passed' });
+      if (o.status === 'ok') n++;
+    }
+    setPicked(new Set());
+    if (n) showToast(n === 1 && views[0] ? `${views[0].company.name} passed` : `${n} passed`);
+  };
+
   // Score inbox roles (#31): one click scores every inbox role; the button follows the run.
   const scoring = scoreRunFor(runs);
   const inboxCount = cols[0]?.roles.length ?? 0;
+  const passPicked = selected.length > 0 && (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+      <Btn
+        op="roles.archive"
+        className="river-pass"
+        onClick={() => void pass((cols[0]?.roles ?? []).filter((v) => picked.has(v.role.id)))}
+        style={{
+          flex: 1,
+          height: 30,
+          borderRadius: 8,
+          border: `1px solid ${C.coral}`,
+          background: 'transparent',
+          color: C.coral,
+          fontSize: 12.5,
+          fontWeight: 600,
+        }}
+      >
+        Pass {selected.length}
+      </Btn>
+      <Btn
+        op="local"
+        className="river-pass-clear"
+        onClick={() => setPicked(new Set())}
+        style={{
+          height: 30,
+          padding: '0 10px',
+          borderRadius: 8,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: C.muted,
+          fontSize: 12.5,
+        }}
+      >
+        Clear
+      </Btn>
+    </div>
+  );
   const scoreAll = (scoring || inboxCount > 0) && (
     <Btn
       op="runs.start"
@@ -260,7 +318,14 @@ export function River() {
               width={zoom === 'tiles' ? 218 : 128}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => void onDrop(e, s)}
-              action={s === 'inbox' ? scoreAll : undefined}
+              action={
+                s === 'inbox' ? (
+                  <>
+                    {scoreAll}
+                    {passPicked}
+                  </>
+                ) : undefined
+              }
               dotChildren={roles.map((v) => (
                 <RiverDot
                   key={v.role.id}
@@ -273,18 +338,33 @@ export function River() {
                 />
               ))}
             >
-              {roles.map((v) => (
-                <RiverTile
-                  key={v.role.id}
-                  r={tile(v, t, config.scoring)}
-                  matched={match(v)}
-                  stackCount={stackOf(v)}
-                  bounce={bounce === v.role.id}
-                  onDragStart={dragStart(v)}
-                  onDragEnd={() => setDrag(null)}
-                  onOpen={() => go({ screen: 'role', roleId: v.role.id })}
-                />
-              ))}
+              {roles.map((v) =>
+                s === 'inbox' ? (
+                  <InboxTile
+                    key={v.role.id}
+                    r={tile(v, t, config.scoring)}
+                    matched={match(v)}
+                    bounce={bounce === v.role.id}
+                    selected={picked.has(v.role.id)}
+                    onSelect={() => toggle(v.role.id)}
+                    onPass={() => void pass([v])}
+                    onDragStart={dragStart(v)}
+                    onDragEnd={() => setDrag(null)}
+                    onOpen={() => go({ screen: 'role', roleId: v.role.id })}
+                  />
+                ) : (
+                  <RiverTile
+                    key={v.role.id}
+                    r={tile(v, t, config.scoring)}
+                    matched={match(v)}
+                    stackCount={stackOf(v)}
+                    bounce={bounce === v.role.id}
+                    onDragStart={dragStart(v)}
+                    onDragEnd={() => setDrag(null)}
+                    onOpen={() => go({ screen: 'role', roleId: v.role.id })}
+                  />
+                ),
+              )}
             </RiverColumn>
           );
         })}

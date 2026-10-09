@@ -365,6 +365,103 @@ describe('apply.fill (#42)', () => {
   });
 });
 
+describe('Fill: pasted questions and answers from Ask (#81)', () => {
+  const id = FIXTURE_ROLE_IDS.linearDraft;
+
+  it('apply.set_questions saves the pasted questions and queues a fill run whose prompt answers them, no portal read', async () => {
+    const text = '  Why Linear?\n\nWhat would you change about Linear Insights?  \nAre you authorized to work in the US?\n';
+    const out = okOut(await e.runOp('apply.set_questions', { role_id: id, questions_text: text }, ctxAt('human')));
+    expect(out.count).toBe(3);
+    expect(out.path).toBe(`applications/${id}/questions.md`);
+    expect(out.application.package_paths_json.questions).toBe(out.path);
+    const md = read(out.path);
+    expect(md).toContain('type: "application_questions"');
+    expect(md).toContain(
+      '# Portal questions\n\nWhy Linear?\nWhat would you change about Linear Insights?\nAre you authorized to work in the US?',
+    );
+    // The queued fill run launched (fake launcher) with the pasted questions in its prompt.
+    expect(out.run).toMatchObject({ op: 'fill', summary_json: { skill: 'fill', role_id: id } });
+    const spec = e.launcher.specs.find((x) => x.runId === out.run?.id);
+    const prompt = spec?.args[1] as string;
+    expect(prompt).toContain(`vault.read { path: "applications/${id}/questions.md" }`);
+    expect(prompt).toContain('do not read the portal for questions');
+    // Still read-only in the browser: the acting Chrome tools are denied.
+    expect(spec?.args[spec.args.indexOf('--disallowedTools') + 1]).toContain('mcp__claude-in-chrome__form_input');
+    // roles.get lists the questions for the skill.
+    const got = okOut(await e.runOp('roles.get', { role_id: id }, ctxAt()));
+    expect(got.application?.package_paths_json.questions).toBe(out.path);
+    // Pasting again while that run is active: saved, same run (deduped).
+    const again = okOut(await e.runOp('apply.set_questions', { role_id: id, questions_text: 'Why now?' }, ctxAt('human')));
+    expect(again.run?.id).toBe(out.run?.id);
+    expect(read(out.path)).toContain('Why now?');
+  });
+
+  it('apply.set_questions: run false saves only; blank text is invalid; needs a draft-ready role', async () => {
+    const out = okOut(await e.runOp('apply.set_questions', { role_id: id, questions_text: 'Why us?', run: false }, ctxAt('human')));
+    expect(out.run).toBeNull();
+    expect(e.launcher.specs).toHaveLength(0);
+    expect(await e.runOp('apply.set_questions', { role_id: id, questions_text: '  \n ' }, ctxAt('human'))).toMatchObject({
+      code: 'invalid_input',
+    });
+    expect(
+      await e.runOp('apply.set_questions', { role_id: FIXTURE_ROLE_IDS.stripeOnDeck, questions_text: 'Why us?' }, ctxAt('human')),
+    ).toMatchObject({ code: 'conflict' });
+  });
+
+  it('an answer saved from Ask merges into the Answers with its provenance; a later fill keeps it unless it answers the same question', async () => {
+    const fill = (answers: unknown[], source?: 'ask') =>
+      e.runOp('apply.fill', { role_id: id, answers, ...(source ? { source } : {}) }, ctxAt());
+    okOut(
+      await fill([
+        { question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' },
+        { question: 'Email', kind: 'autofill', field: 'email' },
+      ]),
+    );
+    const asked = okOut(await fill([{ question: 'What would you change?', kind: 'written', answer: 'Ship the insights faster.' }], 'ask'));
+    const src = (out: typeof asked) => Object.fromEntries(out.answers.map((a) => [a.question, a.source]));
+    expect(src(asked)).toEqual({ 'Why Linear?': 'fill', 'What would you change?': 'ask', Email: 'fill' });
+    expect(asked.counts).toMatchObject({ written: 2, autofill: 1 });
+    const md = read(`applications/${id}/answers.md`);
+    expect(md).toContain('### What would you change?\n\n_Saved from Ask_\n\nShip the insights faster.');
+    expect(md).not.toContain('### Why Linear?\n\n_Saved from Ask_');
+    // Ask again on the same question: replaced, not duplicated.
+    const again = okOut(await fill([{ question: 'what would you change?', kind: 'written', answer: 'Make it faster.' }], 'ask'));
+    expect(again.answers.filter((a) => /change/i.test(a.question)).map((a) => a.answer)).toEqual(['Make it faster.']);
+    // A fill run replaces its own answers but keeps the Ask one it does not answer.
+    const refill = okOut(await fill([{ question: 'Why Linear?', kind: 'written', answer: 'Speed wins.' }]));
+    expect(src(refill)).toEqual({ 'Why Linear?': 'fill', 'what would you change?': 'ask' });
+    // ...and replaces it when it answers the same question.
+    const over = okOut(await fill([{ question: 'What would you change?', kind: 'written', answer: 'Faster insights.' }]));
+    expect(src(over)).toEqual({ 'What would you change?': 'fill' });
+    expect(read(`applications/${id}/answers.md`)).not.toContain('_Saved from Ask_');
+  });
+
+  it('removing a claim from an Ask answer sticks across the next merge', async () => {
+    const asked = okOut(
+      await e.runOp(
+        'apply.fill',
+        {
+          role_id: id,
+          source: 'ask',
+          answers: [{ question: 'Open source?', kind: 'written', answer: 'I maintained a billing library at Globex.' }],
+        },
+        ctxAt(),
+      ),
+    );
+    const did = asked.fact_check.needs_you[0]?.decision_id as string;
+    okOut(await e.runOp('decisions.resolve', { decision_id: did, action: 'accept' }, ctxAt('human')));
+    const next = okOut(
+      await e.runOp(
+        'apply.fill',
+        { role_id: id, source: 'ask', answers: [{ question: 'Why now?', kind: 'written', answer: 'Timing.' }] },
+        ctxAt(),
+      ),
+    );
+    expect(next.answers.find((a) => a.question === 'Open source?')?.answer).toBe('');
+    expect(read(`applications/${id}/answers.md`)).not.toContain('Globex');
+  });
+});
+
 describe('apply.mark_submitted', () => {
   it('is human only, moves draft-ready to applied and records applied_at', async () => {
     const id = FIXTURE_ROLE_IDS.vercelDraft;

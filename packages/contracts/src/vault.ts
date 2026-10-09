@@ -18,6 +18,8 @@ export const APPLICATION_FILES = {
   cover_letter: 'cover_letter.md',
   fit_map: 'fit_map.md',
   answers: 'answers.md',
+  /** Added (#81): questions the user pasted from the portal; a fill run answers these instead of reading the portal. */
+  questions: 'questions.md',
 } as const;
 
 /** Vault-relative path builders. Always POSIX separators. */
@@ -44,6 +46,7 @@ export const MARKDOWN_TYPES = [
   'application_cover_letter',
   'application_fit_map',
   'application_answers',
+  'application_questions',
   'interview_prep',
   'interview_retro',
   'outreach',

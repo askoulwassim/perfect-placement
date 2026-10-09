@@ -15,7 +15,7 @@ Daily (scheduled) once applications are out, and on demand.
 
 1. `runs.start { skill: "inbox" }`.
 2. Watch set: `roles.list { status: ["draft-ready", "applied", "interviews", "offers", "active"] }` plus outreach in Gmail (`in_gmail` drafts). Derive companies from it; never hardcode a company or sender.
-3. Search Gmail (read-only) for the last 2 days: ATS and recruiting senders (Greenhouse, Lever, Ashby, Workday, Jobvite, iCIMS, SmartRecruiters, Workable, BambooHR, and no-reply, talent, recruiting, careers, notifications addresses) or mail naming a watch-set company.
+3. Search Gmail (read-only, see Tools: `mcp__claude_ai_Gmail__search_threads`, then `mcp__claude_ai_Gmail__get_thread` or `mcp__claude_ai_Gmail__get_message` to read) for the last 2 days (`newer_than:2d`): ATS and recruiting senders (Greenhouse, Lever, Ashby, Workday, Jobvite, iCIMS, SmartRecruiters, Workable, BambooHR, and no-reply, talent, recruiting, careers, notifications addresses) or mail naming a watch-set company. Each message's id and thread id are the `message_id` and `thread_id` you pass to `inbox.ingest`. No Gmail search or read tool: finish as `error` with `tool denied` (Tools below); never guess.
 4. For each message pick one `class`:
    - `confirmation`: "thank you for applying", application received.
    - `interview_request`: next steps, availability, scheduling. Add `interview_at` (ISO) when a time is fixed.
@@ -33,8 +33,19 @@ CLI equivalent: `pp inbox --in messages.json`.
 
 confirmation -> `applied` (records `applied_at`), interview_request -> `interviews` (adds an interview round), offer -> `offers`, rejection -> `archived` with reason `rejected`, outreach_reply -> outreach `replied`. A message never moves a role backwards (a late confirmation will not pull a role out of interviews); a rejection archives from any stage.
 
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `mcp__claude_ai_Gmail__search_threads`: search Gmail (Claude Code's claude.ai Gmail connector).
+- `mcp__claude_ai_Gmail__get_thread`: read a thread found by the search.
+- `mcp__claude_ai_Gmail__get_message`: read one message.
+
+Gmail is **read-only** here: every Gmail write (send, reply, forward, draft create / update / delete, trash, spam, labels) is denied. Other MCP clients (Codex, Cursor) use the search and read tools of the Gmail MCP server the user configured for them.
+
 ## Rules
 
-- **Read-only on email**: never reply, archive, delete, label, mark read or send. Never accept or decline anything.
+- **Read-only on email**: search and read only. Never send, reply, forward, draft, archive, trash, delete, label, mark spam or mark read (those tools are denied). Never accept or decline anything.
 - Notify only on new meaningful items (interview, offer, rejection, first confirmation), interviews and offers first with dates. Silent on empty days.
 - Every write is an op. Never submit an application or send an email.

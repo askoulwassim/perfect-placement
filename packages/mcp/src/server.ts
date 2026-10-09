@@ -5,7 +5,8 @@
  * human. The optional `confidence` tool argument becomes `ctx.confidence` (backend `agent`).
  * A headless run's server is started with PP_RUN_ID (#50): every op it runs carries `ctx.runId`, so its
  * events and run logs are linked to that run. An Ask session's server (PP_ASK=1, #39) queues the skill
- * runs it starts (`runs.start` defaults to `queue: true`).
+ * runs it starts (`runs.start` defaults to `queue: true`) and marks the answers it saves as from Ask
+ * (`apply.fill` defaults to `source: "ask"`, #81).
  */
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
@@ -32,7 +33,8 @@ export interface PpMcpServerOptions {
   runId?: string;
   /**
    * An Ask session's server (PP_ASK=1, #39): the chat agent delegates skill work, so `runs.start` defaults to
-   * `queue: true` (a queued headless run) instead of making the chat session the run.
+   * `queue: true` (a queued headless run) instead of making the chat session the run; `apply.fill` defaults
+   * to `source: "ask"` (#81: the answer shows as Saved from Ask and merges into the role's Answers).
    */
   ask?: boolean;
 }
@@ -68,7 +70,13 @@ export function createPpMcpServer(options: PpMcpServerOptions): McpServer {
     const op = byName.get(req.params.name);
     if (!op) throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${req.params.name}`);
     const { [CONFIDENCE_ARG]: confidence, ...args } = (req.params.arguments ?? {}) as Record<string, unknown>;
-    const input = options.ask && op === 'runs.start' && args.queue === undefined ? { ...args, queue: true } : args;
+    // Ask (#39, #81): skill runs it starts are queued; answers it saves with apply.fill are marked `source: ask`.
+    const input =
+      options.ask && op === 'runs.start' && args.queue === undefined
+        ? { ...args, queue: true }
+        : options.ask && op === 'apply.fill' && args.source === undefined
+          ? { ...args, source: 'ask' }
+          : args;
     if (confidence !== undefined && (typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1)))
       return outcomeToToolResult(op, { status: 'error', code: 'invalid_input', message: `${CONFIDENCE_ARG} must be a number from 0 to 1` });
     try {

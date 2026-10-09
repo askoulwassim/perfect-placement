@@ -6,7 +6,7 @@ import { AffinityChip, SecondaryButton, STATUS_LABEL, StatusChip } from '../comp
 import { FreshnessRing, RoleTile } from '../components/glyphs';
 import { InlineMarkdown, Markdown } from '../components/Markdown';
 import { CriterionSources, ScoreRadar, StageRail } from '../components/meters';
-import { BestPathPill, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
+import { BestPathPill, ConnectFallbackBar, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
 import { C, display, eyebrow, mono, tab } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
@@ -35,6 +35,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const res = useOp('roles.get', { role_id: roleId });
   const drafts = useOp('outreach.list', { role_id: roleId });
   const [tabId, setTab] = useState<Tab>('dossier');
+  const [pasted, setPasted] = useState('');
   const t = now();
 
   const data = res.data;
@@ -85,6 +86,15 @@ export function RoleScreen({ roleId }: { roleId: string }) {
       </div>
     );
   };
+  // #78: Skip is always available on the Connect stage (the application moves to Fill); the fallback used shows.
+  const skipConnect =
+    stage === 2
+      ? async () => {
+          const o = await act('apply.skip_connect', { role_id: role.id, reason: 'user' });
+          if (o.status === 'ok') showToast('Connect skipped');
+        }
+      : null;
+  const fallbackBar = (m: boolean) => <ConnectFallbackBar mobile={m} fallback={data.connect?.fallback ?? null} onSkip={skipConnect} />;
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';
@@ -192,12 +202,75 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const md = paths[tabId] ? doc.data?.markdown : null;
   // No file yet (or it went missing): the stage that fills it, then skeleton bars. While it loads: bars only.
   const empty = !paths[tabId] || doc.data?.markdown === null;
+  // #81: the paste fallback. Questions a fill run cannot read (other tabs, steps, a login) are pasted here; one op
+  // saves them and queues a fill run that answers them.
+  const fillRun = runOf('fill');
+  const addQuestions = async () => {
+    const o = await act('apply.set_questions', { role_id: role.id, questions_text: pasted });
+    if (o.status !== 'ok') return;
+    setPasted('');
+    if (o.output.run) watchRun(o.output.run);
+    showToast(`${o.output.count} ${o.output.count === 1 ? 'question' : 'questions'} saved`);
+  };
+  const questionsBox = (m: boolean) =>
+    tabId === 'answers' &&
+    role.status === 'draft-ready' && (
+      <div className="add-questions" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: m ? 6 : 10 }}>
+        <span style={eyebrow(C.muted, m ? 9.5 : 10)}>Add questions</span>
+        <textarea
+          aria-label="Questions"
+          value={pasted}
+          onChange={(e) => setPasted(e.target.value)}
+          rows={m ? 3 : 4}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            background: 'transparent',
+            border: `1.5px solid ${C['line-2']}`,
+            borderRadius: 12,
+            color: C.fg,
+            fontSize: m ? 14 : 15,
+            padding: m ? '10px 12px' : '12px 16px',
+            fontFamily: 'inherit',
+            resize: 'vertical',
+          }}
+        />
+        <div style={{ display: 'flex' }}>
+          <SecondaryButton
+            op="apply.set_questions"
+            height={m ? 32 : 34}
+            label={fillRun ? activeLabel(fillRun) : 'Run'}
+            disabled={!pasted.trim() || !!fillRun}
+            onClick={() => void addQuestions()}
+            style={{ fontSize: m ? 12 : 13 }}
+          />
+        </div>
+      </div>
+    );
   const body = (m: boolean) => (
     <>
+      {questionsBox(m)}
       {empty && slot(TAB_STAGE[tabId], m)}
       {md && tabId !== 'answers' ? <Markdown source={md} compact={m} /> : <Doc lines={md ? answerLines(md) : DOC_SKELETON} compact={m} />}
     </>
   );
+  // Pass (#77): an inbox role the human will not pursue. Archived with reason passed; River next.
+  const passBtn = (m: boolean) =>
+    role.status === 'inbox' && (
+      <SecondaryButton
+        op="roles.archive"
+        label="Pass"
+        height={m ? 26 : 30}
+        style={{ fontSize: m ? 12 : 13, borderRadius: 999 }}
+        hover={{ borderColor: C.coral, color: C.coral }}
+        onClick={async () => {
+          const o = await act('roles.archive', { role_id: role.id, reason: 'passed' });
+          if (o.status !== 'ok') return;
+          showToast(`${company.name} passed`);
+          go({ screen: 'river' });
+        }}
+      />
+    );
   const posting = (m: boolean) =>
     role.url && (
       <a
@@ -250,6 +323,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               <StatusChip small status={role.status} />
               <span style={mono(10, C.muted)}>{checked}</span>
               {posting(true)}
+              {passBtn(true)}
             </div>
           </div>
           <div style={display(52, 800, '-0.05em')}>{tl.fit ?? '—'}</div>
@@ -281,6 +355,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
           ))}
         </div>
         {bestPill(true)}
+        {fallbackBar(true)}
         {tabs(true)}
         <div
           className="doc-preview"
@@ -320,6 +395,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               checked {checked}
             </span>
             {posting(false)}
+            {passBtn(false)}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -376,6 +452,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             </Btn>
           </div>
           {bestPill(false)}
+          {fallbackBar(false)}
           {!contacts.length && slot(2, false)}
           {!!contacts.length &&
             TIER_ORDER.map((tier) => {
@@ -454,6 +531,25 @@ export function Doc({ lines, compact }: { lines: readonly DocLine[]; compact?: b
               <div key={k} style={{ fontSize: compact ? 13 : 15 }}>
                 <InlineMarkdown source={l.text} compact={compact} />
               </div>
+            );
+          case 'p':
+            return (
+              <span
+                key={k}
+                className="answer-source"
+                data-source={l.source}
+                style={{
+                  alignSelf: 'flex-start',
+                  border: `1px solid ${C['emerald-2']}`,
+                  color: C.emerald,
+                  borderRadius: 999,
+                  padding: compact ? '2px 8px' : '3px 10px',
+                  fontSize: compact ? 11 : 12,
+                  fontWeight: 600,
+                }}
+              >
+                Saved from Ask
+              </span>
             );
           case 'b':
             return <div key={k} style={{ height: compact ? 7 : 8, borderRadius: 4, background: C.line, width: l.w }} />;

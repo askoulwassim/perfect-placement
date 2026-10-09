@@ -25,6 +25,11 @@ description: Build or refresh the user's profile. Resume in, short adaptive inte
      component's `follow_ups`.
    - `chips`: one option string. `multi_chips`: array of option strings (order = rank). `slider`: a number in `[min, max]`.
      `text`: a short string.
+   - `other: true` (persona-dependent questions: Craft functions, level and titles, Domain, Growth scope): the options
+     come from the resume's persona (a salesperson sees sales functions and titles), and a free entry (Other, at most
+     60 characters) is accepted besides them. Never steer a user back to product options.
+   - Voice: the user may skip the whole step (`{ question_id, skip: true, skip_component: true }`); drafts then use
+     the neutral default style. Voice can be learned later from their own writing (You > Voice > Learn voice).
    - Never ask a question the op did not return. The op already skips what the resume or profile answers.
    - Free text the user dictated: pass it as `value`; the op strips fillers ("um", "you know") and keeps the raw
      text for provenance. Show the user the cleaned text; if they edit it, pass the edit as `value` and the
@@ -47,6 +52,12 @@ then loop step 2 and confirm. Calibration is skipped.
 Do only the resume extraction in `extract.md`: read the kept resume, `onboard.extract` (facts plus per-component
 drafts with a confidence), optionally `onboard.propose_questions` (follow-ups where the resume is silent or
 ambiguous), `runs.finish`. Do not answer interview questions, calibrate or confirm: those are the user's.
+
+## Tools
+
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
 
 ## Rules
 

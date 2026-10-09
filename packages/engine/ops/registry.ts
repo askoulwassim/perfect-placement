@@ -3,7 +3,7 @@ import { decisionsQueue, decisionsResolve, decisionsUndo, systemBackends, system
 import { rolesCheckFreshness } from './lanes/freshness.js';
 import { LANE_H_HANDLERS } from './lanes/people.js';
 import { LANE_E_HANDLERS } from './lanes/profile.js';
-import { rolesScore } from './lanes/scoring.js';
+import { rolesReevaluateFilters, rolesScore } from './lanes/scoring.js';
 import type { HandlerMap } from './runtime.js';
 
 /**
@@ -14,6 +14,7 @@ export const ALL_HANDLERS: HandlerMap = {
   ...LANE_B_HANDLERS,
   ...LANE_E_HANDLERS,
   'roles.score': rolesScore,
+  'roles.reevaluate_filters': rolesReevaluateFilters,
   'roles.check_freshness': rolesCheckFreshness,
   ...LANE_H_HANDLERS,
   'decisions.queue': decisionsQueue,

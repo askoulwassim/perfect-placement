@@ -6,6 +6,7 @@ import { checkTransition } from '../../status/index.js';
 import { OpError } from '../errors.js';
 import { appendRoleLog } from '../handlers/shared.js';
 import { newId } from '../ids.js';
+import { select, update } from '../rows.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { rebalance } from './scoring.js';
 
@@ -68,6 +69,16 @@ function freshnessStore(h: HandlerContext): FreshnessStore {
       if (r.status === 'active' || r.status === 'held') rebalance(h, r.company_id);
       return true;
     },
+    expirePendingCloses(roleId, at) {
+      const pending = select(
+        h.db,
+        'decision',
+        `kind = 'freshness.closed' AND status = 'pending' AND subject_type = 'role' AND subject_id = ?`,
+        [roleId],
+      );
+      for (const d of pending) update(h.db, 'decision', d.id, { status: 'expired', resolved_at: at });
+      return pending.length;
+    },
     emit: (e) => h.emit(e.type, 'role', e.subjectId, e.payload, e.decisionId),
     startRun(op, at) {
       const id = newId('run', new Date(at));
@@ -88,6 +99,7 @@ export const rolesCheckFreshness = defineHandler('roles.check_freshness', {
         store,
         fetch: h.services.fetch ?? defaultFetch(),
         ask: (req) => h.resolver.ask(req, { actor: h.ctx.actor }),
+        record: (req, o) => h.resolver.record(req, { actor: h.ctx.actor, ...(o?.thresholds ? { thresholds: o.thresholds } : {}) }),
         config: h.config,
         ...(h.services.freshnessDelayMs !== undefined ? { delayMs: h.services.freshnessDelayMs } : {}),
         ...(h.services.sleep ? { sleep: h.services.sleep } : {}),

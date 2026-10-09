@@ -1,4 +1,5 @@
 import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { linkedinReadsOn } from '../../people/queries.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -18,7 +19,7 @@ import {
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
-import { getRole } from './shared.js';
+import { applicationFor, getRole } from './shared.js';
 
 /**
  * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
@@ -166,6 +167,14 @@ function launchRun(run: Run, h: HandlerContext): void {
   const skill = run.op as Skill;
   const id = run.id;
   const outreachId = s.outreach_id;
+  // #82: a connect run reads LinkedIn via Claude in Chrome only when config.linkedin.mode is `live`.
+  const li = h.config.linkedin;
+  const linkedin =
+    skill === 'connect' && !outreachId
+      ? { ...li, budget_left: Math.max(0, li.max_profiles_per_day - linkedinReadsOn(h.repos, h.ctx.now())) }
+      : undefined;
+  // #81: a fill run answers the questions the user pasted (apply.set_questions) instead of reading the portal.
+  const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
   const spec = buildRunnerSpec({
     runner: h.config.runner,
     skill,
@@ -173,6 +182,7 @@ function launchRun(run: Run, h: HandlerContext): void {
     home: h.home,
     mcp: defaultMcpServer(h.home),
     ...(outreachId ? { gmailDraft: true } : {}),
+    ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
         ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
@@ -181,6 +191,10 @@ function launchRun(run: Run, h: HandlerContext): void {
             skill,
             ...(s.role_id ? { roleId: s.role_id } : {}),
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
+            ...(linkedin ? { linkedin } : {}),
+            ...(questions ? { questions } : {}),
+            // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
+            ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
           }),
   });
   const launcher = h.services.launcher ?? createSpawnLauncher();
@@ -233,9 +247,10 @@ export const runsFinish = defineHandler('runs.finish', {
     const iso = h.nowIso();
     // #67: a scout run's achieved source mix vs its targets, from the roles it added (engine-counted).
     let mix: ReturnType<typeof achievedMix> | null = null;
+    let adds: ReturnType<typeof scoutRunAdds> = [];
     if (run.op === 'scout') {
       const linked = scoutRunAdds(h.db, run, true);
-      const adds = linked.length || isQueueRun(run) ? linked : scoutRunAdds(h.db, run, false);
+      adds = linked.length || isQueueRun(run) ? linked : scoutRunAdds(h.db, run, false);
       mix = achievedMix(adds, h.config.scout);
     }
     const patch = {
@@ -254,6 +269,18 @@ export const runsFinish = defineHandler('runs.finish', {
     const triggered: string[] = [];
     if (!h.ctx.dryRun) {
       const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+      if (run.op === 'scout' && input.status === 'ok' && h.config.pipeline.score_after_scout) {
+        const precheck = await precheckInbox(h, run, adds);
+        if (precheck) {
+          patch.summary_json = { ...patch.summary_json, precheck };
+          update(h.db, 'run', run.id, { summary_json: patch.summary_json });
+          if (run.log_path)
+            h.vault.append(
+              run.log_path,
+              `\nPre-check: ${precheck.checked} checked, ${precheck.closed} closed, ${precheck.unsure} unsure\n`,
+            );
+        }
+      }
       for (const next of pipelineStarts(h.db, h.config, run, input.status)) {
         const o = await h.runOp('runs.start', { ...next, triggered_by: run.id }, ctx);
         if (o.status !== 'ok') continue;
@@ -273,6 +300,31 @@ export const runsFinish = defineHandler('runs.finish', {
     return { run: { ...run, ...patch } };
   },
 });
+
+/**
+ * Pipeline pre-check (#77): before the automatic score run, the inbox roles this scout run added that intake did
+ * not confirm open get the cheap freshness ladder (`roles.check_freshness { precheck }`); closed ones are archived
+ * (reason `closed`), so the score run never sees them. Linked to the scout run (its events carry its run id).
+ */
+async function precheckInbox(
+  h: HandlerContext,
+  run: Run,
+  adds: ReadonlyArray<{ role_id: string }>,
+): Promise<{ checked: number; closed: number; unsure: number } | null> {
+  const ids = [...new Set(adds.map((a) => a.role_id))].filter((id) => {
+    const r = get(h.db, 'role', id);
+    return r?.status === 'inbox' && r.freshness !== 'open';
+  });
+  if (!ids.length) return null;
+  const o = await h.runOp('roles.check_freshness', { role_ids: ids, precheck: true }, { actor: 'schedule', now: h.ctx.now, runId: run.id });
+  if (o.status !== 'ok') return null;
+  const results = (o.output as { results: Array<{ freshness: string }> }).results;
+  return {
+    checked: results.length,
+    closed: results.filter((r) => r.freshness === 'closed').length,
+    unsure: results.filter((r) => r.freshness === 'unsure').length,
+  };
+}
 
 export const runsList = defineHandler('runs.list', {
   run(input, h) {

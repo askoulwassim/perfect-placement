@@ -9,6 +9,7 @@ import {
   type DecisionBackend,
   type HardHumanSubject,
   type Impact,
+  type KindThresholds,
   type PolicyConfig,
   type PolicyOutcome,
   type Question,
@@ -63,8 +64,8 @@ export interface ResolverDeps {
 export interface AskOptions {
   /** Per question id: the op to run when the decision is applied. Stored in `decision.action_json`. */
   actions?: Record<string, DecisionAction>;
-  /** Per-call threshold override (on top of config base + per-kind override). */
-  thresholds?: Partial<Thresholds>;
+  /** Per-call threshold override (on top of config base + per-kind override), `confident_outcome` included. */
+  thresholds?: Partial<KindThresholds>;
   actor?: Actor;
   runId?: string;
   /** Hard-exclusion details for this call (merged with `ResolverDeps.hardHuman`). */

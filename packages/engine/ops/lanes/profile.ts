@@ -1,4 +1,4 @@
-import { CRITERIA, type Criterion, type OpContext } from '@perfect-placement/contracts';
+import type { OpContext } from '@perfect-placement/contracts';
 import type { ProfileDeps } from '../../profile/deps.js';
 import { RequiresHuman } from '../../profile/errors.js';
 import { learnFromEvent } from '../../profile/learn.js';
@@ -23,16 +23,15 @@ import {
   profileSetDefaults,
   undoDiff,
 } from '../../profile/profile-ops.js';
+import { profileProposeVoice } from '../../profile/voice-learn.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
+import { rescoreInputOf } from './scoring.js';
 
 /*
  * Lane E wiring: every profile.* and onboard.* op, with ProfileDeps built from the op's context
  * (lane A repos, runOp's emitter + staged vault, this op's resolver, nested ops). Applied weighted
  * and filter diffs rescore the affected roles through lane F (`roles.score`, nested).
  */
-
-/** Keys the scorer adds to facts_json; a rescore starts again from the judged facts. */
-const COMPUTED_FACTS = ['base_total', 'affinity_raw', 'verify', 'status_kept', 'dealbreaker_hits'];
 
 /** Rescore roles under a new profile version with their latest judged criteria (lane F, nested ops). */
 export async function rescoreRoles(
@@ -45,13 +44,7 @@ export async function rescoreRoles(
   for (const id of roleIds) {
     const s = h.repos.score.select('role_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1', [id])[0];
     if (!s) continue;
-    const facts = Object.fromEntries(Object.entries(s.facts_json).filter(([k]) => !COMPUTED_FACTS.includes(k)));
-    // Only the judged hard nos carry over; computed hits are recomputed against the new profile.
-    const judged = ((s.facts_json.dealbreaker_hits as unknown[] | undefined) ?? [])
-      .filter((x): x is string => typeof x === 'string' && x.startsWith('judged:'))
-      .map((x) => x.slice('judged:'.length));
-    if (judged.length) facts.dealbreaker_hits = judged;
-    const criteria = Object.fromEntries(CRITERIA.map((c) => [c, s[c]])) as Record<Criterion, number>;
+    const { criteria, facts } = rescoreInputOf(s);
     const o = await h.runOp(
       'roles.score',
       { role_id: id, criteria, facts, profile_version_id: versionId, rescore: true },
@@ -113,6 +106,9 @@ export const LANE_E_HANDLERS = {
         queued: r.queued.map(({ diff_id, decision_id }) => ({ diff_id, decision_id })),
       };
     },
+  }),
+  'profile.propose_voice': defineHandler('profile.propose_voice', {
+    run: (i, h) => profileProposeVoice(profileDeps(h), i, h.ctx).output,
   }),
   'onboard.start': defineHandler('onboard.start', { run: (i, h) => onboardStart(profileDeps(h), i, h.ctx) }),
   'onboard.state': defineHandler('onboard.state', { run: (_i, h) => onboardState(profileDeps(h)) }),

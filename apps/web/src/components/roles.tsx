@@ -1,5 +1,5 @@
 import type { ArchiveReason, RoleStatus } from '@perfect-placement/contracts';
-import type { DragEvent, MouseEvent, ReactNode } from 'react';
+import { type DragEvent, type MouseEvent, type ReactNode, useState } from 'react';
 import { Btn, useHover } from './Btn';
 import { ReasonChip, STATUS_HEX, STATUS_LABEL } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph, type WhoKind } from './glyphs';
@@ -17,9 +17,13 @@ export interface TileData {
   url?: string | null;
 }
 
-/** Plain click opens the Role screen; Cmd/Ctrl-click opens the posting when there is one. */
-function openTile(e: MouseEvent, r: TileData, onOpen?: () => void) {
-  if ((e.metaKey || e.ctrlKey) && r.url) window.open(r.url, '_blank', 'noopener');
+/**
+ * Plain click opens the Role screen; Cmd/Ctrl-click opens the posting when there is one; Shift-click
+ * selects the tile when the column allows it (Inbox: multi-select, #77).
+ */
+function openTile(e: MouseEvent, r: TileData, onOpen?: () => void, onSelect?: () => void) {
+  if (e.shiftKey && onSelect) onSelect();
+  else if ((e.metaKey || e.ctrlKey) && r.url) window.open(r.url, '_blank', 'noopener');
   else onOpen?.();
 }
 
@@ -105,27 +109,38 @@ export function RiverTile({
   stackCount = 0,
   matched = true,
   bounce,
+  selected,
+  onSelect,
   onDragStart,
   onDragEnd,
   onOpen,
-}: { r: TileData; stackCount?: number; matched?: boolean; bounce?: boolean } & DragProps) {
+}: {
+  r: TileData;
+  stackCount?: number;
+  matched?: boolean;
+  bounce?: boolean;
+  /** Inbox multi-select (#77): set when the column allows selecting. */
+  selected?: boolean;
+  onSelect?: () => void;
+} & DragProps) {
   return (
     <Btn
       op={null}
-      className={`river-tile ${bounce ? 'is-bounce' : ''}`}
+      className={`river-tile ${bounce ? 'is-bounce' : ''} ${selected ? 'is-selected' : ''}`}
       data-role={r.id}
+      {...(onSelect ? { 'aria-pressed': !!selected } : {})}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={(e) => openTile(e, r, onOpen)}
+      onClick={(e) => openTile(e, r, onOpen, onSelect)}
       style={{
         position: 'relative',
         display: 'flex',
         gap: 10,
         alignItems: 'center',
         padding: 10,
-        background: C.panel,
-        border: `1px solid ${bounce ? C.coral : C.line}`,
+        background: selected ? 'rgba(226,182,90,0.08)' : C.panel,
+        border: `1px solid ${bounce ? C.coral : selected ? C.gold : C.line}`,
         borderRadius: 10,
         cursor: 'grab',
         opacity: matched ? 1 : 0.22,
@@ -178,6 +193,43 @@ export function RiverTile({
         </span>
       )}
     </Btn>
+  );
+}
+
+/** An Inbox tile with its menu (#77): Pass shows on hover or focus; Shift-click selects. */
+export function InboxTile({ onPass, ...tile }: Parameters<typeof RiverTile>[0] & { onPass: () => void }) {
+  const [hover, bind] = useHover();
+  const [focus, setFocus] = useState(false);
+  return (
+    <div className="inbox-tile" {...bind} style={{ position: 'relative' }}>
+      <RiverTile {...tile} />
+      <Btn
+        op="roles.archive"
+        className="tile-pass"
+        aria-label={`Pass ${tile.r.co}`}
+        onFocus={() => setFocus(true)}
+        onBlur={() => setFocus(false)}
+        onClick={onPass}
+        style={{
+          position: 'absolute',
+          right: 8,
+          bottom: 8,
+          height: 22,
+          padding: '0 8px',
+          borderRadius: 6,
+          border: `1px solid ${C['line-2']}`,
+          background: C.bg,
+          color: C.muted,
+          fontSize: 11,
+          fontWeight: 600,
+          opacity: hover || focus ? 1 : 0,
+          transition: 'opacity .15s',
+        }}
+        hover={{ borderColor: C.coral, color: C.coral }}
+      >
+        Pass
+      </Btn>
+    </div>
   );
 }
 

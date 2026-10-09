@@ -5,6 +5,7 @@ import { OpError } from '../errors.js';
 import { select, update } from '../rows.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { stripFrontmatter } from '../vault.js';
+import { resolveSavedLine } from './answers-store.js';
 import { applicationFor, getRole } from './shared.js';
 
 /*
@@ -116,7 +117,12 @@ export const applyResolveClaim = defineHandler('apply.resolve_claim', {
       const indent = /^\s*/.exec(lines[at] as string)?.[0] ?? '';
       lines[at] = `${indent}${value}`;
     }
-    h.vault.write(path, lines.join('\n'));
+    const body = lines.join('\n');
+    // #81: keep the filed answers (frontmatter, read by an Ask merge) in step with the body.
+    h.vault.write(
+      path,
+      input.doc === 'answers' ? resolveSavedLine(body, input.line, value.toLowerCase() === 'remove' ? null : value) : body,
+    );
     return { changed: true, path };
   },
 });

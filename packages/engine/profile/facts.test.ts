@@ -174,13 +174,15 @@ describe('Application defaults questions (#42)', () => {
 
   it('office days are asked only when the work mode is not remote only; a saved relocation is not asked again', () => {
     const answered = QUESTION_BANK.filter((x) => !x.id.startsWith('defaults.')).map((x) => x.id);
-    const remote = { work_mode: { modes: ['remote'] } };
+    const remote = { work_mode: { modes: ['remote'], remote_only: true } };
     const asked = (d: Record<string, Record<string, unknown>>) => {
       const seen: string[] = [];
       for (let next = nextQuestion(d, answered); next; next = nextQuestion(d, [...answered, ...seen])) seen.push(next.id);
       return seen;
     };
     expect(asked(remote)).not.toContain('defaults.in_office');
+    // #83: remote picked alone is not remote only; office days are still asked.
+    expect(asked({ work_mode: { modes: ['remote'], remote_only: false } })).toContain('defaults.in_office');
     expect(asked({ work_mode: { modes: ['hybrid'], relocation: 'no' } })).toEqual([
       'defaults.sponsorship',
       'defaults.authorized_countries',

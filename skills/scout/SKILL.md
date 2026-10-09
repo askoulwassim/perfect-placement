@@ -14,7 +14,7 @@ Weekly scheduled run, on demand, or when the user hands you links (skip searchin
 ## Steps
 
 1. `runs.start { skill: "scout" }`. Keep the returned `run.id`; pass it as the run context on every op below.
-2. Read the profile (`profile.get`: Craft, Domain, Work mode, Terms, Company, Dealbreakers) and the targets (`config.get`: `scout.target_new_roles`, `scout.max_queries`, `scout.watchlist_share_max`, `scout.max_per_company`). Build queries from the profile, not from memory.
+2. Read the profile (`profile.get`: Craft, Domain, Work mode, Terms, Company, Dealbreakers), the query ingredients (`scout.plan {}`: `titles`, the persona-aware title variations from Craft `titles`, functions and level, plus `domains` and `locations`; a salesperson's are sales titles, never product ones) and the targets (`config.get`: `scout.target_new_roles`, `scout.max_queries`, `scout.watchlist_share_max`, `scout.max_per_company`). Build queries from the profile, not from memory.
 3. **Watchlist boards (a capped share, never the whole run):** `scout.watchlist_scan {}` (all watchlist companies; pass `include` title keywords if the Craft functions are too narrow or too broad). It returns at most `max_per_company` candidates per company, best fit first, companies interleaved, near-identical titles grouped. Drop clear dealbreakers, then `roles.add` the rest **in the order given**. `roles.add` keeps at most `ceil(watchlist_share_max x target_new_roles)` watchlist roles per run (9 of 25 by default) and `max_per_company` per company; the rest come back `skipped` (`watchlist_cap` / `company_cap`). That is expected: do not resend them, relabel their `source`, or search for them on the open market. Companies that come back `no_board` or `error` get one watchlist web query each, under the query share cap (plan.md).
 4. **Open market (always runs):** run the plan's open-market queries with web search, several result pages each, and open each hit with web fetch to capture the candidate fields below (`source: "scout"`). After each batch, `roles.add { candidates }`. Every `roles.add` answer carries `watchlist_budget`: `open_needed` is how many open-market roles the run still needs.
 5. **Keep going until the target:** while `open_needed` is above 0 and fewer than `max_queries` web searches ran, build the next query variation (plan.md "Yield") and repeat step 4. This holds even when the board scan alone found more than `target_new_roles`: board roles fill at most the watchlist share. Stop early only when two variations in a row add nothing new.
@@ -36,7 +36,11 @@ Optional, only when the posting states it: `url`, `ats_job_id`, `company_domain`
 
 ## Tools
 
-The pp MCP tools plus web search and web fetch (a headless run pre-approves exactly these). If one is denied, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+
+- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `WebSearch`: run the plan's queries on job boards and the open market.
+- `WebFetch`: open each hit to capture the candidate fields.
 
 ## Rules
 

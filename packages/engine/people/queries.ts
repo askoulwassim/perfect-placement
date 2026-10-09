@@ -1,4 +1,14 @@
-import type { Actor, Contact, ContactLink, EventType, Outreach, SubjectType } from '@perfect-placement/contracts';
+import type {
+  Actor,
+  Application,
+  ConnectFallback,
+  ConnectState,
+  Contact,
+  ContactLink,
+  EventType,
+  Outreach,
+  SubjectType,
+} from '@perfect-placement/contracts';
 import { ulid } from '../db/ids.js';
 import type { Repos } from '../db/repo.js';
 import type { PeopleDeps } from './types.js';
@@ -124,6 +134,90 @@ export function upsertOutreach(R: Repos, o: Outreach, exists: boolean): void {
 export function advanceConnectToFill(R: Repos, roleId: string): void {
   const app = R.application.list({ role_id: roleId })[0];
   if (app?.stage === 'connect') R.application.update(app.id, { stage: 'fill' });
+}
+
+// ------------------------------------------------- no-contact fallback (#78)
+
+/** Run rows that record which no-contact fallback Connect used for a role. */
+export const CONNECT_FALLBACK_OPS = ['people.fallback', 'apply.skip_connect'] as const;
+
+const APP_STAGES: Application['stage'][] = ['research', 'tailor', 'connect', 'fill', 'submit', 'done'];
+
+/**
+ * Skip Connect (#78): the application moves `connect` -> `fill` so the role never stalls. A draft-ready
+ * role whose application is not yet at Connect moves too; past Connect it is a no-op. Throws on a role
+ * that is not draft-ready (nothing to skip yet) and has no application at Connect.
+ */
+export function skipConnect(
+  R: Repos,
+  role: Pick<RoleRow, 'id' | 'status'>,
+  newApplicationId: () => string,
+): { application: Application; skipped: boolean } | { error: string } {
+  const app = R.application.list({ role_id: role.id })[0];
+  const at = app ? APP_STAGES.indexOf(app.stage) : -1;
+  if (app && at > APP_STAGES.indexOf('connect')) return { application: app, skipped: false };
+  if (app?.stage !== 'connect' && role.status !== 'draft-ready')
+    return { error: `role ${role.id} is ${role.status}${app ? ` at ${app.stage}` : ''}: Connect comes after Tailor` };
+  if (app) {
+    R.application.update(app.id, { stage: 'fill' });
+    return { application: { ...app, stage: 'fill' }, skipped: true };
+  }
+  const created: Application = {
+    id: newApplicationId(),
+    role_id: role.id,
+    stage: 'fill',
+    applied_at: null,
+    portal_url: null,
+    package_paths_json: {},
+  };
+  R.application.insert(created);
+  return { application: created, skipped: true };
+}
+
+/** Records the fallback Connect used for a role as a finished run row (read back by `connectStateFor`). */
+export function recordConnectFallback(
+  R: Repos,
+  r: {
+    id: string;
+    op: (typeof CONNECT_FALLBACK_OPS)[number];
+    at: string;
+    role_id: string;
+    fallback: ConnectFallback;
+    reason: string | null;
+    contact_id: string | null;
+  },
+): void {
+  R.run.insert({
+    id: r.id,
+    op: r.op,
+    started_at: r.at,
+    finished_at: r.at,
+    status: 'ok',
+    summary_json: { role_id: r.role_id, fallback: r.fallback, reason: r.reason, contact_id: r.contact_id },
+    log_path: null,
+  });
+}
+
+/** The latest no-contact fallback recorded for a role (#78), or null. */
+export function connectStateFor(R: Repos, roleId: string): ConnectState | null {
+  const run = R.run.select(
+    `op IN (${CONNECT_FALLBACK_OPS.map(() => '?').join(', ')}) AND json_extract(summary_json, '$.role_id') = ? ORDER BY started_at DESC, id DESC LIMIT 1`,
+    [...CONNECT_FALLBACK_OPS, roleId],
+  )[0];
+  if (!run) return null;
+  const s = run.summary_json as { fallback?: ConnectFallback; reason?: string | null; contact_id?: string | null };
+  if (!s.fallback) return null;
+  return { fallback: s.fallback, reason: s.reason ?? null, contact_id: s.contact_id ?? null, at: run.started_at };
+}
+
+/** The fallback a contact was added as for a role (`team_inbox` / `cold_leader`), or null. */
+export function fallbackOf(R: Repos, roleId: string, contactId: string): Exclude<ConnectFallback, 'skipped'> | null {
+  const run = R.run.select(
+    `op = 'people.fallback' AND json_extract(summary_json, '$.role_id') = ? AND json_extract(summary_json, '$.contact_id') = ? ORDER BY started_at DESC, id DESC LIMIT 1`,
+    [roleId, contactId],
+  )[0];
+  const f = (run?.summary_json as { fallback?: ConnectFallback } | undefined)?.fallback;
+  return f === 'team_inbox' || f === 'cold_leader' ? f : null;
 }
 
 // --------------------------------------------------------------------- profile

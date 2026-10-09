@@ -3,6 +3,7 @@ import {
   CRITERION_LABELS,
   type Criterion,
   cleanDictation,
+  formatMoney,
   type OpOutput,
   PROFILE_COMPONENT_KEYS,
   PROFILE_COMPONENT_KIND,
@@ -13,11 +14,12 @@ import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
 import { PrimaryButton, SecondaryButton } from '../components/controls';
 import { RoleTile } from '../components/glyphs';
+import { addEntries, ChipInput, SliderInput, splitEntries } from '../components/inputs';
 import { ProgressDots } from '../components/meters';
 import { KIND_HEX, MiniConstellation, type NodeData } from '../components/profile';
 import { PPMark } from '../components/shell';
 import { C, display, eyebrow, mono, tab, X } from '../components/theme';
-import { humanize, k } from '../lib/format';
+import { humanize } from '../lib/format';
 import { COMPONENT_NAME, chipsOf } from '../lib/profile';
 import { activeLabel, isActive, runOutcome } from '../lib/runs';
 import { go, type YouFlow } from '../router';
@@ -50,10 +52,12 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
   const [answers, setAnswers] = useState<Record<string, string | number | string[]>>({});
   const [weights, setWeights] = useState<Record<Criterion, number> | null>(null);
   const [ci, setCi] = useState(0);
-  /** List text questions (voice.sample): the item being typed before Add. */
+  /** List questions (voice.sample; chip lists, #75): the item being typed before Add / Enter. */
   const [pending, setPending] = useState('');
   /** Dictated text answers shown cleaned for confirmation: the raw text by question id (#38). */
   const [rawOf, setRawOf] = useState<Record<string, string>>({});
+  /** Other (#74): the free entry field is open on a persona-dependent question. */
+  const [otherOpen, setOtherOpen] = useState(false);
   /** The headless onboard run parsing the resume (#38). */
   const [parseRunId, setParseRunId] = useState<string | null>(null);
   /** A scoped re-interview that reached confirm: the component to show on You after Start. */
@@ -111,7 +115,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
   const q = state?.next_question ?? null;
   // A resume suggestion pre-fills an open question (#22); the user still confirms it with Next.
   const val = q ? (answers[q.id] ?? q.suggested) : undefined;
-  const sliderMid = q ? Math.round(((q.min ?? 150) + (q.max ?? 300)) / 2) : 200;
+  const sliderMid = q ? Math.round(((q.min ?? 0) + (q.max ?? 100)) / 2 / (q.step ?? 1)) * (q.step ?? 1) : 50;
   const qVal = q
     ? (val ??
       (q.answer_type === 'slider' ? sliderMid : q.answer_type === 'multi_chips' && q.options?.includes('Any') ? ['Any'] : undefined))
@@ -120,9 +124,29 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
   const listQ = !!q?.max_items;
   const items: string[] = listQ ? (Array.isArray(val) ? val : (q?.items ?? [])) : [];
   const listOut = listQ ? [...items, ...(pending.trim() && !items.includes(pending.trim()) ? [pending.trim()] : [])] : [];
+  // A chip list question (#75): Enter adds a chip; an entry still being typed counts too.
+  const chipQ = q?.answer_type === 'list';
+  const chips: string[] = chipQ ? (Array.isArray(qVal) ? qVal : typeof qVal === 'string' ? splitEntries(qVal) : []) : [];
+  const chipOut = chipQ ? addEntries(chips, splitEntries(pending)) : [];
   const answered = listQ
     ? listOut.length > 0 && listOut.length <= (q?.max_items ?? 0)
-    : qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
+    : chipQ
+      ? chipOut.length > 0
+      : qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
+  // Persona-dependent options (#74): free entries the user added show as chips next to the options.
+  const custom = q?.other
+    ? (Array.isArray(qVal) ? qVal : typeof qVal === 'string' ? [qVal] : []).filter((x) => !q.options?.includes(x))
+    : [];
+  const chipOptions = [...(q?.options ?? []), ...custom];
+  /** Other (#74): the typed entry becomes the answer (chips) or one more pick (multi chips). */
+  const addOther = () => {
+    const v = pending.trim();
+    if (!q || !v) return;
+    const cur = Array.isArray(qVal) ? qVal : [];
+    setAnswers({ ...answers, [q.id]: q.answer_type === 'multi_chips' ? [...cur.filter((x) => x !== v), v] : v });
+    setPending('');
+    setOtherOpen(false);
+  };
   const addItem = () => {
     if (!q || !pending.trim() || items.length >= (q.max_items ?? 0)) return;
     setAnswers({ ...answers, [q.id]: listOut });
@@ -158,7 +182,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
       if (state && parsed >= NODE_COUNT) setStep(1);
       return;
     }
-    if (step === 1 && q && answered && (listQ || qVal !== undefined)) {
+    if (step === 1 && q && answered && (listQ || chipQ || qVal !== undefined)) {
       // A dictated answer is shown cleaned first; Next again confirms it (the raw text is kept).
       if (q.answer_type === 'text' && !listQ && typeof qVal === 'string' && rawOf[q.id] === undefined) {
         const clean = cleanDictation(qVal);
@@ -171,11 +195,12 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
       const raw = rawOf[q.id];
       const o = await act('onboard.answer', {
         question_id: q.id,
-        value: listQ ? listOut : (qVal as string | number | string[]),
+        value: listQ ? listOut : chipQ ? chipOut : (qVal as string | number | string[]),
         ...(raw !== undefined && !listQ ? { raw } : {}),
       });
       if (o.status !== 'ok') return;
       setPending('');
+      setOtherOpen(false);
       setState(o.output);
       if (o.output.step === 'calibrate') setStep(2);
       else if (o.output.step === 'confirm') {
@@ -188,12 +213,13 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
     setStep((s) => Math.min(3, s + 1));
   };
 
-  /** "I don't know" (#23): the question is answered with nothing. */
+  /** "I don't know" (#23): the question is answered with nothing. Voice (#76): Skip skips the whole step. */
   const skip = async () => {
     if (!q) return;
-    const o = await act('onboard.answer', { question_id: q.id, skip: true });
+    const o = await act('onboard.answer', { question_id: q.id, skip: true, ...(q.component === 'voice' ? { skip_component: true } : {}) });
     if (o.status !== 'ok') return;
     setPending('');
+    setOtherOpen(false);
     setState(o.output);
     if (o.output.step === 'calibrate') setStep(2);
     else if (o.output.step === 'confirm') {
@@ -256,7 +282,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
   const floor = comp('terms').comp_floor;
   const filters = [
     list(comp('work_mode').modes),
-    typeof floor === 'number' ? `Base ≥ $${k(floor)}` : '',
+    typeof floor === 'number' ? `Base ≥ ${formatMoney(floor)}` : '',
     list(comp('company').stages),
   ].filter(Boolean);
   const deal = profile.data?.components.find((c) => c.key === 'dealbreakers');
@@ -390,7 +416,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
             )}
             {(q.answer_type === 'chips' || q.answer_type === 'multi_chips') && (
               <div className="onboard-q" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {q.options?.map((o) => {
+                {chipOptions.map((o) => {
                   const cur = qVal;
                   const on = Array.isArray(cur) ? cur.includes(o) : cur === o;
                   const pick = () => {
@@ -423,25 +449,80 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
                     </Btn>
                   );
                 })}
+                {q.other && (
+                  <Btn
+                    op="local"
+                    className="chip chip--other"
+                    aria-pressed={otherOpen}
+                    onClick={() => setOtherOpen((v) => !v)}
+                    style={{
+                      height: 56,
+                      padding: '0 26px',
+                      borderRadius: 999,
+                      border: `1.5px dashed ${otherOpen ? C.emerald : C['line-2']}`,
+                      background: 'transparent',
+                      color: C.muted,
+                      fontSize: 18,
+                      fontWeight: 500,
+                    }}
+                    hover={{ borderColor: C['emerald-2'], color: C.fg }}
+                  >
+                    Other
+                  </Btn>
+                )}
+                {q.other && otherOpen && (
+                  <input
+                    className="onboard-q__other"
+                    aria-label="Other"
+                    value={pending}
+                    maxLength={60}
+                    // biome-ignore lint/a11y/noAutofocus: the field opens on the user's own click
+                    autoFocus
+                    onChange={(e) => setPending(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addOther();
+                      }
+                    }}
+                    style={{
+                      height: 56,
+                      minWidth: 260,
+                      boxSizing: 'border-box',
+                      background: 'transparent',
+                      border: `1.5px solid ${C['line-2']}`,
+                      borderRadius: 999,
+                      color: C.fg,
+                      fontSize: 18,
+                      padding: '0 22px',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                )}
               </div>
             )}
             {q.answer_type === 'slider' && (
               <div className="onboard-q" style={{ maxWidth: 620 }}>
-                <div style={{ ...display(64, 800, '-0.04em'), color: C.emerald, ...tab }}>${String(qVal)}K</div>
-                <input
-                  type="range"
-                  aria-label={q.label}
-                  min={q.min ?? 150}
-                  max={q.max ?? 300}
-                  step={q.step ?? 5}
+                <SliderInput
+                  label={q.label}
+                  min={q.min ?? 0}
+                  max={q.max ?? 100}
+                  {...(q.step != null ? { step: q.step } : {})}
+                  {...(q.unit ? { unit: q.unit } : {})}
                   value={typeof qVal === 'number' ? qVal : sliderMid}
-                  onChange={(e) => setAnswers({ ...answers, [q.id]: Number(e.target.value) })}
-                  style={{ width: '100%', marginTop: 18 }}
+                  onChange={(n) => setAnswers({ ...answers, [q.id]: n })}
                 />
-                <div style={{ display: 'flex', justifyContent: 'space-between', ...mono(11, C.dim), marginTop: 6 }}>
-                  <span>${q.min ?? 150}K</span>
-                  <span>${q.max ?? 300}K</span>
-                </div>
+              </div>
+            )}
+            {chipQ && (
+              <div className="onboard-q" style={{ maxWidth: 620 }}>
+                <ChipInput
+                  label={q.label}
+                  value={chips}
+                  onChange={(next) => setAnswers({ ...answers, [q.id]: next })}
+                  draft={pending}
+                  onDraftChange={setPending}
+                />
               </div>
             )}
             {q.answer_type === 'text' && listQ && (
@@ -550,7 +631,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
               style={{ marginTop: 28, background: 'transparent', border: 'none', color: C.muted, fontSize: 15, padding: 0 }}
               hover={{ color: C.fg }}
             >
-              I don't know
+              {q.component === 'voice' ? 'Skip' : "I don't know"}
             </Btn>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -559,7 +640,9 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
               color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
               conf={
                 q.answer_type === 'slider'
-                  ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
+                  ? Math.round(
+                      60 + (35 * ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 0))) / ((q.max ?? 100) - (q.min ?? 0) || 1),
+                    )
                   : Array.isArray(qVal)
                     ? qVal.includes('Any')
                       ? 55
