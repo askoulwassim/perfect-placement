@@ -1,5 +1,6 @@
 // Lane H owns this folder: contacts, contact_link, tier classification, outreach drafts.
 import { classifyContact, linkContact } from './classify.js';
+import { findEmail } from './email.js';
 import { findPeople } from './find.js';
 import { draftOutreach, outreachSendHandler, outreachToGmailHandler } from './outreach.js';
 
@@ -10,12 +11,32 @@ export const handlers = {
   'people.find': findPeople,
   'people.link': linkContact,
   'people.classify': classifyContact,
+  'people.find_email': findEmail,
   'outreach.draft': draftOutreach,
   'outreach.to_gmail': outreachToGmailHandler,
   'outreach.send': outreachSendHandler,
 } as const;
 
 export { CLASSIFY_INSTRUCTIONS, classifyContact, linkContact } from './classify.js';
+export {
+  cleanDomain,
+  dossierDomain,
+  draftRecipient,
+  EMAIL_PATTERNS,
+  type EmailPattern,
+  type EmailProvider,
+  emailsIn,
+  findEmail,
+  KNOWN_CONFIDENCE,
+  learnFormat,
+  localFor,
+  type MxResolver,
+  nameParts,
+  PATTERN_PRIOR,
+  PeopleFindEmailInput,
+  patternsOf,
+  rankCandidates,
+} from './email.js';
 export { findPeople, PeopleFindInput, PersonHint } from './find.js';
 export {
   type ComposeInput,

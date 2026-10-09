@@ -72,7 +72,7 @@ role(id, company_id, title, url, ats_job_id, source, found_at, posted_at, workpl
 score(id, role_id, profile_version_id, rubric_json, c1..c9, affinity_mod, total, band, decision, created_at)  -- append-only
 event(id, ts, type, subject_type, subject_id, payload_json, actor[agent|human|schedule], decision_id)
 application(id, role_id, stage, applied_at, portal_url, package_paths_json)
-contact(id, name, headline, linkedin_url, email, source, notes)
+contact(id, name, headline, linkedin_url, email, source, notes, email_source[gmail|linkedin|public|pattern|provider|manual], email_confidence)
 contact_link(id, contact_id, company_id, role_id, degree[1|2|cold], tier, via_contact_id, is_hiring_team)
 outreach(id, contact_id, role_id, tier, gmail_draft_id, status[drafted|in_gmail|replied|ignored], md_path)
 interview(id, role_id, round, at, prep_path, retro_path, outcome)
@@ -106,8 +106,9 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `apply.mark_submitted` | high | human only |
 | `people.find` | low | runs LinkedIn adapter (rate-limited) |
 | `people.link`, `people.classify` | low | |
+| `people.find_email` | low | known address or a ranked pattern guess with a confidence; unsure guesses queue a `people.email` decision (#37) |
 | `outreach.draft` | low | vault draft |
-| `outreach.to_gmail` | medium | creates a Gmail **draft** |
+| `outreach.to_gmail` | medium | creates a Gmail **draft**; To only when the address is confirmed or confident (#37) |
 | `outreach.send` | high | not implemented in v2; human sends from Gmail |
 | `inbox.ingest` | medium | classify + move |
 | `decisions.queue`, `decisions.resolve`, `decisions.undo` | low / per item | the Needs-you queue |

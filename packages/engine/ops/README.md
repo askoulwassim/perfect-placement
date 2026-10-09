@@ -14,7 +14,7 @@ engine.close();
 
 `engine.runOp` has the contract `RunOp` signature, so it plugs straight into the MCP server and `pp up` (`POST /api/ops/:name`). One engine per vault per process; top-level writes are serialized on its connection.
 
-`EngineServices` (all optional; production defaults are the real ones): `fetch` (freshness ladder), `backends` (resolver backend overrides), `env` (KEV_API_KEY, JEV_API_KEY, ANTHROPIC_API_KEY), `profileLlm` (writing model for profile.learn; absent = the learn skill drafts), `linkedin`, `gmail`, `gmailContacts`, `outreachWriter`, `launcher` (headless runner), `freshnessDelayMs`, `sleep`. Tests use `@perfect-placement/engine/testing` (`openFixtureEngine`, `fakeBackend`, `fakeLauncher`, `noNetwork`): never the network, Kev, LinkedIn, Gmail or a spawned runner.
+`EngineServices` (all optional; production defaults are the real ones): `fetch` (freshness ladder), `backends` (resolver backend overrides), `env` (KEV_API_KEY, JEV_API_KEY, ANTHROPIC_API_KEY), `profileLlm` (writing model for profile.learn; absent = the learn skill drafts), `linkedin`, `gmail`, `gmailContacts`, `outreachWriter`, `mx` (MX lookup for `people.find_email`; default DNS, tests fake it), `emailProvider` (pinned finder seam, absent), `launcher` (headless runner), `freshnessDelayMs`, `sleep`. Tests use `@perfect-placement/engine/testing` (`openFixtureEngine`, `fakeBackend`, `fakeLauncher`, `noNetwork`): never the network, DNS, Kev, LinkedIn, Gmail or a spawned runner.
 
 ## Files
 

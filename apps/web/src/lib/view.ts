@@ -3,7 +3,7 @@ import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
 import type { TileData } from '../components/roles';
 import { bandColor } from '../components/theme';
-import { altsOf, DOC_NAME, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
+import { altsOf, DOC_NAME, emailOf, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { ago, humanize } from './format';
 import { bestPath, initials, type Person } from './people';
 import { COMPONENT_NAME, chipsOf } from './profile';
@@ -161,6 +161,24 @@ export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
         objSub: `${ctx.role.company.name} · ${DOC_NAME[fc.doc]}`,
       };
     return { ...fact, objTitle: d.subject_id, objSub: DOC_NAME[fc.doc] };
+  }
+  const em = emailOf(d);
+  if (em) {
+    // #37: the guessed address, the other candidates, and a field to type the right one.
+    const name = ctx.contact?.name ?? em.name;
+    return {
+      ...base,
+      question: `Use ${String(pick)}?`,
+      alts: base.alts.filter((a) => a.value !== 'other'),
+      edit: String(pick ?? ''),
+      ini: initials(name || '?'),
+      objTitle: name || d.subject_id,
+      objSub: ctx.contact?.headline ?? em.domain,
+      evidence: [
+        { k: 'Format', d: em.pattern ? `${em.pattern} · ${em.examples} seen` : 'none seen' },
+        { k: 'Domain', d: `${em.domain} · ${em.mx === true ? 'MX found' : em.mx === false ? 'no MX' : 'MX unknown'}` },
+      ],
+    };
   }
   if (ctx.role) {
     const r = ctx.role.role;

@@ -304,6 +304,7 @@ export function PersonRow({
   best,
   onOpen,
   mobile,
+  email,
 }: {
   id: string;
   ini: string;
@@ -312,6 +313,8 @@ export function PersonRow({
   tier: ContactTier;
   status: OutreachStatus | 'none';
   best?: boolean;
+  /** #37: the address with its source and confidence ("Guess 45%"). */
+  email?: { address: string; tag: string; sure: boolean } | null;
   onOpen?: () => void;
   mobile?: boolean;
 }) {
@@ -340,9 +343,22 @@ export function PersonRow({
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{name}</span>
         <span style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>{role}</span>
+        {email && <EmailLine {...email} />}
       </span>
       <DraftStatusChip status={status} size={mobile ? 10 : 10.5} pad={mobile ? '0' : '3px 9px'} />
     </Btn>
+  );
+}
+
+// ------------------------------------------------------------ EmailLine
+
+/** Address + source and confidence (#37). Gold while it is an unconfirmed guess. */
+export function EmailLine({ address, tag, sure, size = 11 }: { address: string; tag: string; sure: boolean; size?: number }) {
+  return (
+    <span className="person__email" data-sure={sure} style={{ display: 'flex', gap: 8, marginTop: 3, minWidth: 0, ...mono(size, C.dim) }}>
+      <span style={{ ...ellipsis, minWidth: 0 }}>{address}</span>
+      <span style={{ flex: 'none', color: sure ? C.emerald : C.gold }}>{tag}</span>
+    </span>
   );
 }
 

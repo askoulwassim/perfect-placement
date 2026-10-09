@@ -99,6 +99,8 @@ export function openFixtureEngine(opts: FixtureOptions = {}): FixtureEngine {
   const launcher = fakeLauncher();
   const services: EngineServices = {
     fetch: noNetwork,
+    // No DNS in tests (#37): MX unknown unless a test injects a fake.
+    mx: async () => null,
     freshnessDelayMs: 0,
     launcher,
     env: {},

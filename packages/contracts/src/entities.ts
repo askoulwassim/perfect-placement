@@ -12,6 +12,7 @@ import {
   CRITERIA,
   DecisionKind,
   DecisionStatus,
+  EmailSource,
   Freshness,
   HeldReason,
   Impact,
@@ -210,6 +211,10 @@ export const Contact = z.object({
   email: z.string().email().nullable(),
   source: ContactSource,
   notes: z.string().nullable(),
+  /** Added (#37): where `email` came from; null when there is no email. */
+  email_source: EmailSource.nullable(),
+  /** Added (#37): 0..1, how sure the address is right (1 = confirmed by the user or seen in mail). */
+  email_confidence: z.number().min(0).max(1).nullable(),
 });
 export type Contact = z.infer<typeof Contact>;
 

@@ -21,6 +21,7 @@ import {
   ContactTier,
   Criterion,
   DecisionStatus,
+  EmailSource,
   Freshness,
   InboxClass,
   PolicyOutcome,
@@ -765,6 +766,90 @@ export const peopleClassify = defineOp({
   owner: 'H',
 });
 
+/** Added (#37): one candidate address for a contact, ranked by the company's learned format. */
+export const EmailCandidate = z.object({
+  email: z.string().email(),
+  /** `first.last`, `flast`, `first`, `firstl`, `f.last`, `last`, or `provider`. */
+  pattern: z.string(),
+  p: Probability,
+});
+export type EmailCandidate = z.infer<typeof EmailCandidate>;
+
+/**
+ * Added (#37): find or estimate a contact's email. Known addresses first (the contact's own, then `hints`
+ * the agent found in Gmail, LinkedIn contact info or public pages); else the engine learns the company's
+ * address format from addresses seen at its domain (known contacts, JD, dossier, hints), checks the
+ * domain's MX record (no SMTP probing) and ranks candidates. The top pick is a `people.email` decision:
+ * confident -> stored as confirmed; otherwise stored as an unconfirmed guess and queued in Needs you with
+ * the alternatives. `value` = a human's pick (decision action `$value`): stored with confidence 1.
+ */
+export const peopleFindEmail = defineOp({
+  name: 'people.find_email',
+  description:
+    "Find or estimate a contact's email: known addresses (hints from Gmail, LinkedIn, public pages), else the company's address pattern with a confidence. Low confidence goes to Needs you.",
+  input: z.object({
+    contact_id: Id,
+    /** The role the email is for (JD + dossier are evidence). Default: the contact's latest role link. */
+    role_id: Id.optional(),
+    /** Addresses the agent saw (read-only): Gmail threads and signatures, LinkedIn contact info, public pages. */
+    hints: z
+      .array(
+        z.object({
+          email: z.string().email(),
+          /** Whose address it is, when known (any person at the company teaches the format). */
+          name: z.string().min(1).max(120).nullable().optional(),
+          source: EmailSource.extract(['gmail', 'linkedin', 'public']),
+        }),
+      )
+      .max(50)
+      .optional(),
+    /** The company's email domain when the company row has none (e.g. from the dossier or a team page). */
+    domain: z
+      .string()
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i)
+      .optional(),
+    /** The address to use: a human's pick from Needs you (`$value`) or a manual entry. */
+    value: z.string().min(1).optional(),
+  }),
+  output: z.object({
+    contact: Contact,
+    email: z.string().email().nullable(),
+    source: EmailSource.nullable(),
+    confidence: z.number().min(0).max(1).nullable(),
+    /** True when the address goes into a Gmail draft's To. */
+    confirmed: z.boolean(),
+    domain: z.string().nullable(),
+    /** MX record found for the domain; null = not checked or the lookup failed. */
+    mx: z.boolean().nullable(),
+    /** The learned format (null: no examples, priors only). */
+    pattern: z.string().nullable(),
+    candidates: z.array(EmailCandidate),
+    decision_id: Id.nullable(),
+    outcome: PolicyOutcome.nullable(),
+    /** Why there is no usable address (no domain, unconfirmed guess, ...); null when `confirmed`. */
+    reason: z.string().nullable(),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'H',
+});
+
+/**
+ * Added (#37): who a Gmail draft goes to. `email` is set only when the address is confirmed or at the
+ * policy threshold; otherwise To stays empty and `reason` says why.
+ */
+export const DraftRecipient = z.object({
+  contact_id: Id,
+  name: z.string(),
+  email: z.string().email().nullable(),
+  email_source: EmailSource.nullable(),
+  email_confidence: z.number().min(0).max(1).nullable(),
+  /** The best address on file even when it is not used (an unconfirmed guess). */
+  guess: z.string().email().nullable(),
+  reason: z.string().nullable(),
+});
+export type DraftRecipient = z.infer<typeof DraftRecipient>;
+
 // ---------------------------------------------------------------- outreach (H)
 
 export const outreachDraft = defineOp({
@@ -807,6 +892,8 @@ export const outreachGet = defineOp({
     body: z.string(),
     /** One per OUTREACH_TONES entry, same order. */
     variants: z.array(DraftText).length(OUTREACH_TONES.length),
+    /** Added (#37): the Gmail draft's To (the contact, or the mutual for bridge drafts). */
+    to: DraftRecipient.nullable().default(null),
   }),
   impact: 'low',
   readOnly: true,
@@ -851,7 +938,13 @@ export const outreachToGmail = defineOp({
      */
     gmail_draft_id: z.string().min(1).optional(),
   }),
-  output: z.object({ outreach: Outreach, gmail_draft_id: z.string() }),
+  /** Added (#37): `to` = the address the draft was created with (null: no To, `to_reason` says why). */
+  output: z.object({
+    outreach: Outreach,
+    gmail_draft_id: z.string(),
+    to: z.string().email().nullable().default(null),
+    to_reason: z.string().nullable().default(null),
+  }),
   impact: 'medium',
   emits: [],
   owner: 'H',
@@ -1182,6 +1275,7 @@ export const OPS = {
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,
+  'people.find_email': peopleFindEmail,
   'contacts.get': contactsGet,
   'outreach.get': outreachGet,
   'outreach.list': outreachList,

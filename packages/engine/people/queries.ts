@@ -56,16 +56,39 @@ export function insertContact(R: Repos, c: Contact): void {
   R.contact.insert(c);
 }
 
-/** Fills only missing fields (headline, url, email). Never overwrites what is there. */
-export function fillContact(R: Repos, existing: Contact, incoming: Pick<Contact, 'headline' | 'linkedin_url' | 'email'>): Contact {
+/**
+ * Fills only missing fields (headline, url, email). Never overwrites what is there, except that a
+ * known address (#37: Gmail, LinkedIn, public, manual) replaces an estimated one (pattern, provider).
+ */
+export function fillContact(
+  R: Repos,
+  existing: Contact,
+  incoming: Pick<Contact, 'headline' | 'linkedin_url' | 'email'> & Partial<Pick<Contact, 'email_source' | 'email_confidence'>>,
+): Contact {
+  const guessed = existing.email_source === 'pattern' || existing.email_source === 'provider';
+  const known = incoming.email_source && incoming.email_source !== 'pattern' && incoming.email_source !== 'provider';
+  const takeEmail = !!incoming.email && (!existing.email || (guessed && !!known));
   const next: Contact = {
     ...existing,
     headline: existing.headline ?? incoming.headline,
     linkedin_url: existing.linkedin_url ?? incoming.linkedin_url,
-    email: existing.email ?? incoming.email,
+    ...(takeEmail
+      ? { email: incoming.email, email_source: incoming.email_source ?? null, email_confidence: incoming.email_confidence ?? null }
+      : {}),
   };
-  if (next.headline !== existing.headline || next.linkedin_url !== existing.linkedin_url || next.email !== existing.email)
-    R.contact.update(existing.id, { headline: next.headline, linkedin_url: next.linkedin_url, email: next.email });
+  if (
+    next.headline !== existing.headline ||
+    next.linkedin_url !== existing.linkedin_url ||
+    next.email !== existing.email ||
+    next.email_source !== existing.email_source
+  )
+    R.contact.update(existing.id, {
+      headline: next.headline,
+      linkedin_url: next.linkedin_url,
+      email: next.email,
+      email_source: next.email_source,
+      email_confidence: next.email_confidence,
+    });
   return next;
 }
 

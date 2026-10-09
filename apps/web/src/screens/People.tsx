@@ -2,7 +2,7 @@ import { useAct, useApp, useOp } from '../client/context';
 import { PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
 import { eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { bestPath, initials } from '../lib/people';
+import { bestPath, emailTag, initials } from '../lib/people';
 import { activeLabel } from '../lib/runs';
 import { graphLayout } from '../lib/view';
 import { go } from '../router';
@@ -58,6 +58,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       tier={p.link.tier}
       status={draftOf(p.contact.id)?.status ?? 'none'}
       best={best?.target.contact.id === p.contact.id}
+      email={emailTag(p.contact)}
       onOpen={() => open(p.contact.id)}
     />
   ));

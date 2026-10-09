@@ -1,6 +1,7 @@
 import { type Contact, type ContactLink, ContactSource, peopleFind } from '@perfect-placement/contracts';
 import { z } from 'zod';
 import type { CollectResult, Degree } from '../integrations/linkedin/index.js';
+import { KNOWN_CONFIDENCE } from './email.js';
 import {
   emitEvent,
   fillContact,
@@ -48,6 +49,13 @@ interface Candidate {
   source: Contact['source'];
   degree: Degree;
   via: { name: string; headline: string | null; url: string } | null;
+}
+
+/** Source + confidence of an address people.find saw (#37): Gmail, LinkedIn, the JD or a public page. */
+export function knownEmail(email: string | null, source: Contact['source']): Pick<Contact, 'email_source' | 'email_confidence'> {
+  if (!email) return { email_source: null, email_confidence: null };
+  const s = source === 'jd' || source === 'company_site' ? 'public' : source;
+  return { email_source: s, email_confidence: KNOWN_CONFIDENCE[s] };
 }
 
 const EMPTY_COLLECT = (mode: 'dry-run' | 'live', capped: boolean): CollectResult => ({
@@ -127,7 +135,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   const resolveContact = (c: Omit<Candidate, 'degree' | 'via'>): { contact: Contact; created: boolean } => {
     const existing = findContact(db, { linkedin_url: c.linkedin_url, email: c.email });
     if (existing) {
-      return { contact: dryRun ? existing : fillContact(db, existing, c), created: false };
+      return { contact: dryRun ? existing : fillContact(db, existing, { ...c, ...knownEmail(c.email, c.source) }), created: false };
     }
     const contact: Contact = {
       id: newId(deps, 'ct'),
@@ -137,6 +145,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
       email: c.email,
       source: c.source,
       notes: null,
+      ...knownEmail(c.email, c.source),
     };
     if (!dryRun) insertContact(db, contact);
     return { contact, created: true };

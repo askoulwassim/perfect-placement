@@ -572,6 +572,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0002',
@@ -581,6 +583,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0003',
@@ -590,6 +594,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0004',
@@ -599,6 +605,8 @@ export const contacts: Contact[] = [
     email: 'omar.s@example.com',
     source: 'jd',
     notes: null,
+    email_source: 'public',
+    email_confidence: 0.9,
   },
   {
     id: 'ct_0005',
@@ -608,6 +616,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0006',
@@ -617,6 +627,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'company_site',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
 ];
 

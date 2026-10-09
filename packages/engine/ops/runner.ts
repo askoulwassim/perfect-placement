@@ -129,12 +129,15 @@ export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why:
   inbox: { web: [], why: 'Gmail read-only plus ops' },
   learn: { web: [], why: 'ops only' },
   onboard: { web: [], why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract' },
-  connect: { web: [], why: 'LinkedIn via Claude in Chrome (--chrome); Gmail draft step via the Gmail connector' },
+  connect: {
+    web: [],
+    why: 'LinkedIn via Claude in Chrome (--chrome); Gmail search + read for contact emails (#37); Gmail draft step via the Gmail connector',
+  },
 };
 
-/** Claude Code tool names a skill's headless run pre-approves. */
+/** Claude Code tool names a skill's headless run pre-approves. `connect` also reads Gmail (#37). */
 export function skillAllowedTools(skill: Skill): string[] {
-  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web];
+  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web, ...(skill === 'connect' ? GMAIL_READ_TOOLS : [])];
 }
 
 /**
@@ -189,6 +192,17 @@ export const GMAIL_DENIED_TOOLS = [
   'mcp__claude_ai_Gmail__reply',
   'mcp__claude_ai_Gmail__forward',
   'mcp__claude_ai_Gmail__delete_draft',
+  'mcp__claude_ai_Gmail__trash_message',
+  'mcp__claude_ai_Gmail__trash_thread',
+] as const;
+/**
+ * Gmail read tools a full `connect` run may use to find contacts' addresses in threads and signatures
+ * (#37): search and read only. Everything else in Gmail stays unlisted (denied headless) or denied.
+ */
+export const GMAIL_READ_TOOLS = [
+  'mcp__claude_ai_Gmail__search_threads',
+  'mcp__claude_ai_Gmail__get_thread',
+  'mcp__claude_ai_Gmail__get_message',
 ] as const;
 
 /** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
@@ -210,10 +224,10 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
-    '2. Recipient: the contact\'s email (contacts_get { contact_id }). For a bridge draft (tier "bridge") it is the mutual: the link for this role names via_contact_id; use that contact\'s email. No email on file = leave To empty.',
+    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.email` is null, leave To empty (`to.reason` says why: no address found, or an unconfirmed guess waiting in Needs you); never use `to.guess`.',
     "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
-    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id } } (status "error" with a note if any step failed).`,
+    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', section] : []),
   ].join('\n');
 }
@@ -298,7 +312,8 @@ export function buildRunnerSpec(opts: {
           ...(opts.gmailDraft
             ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
             : opts.skill === 'connect'
-              ? ['--strict-mcp-config', '--allowedTools', `mcp__${MCP_SERVER_NAME}`]
+              ? // No strict MCP config: the claude.ai Gmail connector loads for its read tools (#37).
+                ['--allowedTools', skillAllowedTools('connect').join(','), '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
               : [
                   '--strict-mcp-config',
                   // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;

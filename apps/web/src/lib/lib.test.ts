@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
 import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
-import { bestPath, type Person } from './people';
+import { bestPath, emailTag, type Person } from './people';
 import { sourcesOf } from './role';
 import {
   activeLabel,
@@ -188,5 +188,23 @@ describe('sourcesOf (#40)', () => {
   });
   it('is empty for scores from before #40', () => {
     expect(sourcesOf({ ...base, facts_json: {} } as never)).toEqual([]);
+  });
+});
+
+describe('emailTag (#37)', () => {
+  it('shows the source in one word and the confidence below 100%', () => {
+    expect(emailTag({ email: null, email_source: null, email_confidence: null })).toBeNull();
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'pattern', email_confidence: 0.45 })).toEqual({
+      address: 'a.b@example.com',
+      tag: 'Guess 45%',
+      sure: false,
+    });
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'gmail', email_confidence: 1 })).toEqual({
+      address: 'a.b@example.com',
+      tag: 'Gmail',
+      sure: true,
+    });
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'public', email_confidence: 0.9 })?.tag).toBe('Public 90%');
+    expect(valueLabel('people.email', 'a.b@example.com')).toBe('a.b@example.com');
   });
 });

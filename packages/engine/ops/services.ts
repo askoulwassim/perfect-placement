@@ -3,6 +3,7 @@ import type { BackendMap } from '@perfect-placement/resolver';
 import type { FetchLike } from '../integrations/ats/index.js';
 import type { GmailContactsSource, GmailDraftClient } from '../integrations/gmail/index.js';
 import type { LinkedInSource } from '../integrations/linkedin/index.js';
+import type { EmailProvider, MxResolver } from '../people/email.js';
 import type { OutreachWriter } from '../people/types.js';
 import type { ProfileLlm } from '../profile/deps.js';
 import type { RunnerLauncher } from './runner.js';
@@ -36,6 +37,10 @@ export interface EngineServices {
   gmailContacts?: GmailContactsSource;
   /** Outreach text writer for scheduled runs without an agent. */
   outreachWriter?: OutreachWriter;
+  /** MX lookup for `people.find_email` (#37). Default: DNS (`defaultMx`). Tests inject a fake; never SMTP. */
+  mx?: MxResolver;
+  /** Email finder (Hunter, Apollo, ...) behind the user's own key (#37). Pinned: no adapter ships; absent by default. */
+  emailProvider?: EmailProvider;
   /** Starts the headless agent runner for `runs.start`. Default: spawns `config.runner`. */
   launcher?: RunnerLauncher;
   /**

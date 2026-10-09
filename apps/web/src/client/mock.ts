@@ -194,7 +194,18 @@ function readOp(
       const text = { hook: section(md, 'Hook'), proof: section(md, 'Proof'), ask: section(md, 'Ask') };
       const signoff = section(md, 'Sign-off') || 'Thanks,';
       const body = `Hi ${contact.name.split(/\s+/)[0]},\n\n${[text.hook, text.proof, text.ask].join('\n\n')}\n\n${signoff}\n`;
-      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text) });
+      // #37: To only when the address is known or confident (the engine also checks Needs you).
+      const sure = !!contact.email && (contact.email_source === 'manual' || (contact.email_confidence ?? 1) >= 0.9);
+      const to = {
+        contact_id: contact.id,
+        name: contact.name,
+        email: sure ? contact.email : null,
+        email_source: contact.email_source,
+        email_confidence: contact.email_confidence,
+        guess: contact.email,
+        reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
+      };
+      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to });
     }
     case 'contacts.get': {
       const contact = must(

@@ -192,12 +192,12 @@ INSERT INTO application (id, role_id, stage, applied_at, portal_url, package_pat
 INSERT INTO application (id, role_id, stage, applied_at, portal_url, package_paths_json) VALUES ('ap_0009', 'retool_head-of-data-product', 'done', '2026-08-29T09:00:00.000Z', NULL, '{"resume":"applications/retool_head-of-data-product/resume.md","cover_letter":"applications/retool_head-of-data-product/cover_letter.md","fit_map":"applications/retool_head-of-data-product/fit_map.md","answers":"applications/retool_head-of-data-product/answers.md"}');
 
 -- contact (6)
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0001', 'Maya R.', 'Head of Product, Insights', 'https://www.linkedin.com/in/fixture-maya-r', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0002', 'Dev P.', 'Engineering Manager', 'https://www.linkedin.com/in/fixture-dev-p', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0003', 'Lina K.', 'Product Designer', 'https://www.linkedin.com/in/fixture-lina-k', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0004', 'Omar S.', 'Technical Recruiter', 'https://www.linkedin.com/in/fixture-omar-s', 'omar.s@example.com', 'jd', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0005', 'Priya T.', 'Staff Engineer', 'https://www.linkedin.com/in/fixture-priya-t', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0006', 'Jonah W.', 'VP Product', 'https://www.linkedin.com/in/fixture-jonah-w', NULL, 'company_site', NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0001', 'Maya R.', 'Head of Product, Insights', 'https://www.linkedin.com/in/fixture-maya-r', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0002', 'Dev P.', 'Engineering Manager', 'https://www.linkedin.com/in/fixture-dev-p', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0003', 'Lina K.', 'Product Designer', 'https://www.linkedin.com/in/fixture-lina-k', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0004', 'Omar S.', 'Technical Recruiter', 'https://www.linkedin.com/in/fixture-omar-s', 'omar.s@example.com', 'jd', NULL, 'public', 0.9);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0005', 'Priya T.', 'Staff Engineer', 'https://www.linkedin.com/in/fixture-priya-t', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0006', 'Jonah W.', 'VP Product', 'https://www.linkedin.com/in/fixture-jonah-w', NULL, 'company_site', NULL, NULL, NULL);
 
 -- contact_link (6)
 INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team) VALUES ('cl_0001', 'ct_0001', 'linear', 'linear_product-lead-insights', '1', 'warm_hiring', NULL, 1);

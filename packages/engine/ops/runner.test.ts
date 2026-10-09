@@ -11,6 +11,7 @@ import {
   deniedTools,
   deniedToolsError,
   GMAIL_DRAFT_TOOL,
+  GMAIL_READ_TOOLS,
   gmailDraftPrompt,
   gmailStepSection,
   MCP_SERVER_NAME,
@@ -55,9 +56,15 @@ describe('runner command lines', () => {
       mcp,
     });
     expect(connect.args).toEqual(expect.arrayContaining(['--chrome', '--model', 'opus']));
-    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed.
-    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe('mcp__pp');
+    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed; #37: Gmail search + read
+    // (the connector loads, so no strict MCP config), every Gmail write but drafts denied, drafts not allowed.
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(['mcp__pp', ...GMAIL_READ_TOOLS].join(','));
     expect(connect.args).not.toContain('--tools');
+    expect(connect.args).not.toContain('--strict-mcp-config');
+    const denied = connect.args[connect.args.indexOf('--disallowedTools') + 1] as string;
+    for (const t of ['send_message', 'reply', 'forward', 'delete_draft', 'trash_thread'])
+      expect(denied).toContain(`mcp__claude_ai_Gmail__${t}`);
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).not.toContain('create_draft');
   });
 
   it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
@@ -132,7 +139,8 @@ describe('per-skill tools (#20)', () => {
     expect(Object.keys(SKILL_TOOLS).sort()).toEqual([...SKILLS].sort());
     for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
-    for (const s of [...PP_ONLY, 'connect' as const]) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+    for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
   });
 
   it('claude: each skill pre-approves exactly its tools, narrows built-ins to them, denies the rest (dontAsk)', () => {
@@ -328,6 +336,9 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     // The skill's own Gmail draft step is appended; nothing else of the connect skill (no people.find).
     expect(p).toContain('## Gmail draft step');
     expect(p).not.toContain('people.find');
+    // #37: To comes from outreach.get's `to`, never the unconfirmed guess.
+    expect(p).toContain('`to.email`');
+    expect(p).toContain('never use `to.guess`');
     expect(gmailStepSection('# x\n\n## Gmail draft step\n\nA\n\n## Never\n\nB')).toBe('## Gmail draft step\n\nA');
   });
 

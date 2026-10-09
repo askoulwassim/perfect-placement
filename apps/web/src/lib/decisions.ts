@@ -15,6 +15,7 @@ export const SHORT_Q: Record<DecisionKind, string> = {
   'outreach.to_gmail': 'Create the Gmail draft?',
   'apply.submit': 'Submit this application?',
   'apply.fact_check': 'Keep this claim?',
+  'people.email': 'Use this email?',
   other: 'Your call?',
 };
 
@@ -37,6 +38,8 @@ const BOOL_LABELS: Partial<Record<DecisionKind, [string, string]>> = {
 };
 
 export function valueLabel(kind: DecisionKind, v: unknown): string {
+  // #37: addresses show as written.
+  if (kind === 'people.email' && typeof v === 'string' && v !== 'other') return v;
   if (typeof v === 'boolean') {
     const [y, n] = BOOL_LABELS[kind] ?? ['Yes', 'No'];
     return v ? y : n;
@@ -71,3 +74,19 @@ export const factCheckOf = (d: Pick<Decision, 'kind' | 'question_json'>): FactCh
     : null;
 };
 export const DOC_NAME: Record<FactCheckQ['doc'], string> = { resume: 'Resume', cover_letter: 'Cover letter', answers: 'Answers' };
+
+/** A `people.email` question (#37): whose address, the domain, its MX check and the learned format. */
+export interface EmailQ {
+  name: string;
+  domain: string;
+  mx: boolean | null;
+  pattern: string | null;
+  examples: number;
+}
+export const emailOf = (d: Pick<Decision, 'kind' | 'question_json'>): EmailQ | null => {
+  if (d.kind !== 'people.email') return null;
+  const q = d.question_json as Partial<EmailQ>;
+  return typeof q.domain === 'string'
+    ? { name: q.name ?? '', domain: q.domain, mx: q.mx ?? null, pattern: q.pattern ?? null, examples: q.examples ?? 0 }
+    : null;
+};

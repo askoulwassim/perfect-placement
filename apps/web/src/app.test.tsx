@@ -218,6 +218,48 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
+  it('People, Outreach and Needs you: a guessed email shows its source and confidence; picking an alternative confirms it (#37)', async () => {
+    const guess = 'maya.rivera@linear.example';
+    const { container } = await boot(`#/people/${R.linearDraft}`, async (l) => {
+      l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
+      l.engine.db.prepare(`UPDATE contact SET name = 'Maya Rivera' WHERE id = 'ct_0001'`).run();
+      return l.as('agent', 'people.find_email', { contact_id: 'ct_0001', role_id: R.linearDraft });
+    });
+    const row = await waitFor(() => $(container, '.people-list [data-contact="ct_0001"] .person__email'));
+    expect(row.textContent).toBe(`${guess}Guess 45%`);
+    expect(row.getAttribute('data-sure')).toBe('false');
+
+    await go('#/outreach/or_0001');
+    const to = await waitFor(() => $(container, '.outreach__to'));
+    await waitFor(() => expect(to.textContent).toContain(guess));
+    expect(to.textContent).toContain('Guess 45%');
+    expect(to.getAttribute('data-to')).toBe('');
+
+    await go('#/needs-you');
+    const want = `Use ${guess}?`;
+    for (let i = 0; i < 8 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    const card = $(container, '.decision');
+    expect(card.textContent).toContain('Maya Rivera');
+    expect(card.textContent).toContain('linear.example');
+    fireEvent.keyDown(window, { key: 'c' });
+    const alts = await waitFor(() => $(container, '.decision__alts'));
+    const labels = within(alts)
+      .getAllByRole('button')
+      .map((b) => b.textContent);
+    expect(labels).toEqual(['mrivera@linear.example', 'maya@linear.example', 'm.rivera@linear.example', 'Save']);
+    fireEvent.click(within(alts).getByText('mrivera@linear.example'));
+    await waitFor(async () => {
+      const o = await live?.as('human', 'outreach.get', { outreach_id: 'or_0001' });
+      expect(o?.status === 'ok' && (o.output as { to: { email: string | null } }).to.email).toBe('mrivera@linear.example');
+    });
+    assertButtons(container);
+  });
+
   it('You -> Terms: Application defaults save once with one op (#42)', async () => {
     const { container } = await boot('#/you/terms');
     const box = await waitFor(() => $(container, '.app-defaults'));

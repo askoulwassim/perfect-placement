@@ -66,17 +66,18 @@ function hydrate(table: TableName, row: Record<string, unknown>) {
   return out;
 }
 
-describe('migrations 001..005', () => {
-  it('are numbered 001 to 005 and recorded', () => {
-    expect(MIGRATIONS.slice(0, 5)).toEqual([
+describe('migrations 001..006', () => {
+  it('are numbered 001 to 006 and recorded', () => {
+    expect(MIGRATIONS.slice(0, 6)).toEqual([
       '001_init.sql',
       '002_wave2.sql',
       '003_fresh_start.sql',
       '004_run_queued.sql',
       '005_fact_check.sql',
+      '006_contact_email.sql',
     ]);
     const versions = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[];
-    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5]);
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it('creates exactly the contract tables with exactly the contract columns', () => {
@@ -153,9 +154,13 @@ describe('migrations 001..005', () => {
   it('002 preserves rows written under 001', () => {
     const old = new Database(':memory:');
     old.exec(migration('001'));
-    // Seed as 001 would accept it: no onboard_session, no `agent` backend.
+    // Seed as 001 would accept it: no onboard_session, no `agent` backend, no contact email source (006).
     const seed001 = readFileSync(FIXTURE_SEED_SQL, 'utf8')
       .replace(/^INSERT INTO onboard_session .*$/gm, '')
+      .replace(
+        /^(INSERT INTO contact \([^)]*?), email_source, email_confidence\) VALUES (.*), (?:NULL|'[a-z]+'), (?:NULL|[0-9.]+)\);$/gm,
+        '$1) VALUES $2);',
+      )
       .replace(/^INSERT INTO decision .*$/gm, (line) => line.replaceAll("'agent'", "'llm'"));
     old.exec(seed001);
     const before = (t: string) => old.prepare(`SELECT * FROM ${t} ORDER BY id`).all() as unknown[];
