@@ -7,7 +7,7 @@
 - **Watchlist** = the Company component (`company.watchlist`, else companies with positive `company.affinity`, highest first).
 - Watchlist career-page queries are **at most `config.scout.watchlist_share_max`** (default 0.34) of a run's queries. At most one watchlist query per company per run. A run with no open-market queries runs no watchlist queries.
 - The rest are **open-market** queries built from the profile, not from company names: Craft (function, level), Domain (ranked problem spaces), Work mode (remote, locations).
-- Propose the full list, then pass it through `planSourceMix(proposed, config.scout.watchlist_share_max)` (`packages/engine/scoring/source-mix.ts`). Run only `queries`; log `dropped` and `watchlist_share` in the run summary.
+- Propose the full list, then trim it (the rule `planSourceMix` in `packages/engine/scoring/source-mix.ts` implements; you have no access to it in a run): keep every open-market query; keep watchlist queries in priority order, one per company, up to `floor(share * open / (1 - share))` where `share` = `config.scout.watchlist_share_max` (`config.get`). Example: share 0.34 and 6 open queries allow 3 watchlist queries. Run only the kept queries; log `dropped` and `watchlist_share` in the run summary.
 
 ## Why
 

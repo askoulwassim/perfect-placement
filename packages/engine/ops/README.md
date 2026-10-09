@@ -48,13 +48,25 @@ Each call gets lane I's resolver over lane A's repos: rule -> Kev (`backends.def
 
 ## Headless runner (`runs.start`)
 
-A human or schedule `runs.start` commits the run, then launches `config.runner` with the prompt = the run ids + `skills/<skill>/SKILL.md`, and an MCP config pointing at the pp MCP server over stdio (`node packages/mcp/dist/bin.js`, `PP_HOME` set). An agent calling `runs.start` is already the session doing the work: nothing is launched. A runner that cannot start finishes the run as `error`. Output goes to `$TMPDIR/pp-runs/<run_id>.log`, never the vault.
+A human or schedule `runs.start` commits the run, then launches `config.runner` with an MCP config pointing at the pp MCP server over stdio (`node packages/mcp/dist/bin.js`, `PP_HOME` set). The prompt (`skillPrompt`) = the run ids + the tools the run has + `skills/<skill>/SKILL.md` + its companion files (`SKILL_ASSETS`, e.g. scout's `plan.md`), read from the repo by absolute path (`resolveRepoRoot` walks up from the engine, source or `dist/`). Skill files live in the repo, never the vault: no skill looks for them with `vault.read`. An agent calling `runs.start` is already the session doing the work: nothing is launched. A runner that cannot start finishes the run as `error`. Output goes to `$TMPDIR/pp-runs/<run_id>.log`, never the vault.
 
-| Runner | Command line (flags checked against each CLI's docs, 2026-10) |
+**Per-skill tools (`SKILL_TOOLS`, #20).** Headless runs cannot answer a permission prompt, so each run pre-approves exactly what its skill needs and nothing broader (no shell, no file writes or reads; every read and write is an op):
+
+| Skill | Tools | Why |
+| --- | --- | --- |
+| scout, research, freshness | pp + WebSearch + WebFetch | query boards and career pages; sourced dossier; judge live pages |
+| tailor, score | pp + WebFetch | capture the full JD when only a title is on file |
+| fill | pp + WebFetch | read the real portal questions (no browser in a headless run) |
+| inbox, learn, onboard | pp | ops only |
+| connect | pp (+ `--chrome`; Gmail draft step below) | unchanged |
+
+**Fail loudly.** If the runner exits while the run is still `running`, `runs.start` finishes it as `error` with `summary_json.error` (and `denied_tools`, `runner_log`). For Claude Code the denied tools come from the result's `permission_denials`; the error names each tool and the fix (settings deny rule, or `SKILL_TOOLS` / `config.runner.args`). The prompt also tells the agent to finish with `summary.error: "tool denied: <tool>"` itself. Only observable while the launching process (`pp up`) is alive.
+
+| Runner | Command line (flags checked 2026-10: `claude --help` 2.1.x, Codex config reference, Cursor CLI parameters + permissions docs) |
 | --- | --- |
-| `claude` | `claude -p <prompt> --mcp-config '<json>' --strict-mcp-config --allowedTools mcp__pp --permission-prompts none --output-format json` (+ `--chrome` for `connect`, LinkedIn via Claude in Chrome), cwd `PP_HOME` |
-| `codex` | `codex exec --skip-git-repo-check -c mcp_servers.pp.command=".." -c mcp_servers.pp.args=[..] -c mcp_servers.pp.env.PP_HOME=".." -c approval_policy="never" <prompt>`, cwd `PP_HOME` (never a git repo) |
-| `cursor-agent` | `cursor-agent -p <prompt> --output-format text --approve-mcps --force`, cwd = a temp dir holding `.cursor/mcp.json` (Cursor reads project MCP config) |
+| `claude` | `claude -p <prompt> --mcp-config '<json>' --strict-mcp-config --tools <web tools or ""> --allowedTools mcp__pp[,WebSearch,WebFetch] --permission-mode dontAsk --permission-prompts none --output-format json`, cwd `PP_HOME`. `--tools` limits the built-ins (MCP tools stay), `--allowedTools` pre-approves, `dontAsk` + `--permission-prompts none` deny anything else. `connect`: `--strict-mcp-config --allowedTools mcp__pp ... --chrome` as before. |
+| `codex` | `codex exec --skip-git-repo-check -c mcp_servers.pp.command=".." -c mcp_servers.pp.args=[..] -c mcp_servers.pp.env.PP_HOME=".." -c approval_policy="never" -c web_search="live"\|"disabled" <prompt>`, cwd `PP_HOME` (never a git repo). Codex has one web tool (`web_search`: disabled, cached, indexed, live); any web skill gets `live`, the rest `disabled`. No `--search` flag is documented for `exec`. |
+| `cursor-agent` | `cursor-agent -p <prompt> --output-format text --trust --approve-mcps --force`, cwd = a temp dir holding `.cursor/mcp.json` (MCP servers) and `.cursor/cli.json` (`permissions`: allow `Mcp(pp:*)` + `WebFetch(*)` for web skills, deny `Shell(*)`, `Write(**)`; deny wins over `--force`). Cursor documents no web search tool or permission for the CLI; web skills rely on `WebFetch`. |
 
 `config.runner.args` are appended. Tests use `fakeLauncher()`; nothing spawns in CI.
 

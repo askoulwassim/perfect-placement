@@ -39,14 +39,40 @@ export interface RunnerSpec {
   files: RunnerFile[];
 }
 
+/** How a launched runner ended (only while the launching process is still alive to see it). */
+export interface RunnerExit {
+  code: number | null;
+  /** The runner's stdout + stderr (Claude Code: the `--output-format json` result). */
+  output: string;
+  /** Where the output was written, if anywhere. */
+  logFile?: string;
+}
+
 export interface RunnerLauncher {
-  /** Start the runner and resolve once it is running (reject if it cannot start). Never waits for it to finish. */
-  launch(spec: RunnerSpec): Promise<{ pid?: number }>;
+  /**
+   * Start the runner and resolve once it is running (reject if it cannot start). Never waits for it to
+   * finish; `exit` (optional) settles when it does, so `runs.start` can fail a run the runner left open.
+   */
+  launch(spec: RunnerSpec): Promise<{ pid?: number; exit?: Promise<RunnerExit> }>;
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** Repo root from packages/engine/ops (source) or packages/engine/dist/ops (build). */
-const REPO_ROOT = join(HERE, /[/\\]dist([/\\]|$)/.test(HERE) ? '../../../..' : '../../..');
+
+/**
+ * The repo root (the directory holding `skills/` and `pnpm-workspace.yaml`), found by walking up from
+ * `from`: works from packages/engine/ops (source) and packages/engine/dist/ops (build).
+ */
+export function resolveRepoRoot(from: string = HERE): string {
+  for (let dir = from; ; ) {
+    if (existsSync(join(dir, 'pnpm-workspace.yaml')) && existsSync(join(dir, 'skills'))) return dir;
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return join(from, /[/\\]dist([/\\]|$)/.test(from) ? '../../../..' : '../../..');
+}
+
+const REPO_ROOT = resolveRepoRoot();
 
 /** `skills/` at the repo root. */
 export const DEFAULT_SKILLS_DIR = join(REPO_ROOT, 'skills');
@@ -63,11 +89,58 @@ export interface PromptContext {
   contactId?: string;
 }
 
-/** The prompt: the skill's SKILL.md plus the run's ids and the closing instruction. */
+/** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
+export type WebTool = 'WebSearch' | 'WebFetch';
+
+/**
+ * The single per-skill tool allowlist for headless runs (#20). Every run gets the pp MCP tools; web
+ * tools only where the SKILL.md needs them. Nothing else (no Bash, no Write/Edit, no file reads):
+ * every read and write goes through ops. `connect` keeps its own Chrome / Gmail handling.
+ */
+export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why: string }>> = {
+  scout: { web: ['WebSearch', 'WebFetch'], why: 'runs the plan.md queries on job boards and career pages, reads each posting' },
+  research: { web: ['WebSearch', 'WebFetch'], why: 'builds a sourced, dated company dossier from the web' },
+  freshness: { web: ['WebSearch', 'WebFetch'], why: 'judges unsure postings from the live page when asked' },
+  tailor: { web: ['WebFetch'], why: 'captures the full JD from the posting when only a title is on file' },
+  score: { web: ['WebFetch'], why: 'captures the full JD from the posting when only a title is on file' },
+  fill: { web: ['WebFetch'], why: 'reads the real portal questions (a headless run has no browser)' },
+  inbox: { web: [], why: 'Gmail read-only plus ops' },
+  learn: { web: [], why: 'ops only' },
+  onboard: { web: [], why: 'ops only' },
+  connect: { web: [], why: 'LinkedIn via Claude in Chrome (--chrome); Gmail draft step via the Gmail connector' },
+};
+
+/** Claude Code tool names a skill's headless run pre-approves. */
+export function skillAllowedTools(skill: Skill): string[] {
+  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web];
+}
+
+/**
+ * Companion files that ship next to a skill's SKILL.md in the repo and are inlined into its prompt.
+ * Skill files live in the repo, never the vault: a headless run must not look for them with vault.read.
+ * (`connect/RUNBOOK.md` is a human runbook for a supervised live run; it is not inlined.)
+ */
+export const SKILL_ASSETS: Readonly<Partial<Record<Skill, readonly string[]>>> = {
+  scout: ['plan.md'],
+};
+
+function readAsset(file: string): string {
+  return existsSync(file) ? readFileSync(file, 'utf8').trim() : `(not found at ${file})`;
+}
+
+/**
+ * The prompt: the run ids, the tools this run has, the skill's SKILL.md and its companion files
+ * (read from the repo by absolute path), and the closing instruction.
+ */
 export function skillPrompt(skillsDir: string, c: PromptContext): string {
   const file = join(skillsDir, c.skill, 'SKILL.md');
   const skill = existsSync(file) ? readFileSync(file, 'utf8').trim() : `# ${c.skill}\n\n(SKILL.md not found at ${file})`;
   const ids = [`run_id: ${c.runId}`, ...(c.roleId ? [`role_id: ${c.roleId}`] : []), ...(c.contactId ? [`contact_id: ${c.contactId}`] : [])];
+  const web = SKILL_TOOLS[c.skill].web;
+  const assets = (SKILL_ASSETS[c.skill] ?? []).map((name) => {
+    const abs = join(skillsDir, c.skill, name);
+    return `## ${name} (skill file, ${abs})\n\n${readAsset(abs)}`;
+  });
   return [
     `You are running the Perfect Placement "${c.skill}" skill headless. Every read and write goes through the ${MCP_SERVER_NAME} MCP tools; never edit files or the database directly. Never submit an application or send an email.`,
     '',
@@ -75,7 +148,11 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     '',
     `The run already exists (runs.start was called for you). Pass run_id in your work and finish with runs.finish { run_id: "${c.runId}", status }.`,
     '',
+    `Tools: the ${MCP_SERVER_NAME} MCP tools${web.length ? ` and ${web.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
+    `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
+    '',
     skill,
+    ...(assets.length ? ['', ...assets] : []),
   ].join('\n');
 }
 
@@ -118,6 +195,52 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
   ].join('\n');
 }
 
+/**
+ * cursor-agent project permissions (`.cursor/cli.json`): the pp MCP tools, `WebFetch(*)` for web skills,
+ * no shell and no file writes (deny wins over `--force`). Cursor documents no web search permission.
+ */
+export function cursorPermissions(skill: Skill): { allow: string[]; deny: string[] } {
+  return {
+    allow: [`Mcp(${MCP_SERVER_NAME}:*)`, ...(SKILL_TOOLS[skill].web.length ? ['WebFetch(*)'] : [])],
+    deny: ['Shell(*)', 'Write(**)'],
+  };
+}
+
+/** Tools Claude Code denied in a headless run, from its `--output-format json` result (`permission_denials`). */
+export function deniedTools(output: string): string[] {
+  const names = new Set<string>();
+  for (const m of output.matchAll(/"permission_denials"\s*:\s*(\[[^\]]*\])/g)) {
+    try {
+      for (const d of JSON.parse(m[1] as string) as Array<{ tool_name?: unknown }>)
+        if (typeof d.tool_name === 'string') names.add(d.tool_name);
+    } catch {
+      // not JSON after all: ignore
+    }
+  }
+  return [...names];
+}
+
+/** The error a run gets when its runner denied tools: which ones, and how to fix it. */
+export function deniedToolsError(skill: Skill, tools: readonly string[]): string {
+  const granted = new Set(skillAllowedTools(skill));
+  const isGranted = (t: string) => granted.has(t) || t.startsWith(`mcp__${MCP_SERVER_NAME}__`);
+  const blocked = tools.filter(isGranted);
+  const extra = tools.filter((t) => !isGranted(t));
+  const fixes = [
+    ...(blocked.length
+      ? [
+          `${blocked.join(', ')} ${blocked.length > 1 ? 'are' : 'is'} pre-approved for ${skill} (--allowedTools ${skillAllowedTools(skill).join(',')}) but was denied anyway: remove the deny rule from your Claude Code settings (permissions.deny in ~/.claude/settings.json or managed settings).`,
+        ]
+      : []),
+    ...(extra.length
+      ? [
+          `${extra.join(', ')} ${extra.length > 1 ? 'are' : 'is'} not granted to ${skill}: if the skill truly needs it, add it to SKILL_TOOLS in packages/engine/ops/runner.ts (or to config.runner.args: ["--allowedTools", "${extra.join(',')}"]).`,
+        ]
+      : []),
+  ];
+  return `tool denied: ${tools.join(', ')} (headless ${skill} run, nobody can approve a prompt). Fix: ${fixes.join(' ')}`;
+}
+
 /** Command line per runner (flags verified against each CLI's docs, 2026-10). */
 export function buildRunnerSpec(opts: {
   runner: RunnerConfig;
@@ -150,7 +273,19 @@ export function buildRunnerSpec(opts: {
           mcpConfig,
           ...(opts.gmailDraft
             ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
-            : ['--strict-mcp-config', '--allowedTools', `mcp__${MCP_SERVER_NAME}`]),
+            : opts.skill === 'connect'
+              ? ['--strict-mcp-config', '--allowedTools', `mcp__${MCP_SERVER_NAME}`]
+              : [
+                  '--strict-mcp-config',
+                  // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
+                  // dontAsk denies anything else instead of falling back to the user's permission mode.
+                  '--tools',
+                  SKILL_TOOLS[opts.skill].web.join(','),
+                  '--allowedTools',
+                  skillAllowedTools(opts.skill).join(','),
+                  '--permission-mode',
+                  'dontAsk',
+                ]),
           '--permission-prompts',
           'none',
           '--output-format',
@@ -182,6 +317,9 @@ export function buildRunnerSpec(opts: {
           // Headless: nobody can approve a prompt; MCP tool calls are otherwise cancelled.
           '-c',
           'approval_policy="never"',
+          // Web search per skill (SKILL_TOOLS): live retrieval for web skills, the tool removed otherwise.
+          '-c',
+          `web_search=${toml(SKILL_TOOLS[opts.skill].web.length ? 'live' : 'disabled')}`,
           ...extra,
           prompt,
         ],
@@ -194,16 +332,23 @@ export function buildRunnerSpec(opts: {
       return {
         runId,
         command: 'cursor-agent',
-        args: ['-p', prompt, '--output-format', 'text', '--approve-mcps', '--force', ...extra],
-        // cursor-agent reads MCP servers from the project's .cursor/mcp.json: a fresh temp dir per run.
+        args: ['-p', prompt, '--output-format', 'text', '--trust', '--approve-mcps', '--force', ...extra],
+        // cursor-agent reads MCP servers from the project's .cursor/mcp.json and permissions from
+        // .cursor/cli.json: a fresh temp dir per run.
         cwd: null,
         env,
-        files: [{ path: '.cursor/mcp.json', content: `${JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } }, null, 2)}\n` }],
+        files: [
+          { path: '.cursor/mcp.json', content: `${JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } }, null, 2)}\n` },
+          { path: '.cursor/cli.json', content: `${JSON.stringify({ permissions: cursorPermissions(opts.skill) }, null, 2)}\n` },
+        ],
       };
   }
 }
 
-/** Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault). */
+/**
+ * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault). `exit`
+ * settles with the log when the runner ends, as long as this process is still alive.
+ */
 export function createSpawnLauncher(): RunnerLauncher {
   return {
     launch(spec) {
@@ -215,13 +360,25 @@ export function createSpawnLauncher(): RunnerLauncher {
       }
       const logDir = join(tmpdir(), 'pp-runs');
       mkdirSync(logDir, { recursive: true });
-      const log = openSync(join(logDir, `${spec.runId}.log`), 'a');
+      const logFile = join(logDir, `${spec.runId}.log`);
+      const log = openSync(logFile, 'a');
       return new Promise((ok, fail) => {
         const child = spawn(spec.command, spec.args, {
           cwd,
           env: { ...process.env, ...spec.env },
           detached: true,
           stdio: ['ignore', log, log],
+        });
+        const exit = new Promise<RunnerExit>((done) => {
+          child.once('exit', (code) => {
+            let output = '';
+            try {
+              output = readFileSync(logFile, 'utf8');
+            } catch {
+              // log gone: report the exit code only
+            }
+            done({ code, output, logFile });
+          });
         });
         child.once('error', (e) => {
           closeSync(log);
@@ -230,7 +387,7 @@ export function createSpawnLauncher(): RunnerLauncher {
         child.once('spawn', () => {
           closeSync(log);
           child.unref();
-          ok(child.pid === undefined ? {} : { pid: child.pid });
+          ok(child.pid === undefined ? { exit } : { pid: child.pid, exit });
         });
       });
     },
