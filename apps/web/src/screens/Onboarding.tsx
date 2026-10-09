@@ -56,6 +56,8 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
   const [pending, setPending] = useState('');
   /** Dictated text answers shown cleaned for confirmation: the raw text by question id (#38). */
   const [rawOf, setRawOf] = useState<Record<string, string>>({});
+  /** Other (#74): the free entry field is open on a persona-dependent question. */
+  const [otherOpen, setOtherOpen] = useState(false);
   /** The headless onboard run parsing the resume (#38). */
   const [parseRunId, setParseRunId] = useState<string | null>(null);
   /** A scoped re-interview that reached confirm: the component to show on You after Start. */
@@ -131,6 +133,20 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
     : chipQ
       ? chipOut.length > 0
       : qVal !== undefined && !(Array.isArray(qVal) && qVal.length === 0) && !(typeof qVal === 'string' && !qVal.trim());
+  // Persona-dependent options (#74): free entries the user added show as chips next to the options.
+  const custom = q?.other
+    ? (Array.isArray(qVal) ? qVal : typeof qVal === 'string' ? [qVal] : []).filter((x) => !q.options?.includes(x))
+    : [];
+  const chipOptions = [...(q?.options ?? []), ...custom];
+  /** Other (#74): the typed entry becomes the answer (chips) or one more pick (multi chips). */
+  const addOther = () => {
+    const v = pending.trim();
+    if (!q || !v) return;
+    const cur = Array.isArray(qVal) ? qVal : [];
+    setAnswers({ ...answers, [q.id]: q.answer_type === 'multi_chips' ? [...cur.filter((x) => x !== v), v] : v });
+    setPending('');
+    setOtherOpen(false);
+  };
   const addItem = () => {
     if (!q || !pending.trim() || items.length >= (q.max_items ?? 0)) return;
     setAnswers({ ...answers, [q.id]: listOut });
@@ -184,6 +200,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
       });
       if (o.status !== 'ok') return;
       setPending('');
+      setOtherOpen(false);
       setState(o.output);
       if (o.output.step === 'calibrate') setStep(2);
       else if (o.output.step === 'confirm') {
@@ -196,12 +213,13 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
     setStep((s) => Math.min(3, s + 1));
   };
 
-  /** "I don't know" (#23): the question is answered with nothing. */
+  /** "I don't know" (#23): the question is answered with nothing. Voice (#76): Skip skips the whole step. */
   const skip = async () => {
     if (!q) return;
-    const o = await act('onboard.answer', { question_id: q.id, skip: true });
+    const o = await act('onboard.answer', { question_id: q.id, skip: true, ...(q.component === 'voice' ? { skip_component: true } : {}) });
     if (o.status !== 'ok') return;
     setPending('');
+    setOtherOpen(false);
     setState(o.output);
     if (o.output.step === 'calibrate') setStep(2);
     else if (o.output.step === 'confirm') {
@@ -398,7 +416,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
             )}
             {(q.answer_type === 'chips' || q.answer_type === 'multi_chips') && (
               <div className="onboard-q" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {q.options?.map((o) => {
+                {chipOptions.map((o) => {
                   const cur = qVal;
                   const on = Array.isArray(cur) ? cur.includes(o) : cur === o;
                   const pick = () => {
@@ -431,6 +449,56 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
                     </Btn>
                   );
                 })}
+                {q.other && (
+                  <Btn
+                    op="local"
+                    className="chip chip--other"
+                    aria-pressed={otherOpen}
+                    onClick={() => setOtherOpen((v) => !v)}
+                    style={{
+                      height: 56,
+                      padding: '0 26px',
+                      borderRadius: 999,
+                      border: `1.5px dashed ${otherOpen ? C.emerald : C['line-2']}`,
+                      background: 'transparent',
+                      color: C.muted,
+                      fontSize: 18,
+                      fontWeight: 500,
+                    }}
+                    hover={{ borderColor: C['emerald-2'], color: C.fg }}
+                  >
+                    Other
+                  </Btn>
+                )}
+                {q.other && otherOpen && (
+                  <input
+                    className="onboard-q__other"
+                    aria-label="Other"
+                    value={pending}
+                    maxLength={60}
+                    // biome-ignore lint/a11y/noAutofocus: the field opens on the user's own click
+                    autoFocus
+                    onChange={(e) => setPending(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addOther();
+                      }
+                    }}
+                    style={{
+                      height: 56,
+                      minWidth: 260,
+                      boxSizing: 'border-box',
+                      background: 'transparent',
+                      border: `1.5px solid ${C['line-2']}`,
+                      borderRadius: 999,
+                      color: C.fg,
+                      fontSize: 18,
+                      padding: '0 22px',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                )}
               </div>
             )}
             {q.answer_type === 'slider' && (
@@ -563,7 +631,7 @@ export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
               style={{ marginTop: 28, background: 'transparent', border: 'none', color: C.muted, fontSize: 15, padding: 0 }}
               hover={{ color: C.fg }}
             >
-              I don't know
+              {q.component === 'voice' ? 'Skip' : "I don't know"}
             </Btn>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>

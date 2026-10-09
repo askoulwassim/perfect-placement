@@ -24,13 +24,15 @@ export type FitScorer = (title: string) => number;
 
 /**
  * Fit of a title to the profile, higher is better:
- * - +3 when it holds a Craft `functions` / `target` phrase, +1.5 for an `adjacent` / `explore` one;
+ * - +3 when it holds a Craft `functions` / `target` / `titles` phrase, +1.5 for an `adjacent` / `explore` one;
  * - up to +2 for Domain words, weighted by the domain's rank;
  * - -0.5 per level step away from the Craft level.
  */
 export function fitScorer(p: FitProfile): FitScorer {
   const craft = p.craft ?? {};
-  const primary = rulesFromProfile({ craft: { functions: [...strList(craft.functions), ...strList(craft.target)] } }).phrases;
+  const primary = rulesFromProfile({
+    craft: { functions: [...strList(craft.functions), ...strList(craft.target), ...strList(craft.titles)] },
+  }).phrases;
   const secondary = rulesFromProfile({ craft: { functions: [...strList(craft.adjacent), ...strList(craft.explore)] } }).phrases;
   const domains = strList(p.domain?.ranked).map((d) => [...titleTokens(d)]);
   const target = typeof craft.level === 'string' ? levelOf(craft.level) : null;

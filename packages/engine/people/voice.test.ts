@@ -84,6 +84,10 @@ const base = (over: Partial<DraftContext> = {}): DraftContext => ({
 });
 
 describe('writer prompt', () => {
+  it('no Voice style (the step was skipped, #76): the neutral default', () => {
+    expect(buildWriterPrompt(base({ voice: { data: {}, text: '' } })).user).toContain('Style: neutral');
+    expect(buildWriterPrompt(base()).user).toContain('Style: punchy');
+  });
   it('carries JD, dossier, headline, Story, voice notes and every sample together, each labeled', () => {
     const p = buildWriterPrompt(base());
     expect(p.user).toContain('CONTEXT (facts about them');

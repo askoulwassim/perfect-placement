@@ -135,7 +135,7 @@ export interface ProfileForScan {
 const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(String).filter(Boolean) : typeof v === 'string' && v ? [v] : []);
 
 /**
- * Rules from Craft (functions, target, adjacent, explore, level) and Work mode (modes, locations).
+ * Rules from Craft (functions, target, adjacent, explore, titles, level) and Work mode (modes, locations).
  * `include` replaces the Craft phrases; `exclude` adds words that drop a title.
  */
 export function rulesFromProfile(p: ProfileForScan, overrides: { include?: string[]; exclude?: string[] } = {}): ScanRules {
@@ -143,7 +143,14 @@ export function rulesFromProfile(p: ProfileForScan, overrides: { include?: strin
   const wm = p.work_mode ?? {};
   const source = overrides.include?.length
     ? overrides.include
-    : [...strList(craft.functions), ...strList(craft.target), ...strList(craft.adjacent), ...strList(craft.explore)];
+    : [
+        ...strList(craft.functions),
+        ...strList(craft.target),
+        ...strList(craft.adjacent),
+        ...strList(craft.explore),
+        // #74: the persona's own titles ("Account Executive"), so a non-product profile is not filtered as PM.
+        ...strList(craft.titles),
+      ];
   const phrases: string[][] = [];
   const families = new Set<string>();
   for (const s of source) {

@@ -98,6 +98,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
               ))}
             </div>
             {reinterview && <Reinterview onClick={reinterview} />}
+            {selected === 'voice' && <LearnVoice />}
             {source && <ResumeSource path={source} />}
             {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
@@ -208,6 +209,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
                 ))}
               </div>
               {reinterview && <Reinterview onClick={reinterview} />}
+              {selected === 'voice' && <LearnVoice />}
               {source && <ResumeSource path={source} />}
               {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
@@ -242,12 +244,22 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
   );
 }
 
-/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You). */
-function ProfileAction({ className, label, onClick }: { className: string; label: string; onClick: () => void }) {
+/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You), or another op. */
+function ProfileAction({
+  className,
+  label,
+  onClick,
+  op = 'onboard.start',
+}: {
+  className: string;
+  label: string;
+  onClick: () => void;
+  op?: 'onboard.start' | 'runs.start';
+}) {
   return (
     <div style={{ marginTop: 18 }}>
       <Btn
-        op="onboard.start"
+        op={op}
         className={className}
         onClick={onClick}
         style={{
@@ -265,6 +277,28 @@ function ProfileAction({ className, label, onClick }: { className: string; label
         {label}
       </Btn>
     </div>
+  );
+}
+
+/**
+ * Learn voice (#76): queue a `voice` run that reads the user's own sent mail (and LinkedIn posts when LinkedIn
+ * is live) and proposes a Voice diff to accept here. The click is the consent.
+ */
+function LearnVoice() {
+  const act = useAct();
+  const { showToast, activeRun } = useApp();
+  const running = activeRun({ skill: 'voice' });
+  return (
+    <ProfileAction
+      className="learn-voice"
+      op="runs.start"
+      label={running ? 'Reading your writing' : 'Learn voice'}
+      onClick={async () => {
+        if (running) return;
+        const o = await act('runs.start', { skill: 'voice' });
+        if (o.status === 'ok') showToast('Learning voice');
+      }}
+    />
   );
 }
 

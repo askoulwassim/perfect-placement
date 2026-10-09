@@ -146,6 +146,12 @@ export function profileProposeDiff(
 
 // ------------------------------------------------------------------ apply
 
+/** The first evidence line of a learned Voice diff (#76, `profile.propose_voice`); only a human applies it. */
+export const VOICE_LEARNED_EVIDENCE = 'Learned from your own writing (Learn voice)';
+
+export const isLearnedVoiceDiff = (d: Pick<ProfileDiff, 'component_key' | 'evidence_json'>): boolean =>
+  d.component_key === 'voice' && d.evidence_json[0] === VOICE_LEARNED_EVIDENCE;
+
 /** Component keys no score reads: a diff that only changes these never rescores (#42). */
 const UNSCORED_KEYS = new Set(['application_defaults', 'notes', 'open_questions', 'dictated', 'follow_ups']);
 
@@ -243,6 +249,9 @@ export async function profileApplyDiff(
   if (!diff) throw new OpError('not_found', `diff ${input.diff_id} not found`);
   if (diff.status !== 'pending') throw new OpError('conflict', `diff ${diff.id} is ${diff.status}`);
 
+  // #76: a Voice learned from the user's own writing is only ever accepted by the user.
+  if (isLearnedVoiceDiff(diff) && !humanApproved(deps, ctx))
+    throw new OpError('human_only', 'a learned Voice waits for you: accept it in You > Voice');
   if (!humanApproved(deps, ctx) && !autoApproved(deps, ctx, diff)) {
     const queued = diff.decision_id ? deps.repos.decision.get(diff.decision_id) : undefined;
     if (queued?.status === 'pending' && queued.policy_outcome === 'human') throw new RequiresHuman(queued.id);

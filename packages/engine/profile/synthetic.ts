@@ -72,6 +72,31 @@ Engineer who has spent the better part of a decade designing dependable clinical
 - Maintained the scheduling services that patients and front desk staff used to book and reschedule appointments across the clinic network and its affiliated hospitals.
 `;
 
+/**
+ * A SYNTHETIC salesperson's resume (#74): its interview options and scout titles must be sales ones, not
+ * product ones.
+ */
+export const SYNTH_RESUME_SALES = `# Morgan Placeholder
+
+**Title:** Senior Enterprise Account Executive
+
+## Summary
+
+Closer who builds pipeline with fintech and payments buyers. Eight years of experience in B2B SaaS sales.
+
+## Experience
+
+### Ledgerly Example — Senior Enterprise Account Executive — 2021–Present
+- Closed 4.2M in new ARR across payments and banking accounts in 2024.
+- Ran 140% of quota for three years.
+
+### Paysample Inc — Account Executive — 2018–2021
+- Opened 30 new mid-market payments accounts.
+
+### Paysample Inc — Sales Development Rep — 2016–2018
+- Booked 90 qualified meetings a quarter.
+`;
+
 const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** A minimal SYNTHETIC .docx (zip, stored or deflated) with one paragraph per entry; `#` marks a heading, `- ` a list item. */

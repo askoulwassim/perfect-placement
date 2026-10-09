@@ -89,6 +89,13 @@ const FUNCTION_PATTERNS: Array<[RegExp, string]> = [
   [/data scien/i, 'Data Science'],
   [/engineer|developer/i, 'Engineering'],
   [/founder/i, 'Founder'],
+  // #74: not only product people.
+  [/account executive|\bsales\b|\bBDR\b|\bSDR\b/i, 'Sales'],
+  [/account manag/i, 'Account Management'],
+  [/business development|partnerships/i, 'Business Development'],
+  [/marketing/i, 'Marketing'],
+  [/designer/i, 'Design'],
+  [/customer success/i, 'Customer Success'],
 ];
 
 const LEVELS: Array<[RegExp, string]> = [

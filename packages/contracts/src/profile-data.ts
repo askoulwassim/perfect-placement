@@ -115,6 +115,20 @@ export const STANDARD_FIELDS = [
 export const VOICE_SAMPLES_MAX = 5;
 export const VOICE_SAMPLE_MAX_CHARS = 1500;
 
+/**
+ * Added (#76): the style drafts use when Voice has none (the Voice step was skipped): plain, clear sentences,
+ * grounded in Story. Skipping the Voice step stores it as Voice `style`.
+ */
+export const VOICE_DEFAULT_STYLE = 'neutral';
+/** Added (#76): a `voice` run (Learn voice) proposes at most this many short samples of this length. */
+export const VOICE_LEARN_SAMPLES_MAX = 3;
+export const VOICE_LEARN_SAMPLE_MAX_CHARS = 600;
+/** Added (#76): the most sent emails and LinkedIn posts a `voice` run reads. */
+export const VOICE_LEARN_MAX_EMAILS = 30;
+export const VOICE_LEARN_MAX_POSTS = 10;
+/** Added (#76): style traits a `voice` run proposes (Voice `traits`). */
+export const VOICE_TRAITS_MAX = 6;
+
 export const COMPONENT_DATA_SCHEMAS = {
   story: z.looseObject({
     ...common,
@@ -150,6 +164,11 @@ export const COMPONENT_DATA_SCHEMAS = {
     explore: TextList.optional(),
     facing: Text.optional(),
     target: Text.optional(),
+    /**
+     * Added (#74): the job titles the user would apply to (persona-dependent, e.g. "Account Executive" for a
+     * salesperson). Scout builds its title queries from them and the watchlist title rule accepts them.
+     */
+    titles: TextList.optional(),
   }),
   domain: z.looseObject({
     ...common,
@@ -231,6 +250,12 @@ export const COMPONENT_DATA_SCHEMAS = {
     samples: TextList.optional(),
     /** Email sign-off in the user's voice, e.g. "Thanks,\nAlex". Default: "Thanks," plus the first name. */
     signoff: Text.optional(),
+    /** Added (#76): style traits learned from the user's own writing ("short sentences", "opens with the ask"). */
+    traits: TextList.optional(),
+    /** Added (#76): where learned samples and traits came from (counts only, never recipients or content). */
+    learned_from: z
+      .looseObject({ gmail_sent: z.number().int().min(0).optional(), linkedin_posts: z.number().int().min(0).optional() })
+      .optional(),
   }),
   network: z.looseObject({
     ...common,

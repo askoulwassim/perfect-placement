@@ -540,6 +540,19 @@ describe('the interview adapts to the resume (#22)', () => {
     state = (await op('onboard.answer', { question_id: 'craft.mode', value: 'lead' })) as State;
     expect(state.next_question?.id).toBe('craft.facing'); // the resume is silent: asked open
     state = (await op('onboard.answer', { question_id: 'craft.facing', skip: true })) as State;
+    // #74: the titles to search for, the resume's own first (suggested), free entry allowed.
+    expect(state.next_question).toMatchObject({
+      id: 'craft.titles',
+      other: true,
+      suggested: ['Principal Product Manager', 'Senior Product Manager', 'Analyst'],
+    });
+    expect(state.next_question?.options?.slice(0, 4)).toEqual([
+      'Principal Product Manager',
+      'Senior Product Manager',
+      'Analyst',
+      'Product Manager',
+    ]);
+    state = (await op('onboard.answer', { question_id: 'craft.titles', skip: true })) as State;
     expect(state.next_question?.id).toBe('confirm.domain');
     state = (await op('onboard.answer', { question_id: 'confirm.domain', value: 'yes' })) as State;
     // Domain ranked is confirmed, not asked again.

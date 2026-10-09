@@ -182,7 +182,7 @@ function launchRun(run: Run, h: HandlerContext): void {
     home: h.home,
     mcp: defaultMcpServer(h.home),
     ...(outreachId ? { gmailDraft: true } : {}),
-    ...(skill === 'connect' ? { linkedin: li.mode === 'live' } : {}),
+    ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
         ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
@@ -193,6 +193,8 @@ function launchRun(run: Run, h: HandlerContext): void {
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
             ...(linkedin ? { linkedin } : {}),
             ...(questions ? { questions } : {}),
+            // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
+            ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
           }),
   });
   const launcher = h.services.launcher ?? createSpawnLauncher();

@@ -195,6 +195,12 @@ const OnboardState = z.object({
       kind: z.enum(['ask', 'confirm', 'follow_up']).default('ask'),
       /** Added (#22): the answer the resume suggests (low confidence or after `edit`); the UI pre-fills it. */
       suggested: z.union([z.string(), z.number(), z.array(z.string())]).optional(),
+      /**
+       * Added (#74): free entry is allowed besides `options` (chips / multi_chips): the UI shows an Other
+       * chip with a text field. Persona-dependent questions (Craft functions, level, titles; Domain;
+       * Growth scope) carry it; their options come from the resume, the static list only as a fallback.
+       */
+      other: z.boolean().optional(),
     })
     .nullable(),
   /**
@@ -304,12 +310,29 @@ export const onboardAnswer = defineOp({
     skip: z.boolean().optional(),
     /** Added (#38): the dictated original of a text answer whose cleaned `value` the user confirmed (kept for provenance). */
     raw: z.string().optional(),
+    /**
+     * Added (#76): with `skip`, skip every remaining question of this question's component (the Voice step's
+     * Skip). Skipping Voice stores the neutral default style (`VOICE_DEFAULT_STYLE`) when none is set.
+     */
+    skip_component: z.boolean().optional(),
   }),
   output: OnboardState,
   impact: 'low',
   emits: [],
   owner: 'E',
 });
+
+const OptionList = z.array(z.string().trim().min(1).max(60)).min(2).max(12);
+/** Added (#74): persona-dependent interview options (see `onboard.extract`). */
+export const OnboardOptions = z.object({
+  persona: z.string().trim().min(1).max(40).optional(),
+  functions: OptionList.optional(),
+  levels: OptionList.optional(),
+  titles: OptionList.optional(),
+  domains: OptionList.optional(),
+  scopes: OptionList.optional(),
+});
+export type OnboardOptions = z.infer<typeof OnboardOptions>;
 
 /**
  * Added (#38): the resume facts an agent extracted verbatim from the kept source resume. Every value must
@@ -340,6 +363,14 @@ export const onboardExtract = defineOp({
         }),
       )
       .optional(),
+    /**
+     * Added (#74): the persona-dependent answer options the agent generated from the resume (judgment, not
+     * facts): `functions`, `levels`, `titles` (typical job titles), `domains`, `scopes` (Growth scope
+     * ceilings), 2 to 12 short options each, plus a `persona` name ("sales", "product"). Kept with the
+     * onboarding session; they replace the instant preview's options and the static fallback lists. The
+     * interview always allows free entry (Other) besides them. Ignored once onboarding is done.
+     */
+    options: OnboardOptions.optional(),
   }),
   output: z.object({
     /** `session`: merged into the onboarding draft; `diff`: proposed as a Story diff (onboarding was done). */
@@ -378,6 +409,37 @@ export const onboardProposeQuestions = defineOp({
   }),
   impact: 'low',
   emits: [],
+  owner: 'E',
+});
+
+/**
+ * Added (#76): the Voice a `voice` run (You > Voice > Learn voice) learned from the user's own writing, with
+ * consent: recent sent Gmail messages (read-only) and, when `config.linkedin.mode` is `live`, their LinkedIn
+ * posts (read-only, Claude in Chrome). Never auto-applied: it becomes a pending Voice diff only a human can
+ * accept (`profile.apply_diff` from any other actor is `human_only`). Samples are the user's own words, short,
+ * with other people's names, addresses, links and quoted content removed; the op refuses a sample with an
+ * email address, phone number, URL, @handle, a greeting to someone by name, or an em dash. New samples are
+ * added after the kept ones, up to VOICE_SAMPLES_MAX.
+ */
+export const profileProposeVoice = defineOp({
+  name: 'profile.propose_voice',
+  description:
+    "Propose the Voice learned from the user's own sent emails and LinkedIn posts (style, traits, up to 3 short anonymized samples) as a pending diff for the user to accept. Never applies it.",
+  input: z.object({
+    style: z.string().trim().min(1).max(40).optional(),
+    traits: z.array(z.string().trim().min(1).max(120)).max(6).default([]),
+    samples: z.array(z.string().trim().min(1)).max(3).default([]),
+    /** How much was read (counts only). */
+    sources: z.object({ gmail_sent: z.number().int().min(0).default(0), linkedin_posts: z.number().int().min(0).default(0) }),
+  }),
+  output: z.object({
+    /** Null when nothing would change. */
+    diff: ProfileDiff.nullable(),
+    /** Samples not added because Voice already holds VOICE_SAMPLES_MAX. */
+    dropped: z.number().int().min(0).default(0),
+  }),
+  impact: 'low',
+  emits: ['profile_diff_proposed'],
   owner: 'E',
 });
 
@@ -481,6 +543,28 @@ export const rolesAdd = defineOp({
   }),
   impact: 'low',
   emits: ['role_added'],
+  owner: 'B',
+});
+
+/**
+ * Added (#74): the scout's query ingredients from the profile, persona-aware: `titles` are the title
+ * variations (Craft `titles` first, then each Craft function's typical titles at the Craft level and one
+ * level up), so a sales profile scouts sales roles; `domains` the ranked Domain; `locations` Work mode.
+ */
+export const scoutPlan = defineOp({
+  name: 'scout.plan',
+  description:
+    "The profile's scout query ingredients: title variations from Craft (titles, functions, level; persona-aware, not product-only), ranked domains and work locations.",
+  input: z.object({}),
+  output: z.object({
+    persona: z.string().nullable(),
+    titles: z.array(z.string()),
+    domains: z.array(z.string()),
+    locations: z.array(z.string()),
+  }),
+  impact: 'low',
+  readOnly: true,
+  emits: [],
   owner: 'B',
 });
 
@@ -1609,6 +1693,7 @@ export const OPS = {
   'profile.undo_diff': profileUndoDiff,
   'profile.set_defaults': profileSetDefaults,
   'profile.learn': profileLearn,
+  'profile.propose_voice': profileProposeVoice,
   'onboard.start': onboardStart,
   'onboard.state': onboardState,
   'onboard.samples': onboardSamples,
@@ -1619,6 +1704,7 @@ export const OPS = {
   'onboard.extract': onboardExtract,
   'onboard.propose_questions': onboardProposeQuestions,
   'roles.add': rolesAdd,
+  'scout.plan': scoutPlan,
   'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,
   'roles.reevaluate_filters': rolesReevaluateFilters,

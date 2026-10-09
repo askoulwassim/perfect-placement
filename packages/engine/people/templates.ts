@@ -1,4 +1,4 @@
-import type { ConnectFallback, ContactTier } from '@perfect-placement/contracts';
+import { type ConnectFallback, type ContactTier, VOICE_DEFAULT_STYLE } from '@perfect-placement/contracts';
 import { BRIDGE_ASK_MAX, defaultSignoff, LIMITS, PROOF_MAX_SENTENCES } from './style.js';
 import type { DraftText, WriterPrompt } from './types.js';
 
@@ -208,8 +208,13 @@ function storyBlock(story: DraftContext['story']): string {
 function voiceBlock(voice: DraftContext['voice']): string {
   const d = voice.data;
   const lines: string[] = [];
-  if (typeof d.style === 'string') lines.push(`Style: ${d.style}`);
+  // #76: no style of their own (the Voice step was skipped): the neutral default, grounded in Story.
+  const style = typeof d.style === 'string' && d.style.trim() ? d.style : VOICE_DEFAULT_STYLE;
+  lines.push(
+    style === VOICE_DEFAULT_STYLE ? `Style: ${VOICE_DEFAULT_STYLE} (plain, clear sentences; no samples to match)` : `Style: ${style}`,
+  );
   if (Array.isArray(d.rules) && d.rules.length) lines.push(`Rules: ${(d.rules as unknown[]).join('; ')}`);
+  if (Array.isArray(d.traits) && d.traits.length) lines.push(`Traits: ${(d.traits as unknown[]).join('; ')}`);
   if (typeof d.signoff === 'string') lines.push(`Sign-off: ${JSON.stringify(d.signoff)}`);
   const notes = voiceNotes(voice.text);
   if (notes) lines.push(`Notes:\n${notes}`);

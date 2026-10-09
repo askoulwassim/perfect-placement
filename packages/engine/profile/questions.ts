@@ -1,6 +1,7 @@
 import { PROFILE_COMPONENT_KEYS, type ProfileComponentKey, VOICE_SAMPLE_MAX_CHARS, VOICE_SAMPLES_MAX } from '@perfect-placement/contracts';
 import { CONFIRM_MIN, type ComponentHint, type ResumeHints } from './hints.js';
 import { deepEqual } from './json.js';
+import { FALLBACK_OPTIONS, type OptionKey, type PersonaOptions, personaOfCraft, titlesForFunctions, uniq } from './persona.js';
 
 /*
  * Onboarding question bank: two to four adaptive questions per component, chips or
@@ -22,6 +23,12 @@ import { deepEqual } from './json.js';
  * confidence opens with a confirm question ("Looks like ... Right?", yes / edit); low-confidence
  * hints pre-fill the component's questions (`suggested`); follow-ups the onboard agent proposed
  * (`onboard.propose_questions`) are asked after the component's bank questions.
+ *
+ * Persona-dependent options (#74): Craft functions, level and titles, Domain and the Growth scope are not a
+ * fixed product-manager list. Their options come from the session's plan (`options`: the onboard agent's,
+ * else the instant preview's, both from the resume), else the persona of the Craft draft (a re-interview),
+ * else the static fallback; the draft's and the resume's own values are always among them, and free entry
+ * (Other) is always accepted.
  */
 
 export type Draft = Partial<Record<ProfileComponentKey, Record<string, unknown>>>;
@@ -45,6 +52,10 @@ export interface QuestionDef {
   options?: string[];
   /** Options that depend on the draft (story.years: the derived number or leave it out). */
   optionsFor?: (d: Draft) => string[];
+  /** Persona-dependent options (#74): which list of the plan's options this question shows. */
+  persona?: OptionKey;
+  /** Free entry is accepted besides the options (#74: the UI's Other). */
+  other?: boolean;
   /** Free text that may be dictated: fillers are stripped (cleanDictation) and the raw text kept. Default true for text. */
   dictated?: boolean;
   min?: number;
@@ -185,7 +196,9 @@ export const QUESTION_BANK: QuestionDef[] = [
     label: 'What kind of work do you want to do in your next role?',
     example: 'Pick one or more. The first is your main one.',
     answer_type: 'multi_chips',
-    options: ['PM', 'TPM', 'FDE', 'Data Science', 'Engineering', 'other'],
+    options: FALLBACK_OPTIONS.functions,
+    persona: 'functions',
+    other: true,
     fields: ['functions'],
     known: known('craft', 'functions'),
     apply: set('craft', 'functions', asList),
@@ -195,7 +208,9 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'craft',
     label: 'What level are you aiming for in your next role?',
     answer_type: 'chips',
-    options: ['senior', 'staff', 'principal', 'group', 'head', 'director', 'vp', 'other'],
+    options: FALLBACK_OPTIONS.levels,
+    persona: 'levels',
+    other: true,
     fields: ['level'],
     known: known('craft', 'level'),
     apply: set('craft', 'level'),
@@ -220,6 +235,20 @@ export const QUESTION_BANK: QuestionDef[] = [
     known: known('craft', 'facing'),
     apply: set('craft', 'facing'),
   },
+  {
+    // #74: the titles the scout searches for, from the resume's persona (a salesperson sees sales titles).
+    id: 'craft.titles',
+    component: 'craft',
+    label: 'Which job titles should we search for?',
+    example: 'Pick one or more, or add your own.',
+    answer_type: 'multi_chips',
+    options: FALLBACK_OPTIONS.titles,
+    persona: 'titles',
+    other: true,
+    fields: ['titles'],
+    known: known('craft', 'titles'),
+    apply: set('craft', 'titles', asList),
+  },
   // Domain
   {
     id: 'domain.ranked',
@@ -227,7 +256,9 @@ export const QUESTION_BANK: QuestionDef[] = [
     label: 'Which domains do you want to work in, in order of preference?',
     example: 'Pick in order. The first counts most.',
     answer_type: 'multi_chips',
-    options: ['AI infra', 'developer tools', 'data platforms', 'frontier AI', 'fintech', 'healthcare', 'security', 'other'],
+    options: FALLBACK_OPTIONS.domains,
+    persona: 'domains',
+    other: true,
     fields: ['ranked'],
     known: known('domain', 'ranked'),
     apply: set('domain', 'ranked', asList),
@@ -411,7 +442,9 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'growth',
     label: 'What scope do you want to grow into next?',
     answer_type: 'chips',
-    options: ['principal IC', 'group PM', 'head of product', 'VP product', 'founder', 'other'],
+    options: FALLBACK_OPTIONS.scopes,
+    persona: 'scopes',
+    other: true,
     fields: ['scope_ceiling'],
     known: known('growth', 'scope_ceiling'),
     apply: set('growth', 'scope_ceiling'),
@@ -560,6 +593,8 @@ export interface InterviewPlan {
   questions: ProposedQuestion[];
   /** Questions answered "I don't know". */
   skipped: string[];
+  /** Persona-dependent options from the resume (#74): the agent's (`onboard.extract { options }`) or the preview's. */
+  options?: PersonaOptions;
 }
 
 export const emptyPlan = (): InterviewPlan => ({ hints: {}, questions: [], skipped: [] });
@@ -581,6 +616,12 @@ const FUNCTION_NOUN: Record<string, string> = {
   Engineering: 'engineer',
   'Data Science': 'data scientist',
   FDE: 'forward deployed engineer',
+  Sales: 'seller',
+  'Account Management': 'account manager',
+  'Business Development': 'business development lead',
+  Marketing: 'marketer',
+  Design: 'designer',
+  'Customer Success': 'customer success lead',
 };
 const MODE_PHRASE: Record<string, string> = { ic: 'as an individual contributor', lead: 'leading a team', either: 'as an IC or a lead' };
 
@@ -714,9 +755,29 @@ export function nextQuestion(
   return null;
 }
 
-/** The options a question shows for this draft. */
-export function optionsOf(q: QuestionDef, d: Draft): string[] | undefined {
-  return q.optionsFor ? q.optionsFor(d) : q.options;
+/**
+ * The options a question shows for this draft. Persona-dependent (#74): the plan's options, else the Craft
+ * draft's persona, else the static fallback; the draft's current value and the resume's suggestion are kept
+ * among them so they stay selectable.
+ */
+export function optionsOf(q: QuestionDef, d: Draft, plan?: InterviewPlan | null): string[] | undefined {
+  if (q.optionsFor) return q.optionsFor(d);
+  if (!q.persona) return q.options;
+  const fromPlan = plan?.options?.[q.persona];
+  const persona = fromPlan?.length ? null : personaOfCraft(d.craft);
+  const fns = list(d.craft?.functions);
+  const base = fromPlan?.length
+    ? fromPlan
+    : q.persona === 'titles' && fns.length
+      ? titlesForFunctions(fns)
+      : persona && q.persona !== 'titles'
+        ? persona[q.persona]
+        : (q.options ?? []);
+  const f = q.fields?.[0];
+  const hint = plan?.hints[q.component];
+  const own = f ? [...list(d[q.component]?.[f]), ...(hint ? list(hint.data[f] ?? hint.suggest[f]) : [])] : [];
+  // Titles: the user's own first. Other lists keep their order, the user's values added after.
+  return q.persona === 'titles' ? uniq([...own, ...base], 14) : uniq([...base, ...own], 16);
 }
 
 /** The answer a resume hint suggests for an open question (pre-filled by the UI), if any. */
@@ -726,7 +787,7 @@ export function suggestedFor(q: QuestionDef, d: Draft, plan?: InterviewPlan | nu
   if (!hint || !f || q.kind === 'confirm' || q.max_items) return undefined;
   const v = hint.data[f] ?? hint.suggest[f];
   if (v == null) return undefined;
-  const options = optionsOf(q, d);
+  const options = optionsOf(q, d, plan);
   if (q.answer_type === 'chips') return typeof v === 'string' && (!options || options.includes(v)) ? v : undefined;
   if (q.answer_type === 'multi_chips') {
     const xs = list(v).filter((x) => !options || options.includes(x));
@@ -738,6 +799,9 @@ export function suggestedFor(q: QuestionDef, d: Draft, plan?: InterviewPlan | nu
   return xs.length ? (f === 'wins' ? xs[0] : xs.join(', ')) : undefined;
 }
 
+/** Longest free entry (Other) for a persona-dependent option. */
+export const OTHER_MAX_CHARS = 60;
+
 /** Validate an answer against its question's type. Throws with a short message. */
 export function checkAnswer(q: QuestionDef, v: AnswerValue, d: Draft = {}): void {
   const options = optionsOf(q, d);
@@ -747,15 +811,21 @@ export function checkAnswer(q: QuestionDef, v: AnswerValue, d: Draft = {}): void
     if ((q.min != null && n < q.min) || (q.max != null && n > q.max)) throw new Error(`${q.id}: out of range`);
     return;
   }
+  // Free entry (#74): any short value besides the options.
+  const known = (x: string) => q.other || !options || options.includes(x);
   if (q.answer_type === 'chips') {
-    if (Array.isArray(v) || typeof v !== 'string') throw new Error(`${q.id}: expected one option`);
-    if (options && !options.includes(v)) throw new Error(`${q.id}: unknown option '${v}'`);
+    if (Array.isArray(v) || typeof v !== 'string' || !v.trim()) throw new Error(`${q.id}: expected one option`);
+    if (!known(v)) throw new Error(`${q.id}: unknown option '${v}'`);
+    if (q.other && v.length > OTHER_MAX_CHARS) throw new Error(`${q.id}: over ${OTHER_MAX_CHARS} chars`);
     return;
   }
   if (q.answer_type === 'multi_chips') {
     const list = asList(v);
     if (!list.length) throw new Error(`${q.id}: pick at least one`);
-    if (options) for (const x of list) if (!options.includes(x)) throw new Error(`${q.id}: unknown option '${x}'`);
+    for (const x of list) {
+      if (!known(x)) throw new Error(`${q.id}: unknown option '${x}'`);
+      if (q.other && x.length > OTHER_MAX_CHARS) throw new Error(`${q.id}: over ${OTHER_MAX_CHARS} chars`);
+    }
     return;
   }
   if (q.answer_type === 'list') {

@@ -3,7 +3,14 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { PolicyConfig, RunnerConfig, Skill } from '@perfect-placement/contracts';
+import {
+  type PolicyConfig,
+  type RunnerConfig,
+  type Skill,
+  VOICE_LEARN_MAX_EMAILS,
+  VOICE_LEARN_MAX_POSTS,
+  VOICE_LEARN_SAMPLES_MAX,
+} from '@perfect-placement/contracts';
 
 /*
  * Headless agent runner for `runs.start` (wave1-decisions #9). UI buttons and schedules start a run;
@@ -113,6 +120,8 @@ export interface PromptContext {
   linkedin?: PolicyConfig['linkedin'] & { budget_left: number };
   /** `fill` (#81): the vault path of questions the user pasted (`apply.set_questions`); answer those, no portal read. */
   questions?: string;
+  /** `voice` (#76): whether LinkedIn posts may be read (config.linkedin.mode is `live`) and the page cap. */
+  voice?: { linkedin: boolean; max_pages: number };
 }
 
 /** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
@@ -212,6 +221,12 @@ export const SKILL_TOOLS: Readonly<
   },
   inbox: { web: [], gmail: GMAIL_READ_TOOLS, why: 'Gmail search + read (read-only) to classify replies, plus ops' },
   learn: { web: [], gmail: [], why: 'ops only' },
+  voice: {
+    web: [],
+    gmail: GMAIL_READ_TOOLS,
+    chrome: CHROME_READ_TOOLS,
+    why: "Learn voice (#76): the user's own sent Gmail (search + read, read-only) and, when LinkedIn is live, their LinkedIn posts via Claude in Chrome (read + navigate tools only); proposes the Voice with profile.propose_voice",
+  },
   onboard: {
     web: [],
     gmail: [],
@@ -226,7 +241,7 @@ export const SKILL_TOOLS: Readonly<
 };
 
 /**
- * Claude Code tool names a skill's headless run pre-approves. For `connect`, `linkedin: false`
+ * Claude Code tool names a skill's headless run pre-approves. For `connect` and `voice`, `linkedin: false`
  * (config.linkedin.mode is not `live`) drops the Chrome tools.
  */
 export function skillAllowedTools(skill: Skill, opts: { linkedin?: boolean } = {}): string[] {
@@ -234,9 +249,12 @@ export function skillAllowedTools(skill: Skill, opts: { linkedin?: boolean } = {
   return [`mcp__${MCP_SERVER_NAME}`, ...t.web, ...t.gmail, ...(usesChrome(skill, opts.linkedin !== false) ? (t.chrome ?? []) : [])];
 }
 
-/** Does this skill's run use Claude in Chrome? `connect` only when LinkedIn is live; `fill` always (#81). */
+/** Skills whose Chrome use is reading LinkedIn: on only when config.linkedin.mode is `live` (#82, #76). */
+export const LINKEDIN_SKILLS: readonly Skill[] = ['connect', 'voice'];
+
+/** Does this skill's run use Claude in Chrome? `connect` and `voice` only when LinkedIn is live; `fill` always (#81). */
 export const usesChrome = (skill: Skill, linkedin = true): boolean =>
-  (skill !== 'connect' || linkedin) && (SKILL_TOOLS[skill].chrome?.length ?? 0) > 0;
+  (!LINKEDIN_SKILLS.includes(skill) || linkedin) && (SKILL_TOOLS[skill].chrome?.length ?? 0) > 0;
 
 /** Everything a Chrome skill's run denies: Gmail writes it is not granted, every acting Chrome tool, built-in writes. */
 export function chromeDeniedTools(skill: Skill): string[] {
@@ -276,7 +294,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
   const file = join(skillsDir, c.skill, 'SKILL.md');
   const skill = existsSync(file) ? readFileSync(file, 'utf8').trim() : `# ${c.skill}\n\n(SKILL.md not found at ${file})`;
   const ids = [`run_id: ${c.runId}`, ...(c.roleId ? [`role_id: ${c.roleId}`] : []), ...(c.contactId ? [`contact_id: ${c.contactId}`] : [])];
-  const live = c.linkedin ? c.linkedin.mode === 'live' : true;
+  const live = c.voice ? c.voice.linkedin : c.linkedin ? c.linkedin.mode === 'live' : true;
   const extra = skillAllowedTools(c.skill, { linkedin: live }).slice(1);
   const assets = (SKILL_ASSETS[c.skill] ?? []).map((name) => {
     const abs = join(skillsDir, c.skill, name);
@@ -293,6 +311,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
     ...(c.skill === 'fill' ? ['', fillLine(c.questions)] : []),
+    ...(c.voice ? ['', voiceLine(c.voice)] : []),
     '',
     skill,
     ...(assets.length ? ['', ...assets] : []),
@@ -311,6 +330,15 @@ export function fillLine(questions?: string): string {
   if (questions)
     return `Questions: the user pasted this portal's questions (vault.read { path: "${questions}" }). Answer exactly those; do not read the portal for questions.`;
   return 'Portal (read-only via Claude in Chrome): open the apply page in a new tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type, fill a field, upload or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.';
+}
+
+/** The sources line of a `voice` prompt (#76): Gmail sent mail read-only, LinkedIn posts only when live, caps. */
+export function voiceLine(v: NonNullable<PromptContext['voice']>): string {
+  const gmail = `Gmail (read-only): only messages the user sent (search "in:sent", newest first), at most ${VOICE_LEARN_MAX_EMAILS}. Never read received mail beyond the user's own words, never draft, send, label or delete.`;
+  const li = v.linkedin
+    ? `LinkedIn (read-only via Claude in Chrome): only the user's own recent posts (their profile's activity page), at most ${VOICE_LEARN_MAX_POSTS} posts and ${v.max_pages} pages. Never like, comment, message, connect, follow or click a button.`
+    : 'LinkedIn: off for this run (config.linkedin.mode is not live). Do not open LinkedIn; report linkedin_posts: 0.';
+  return `${gmail}\n${li}\nPropose at most ${VOICE_LEARN_SAMPLES_MAX} short samples with profile.propose_voice; never apply the diff.`;
 }
 
 /** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
@@ -437,8 +465,8 @@ export function buildRunnerSpec(opts: {
                   '--permission-mode',
                   'dontAsk',
                 ]
-              : usesChrome(opts.skill)
-                ? // #81 (fill): the portal is read through Claude in Chrome. No strict MCP config (as for connect,
+              : usesChrome(opts.skill, opts.linkedin !== false)
+                ? // #81 (fill), #76 (voice with LinkedIn live): the portal is read through Claude in Chrome. No strict MCP config (as for connect,
                   // so the Chrome integration loads); built-ins narrowed to the skill's web tools; the Chrome read +
                   // navigate tools pre-approved; every acting Chrome tool (form_input, computer, javascript_tool,
                   // file_upload, ...), every Gmail write and built-in writes denied; dontAsk denies anything else.
@@ -446,7 +474,7 @@ export function buildRunnerSpec(opts: {
                     '--tools',
                     SKILL_TOOLS[opts.skill].web.join(','),
                     '--allowedTools',
-                    skillAllowedTools(opts.skill).join(','),
+                    skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
                     '--disallowedTools',
                     chromeDeniedTools(opts.skill).join(','),
                     '--permission-mode',
@@ -461,7 +489,7 @@ export function buildRunnerSpec(opts: {
                     '--tools',
                     SKILL_TOOLS[opts.skill].web.join(','),
                     '--allowedTools',
-                    skillAllowedTools(opts.skill).join(','),
+                    skillAllowedTools(opts.skill, { linkedin: opts.linkedin !== false }).join(','),
                     ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
                     '--permission-mode',
                     'dontAsk',
@@ -471,7 +499,7 @@ export function buildRunnerSpec(opts: {
           '--output-format',
           'json',
           // LinkedIn people reads (wave1-decisions #4, #82) and fill's portal reads (#81) go through Claude in Chrome;
-          // the Gmail step reads no LinkedIn, and config.linkedin.mode other than `live` turns it off for connect.
+          // the Gmail step reads no LinkedIn, and config.linkedin.mode other than `live` turns it off for connect and voice.
           ...(usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft ? ['--chrome'] : []),
           ...extra,
         ],

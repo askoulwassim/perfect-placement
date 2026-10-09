@@ -320,7 +320,19 @@ export const SUBJECT_TYPES = [
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
 
-/** Skills a run can start (`runs.start`). */
-export const SKILLS = ['onboard', 'scout', 'score', 'freshness', 'research', 'tailor', 'connect', 'fill', 'inbox', 'learn'] as const;
+/** Skills a run can start (`runs.start`). `voice` (#76): learn the Voice component from the user's own writing. */
+export const SKILLS = [
+  'onboard',
+  'scout',
+  'score',
+  'freshness',
+  'research',
+  'tailor',
+  'connect',
+  'fill',
+  'inbox',
+  'learn',
+  'voice',
+] as const;
 export const Skill = z.enum(SKILLS);
 export type Skill = z.infer<typeof Skill>;

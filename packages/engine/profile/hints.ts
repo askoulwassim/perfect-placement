@@ -1,4 +1,5 @@
 import type { ProfileComponentKey } from '@perfect-placement/contracts';
+import { coreTitle, detectPersona, type Persona, type PersonaOptions, previewOptions, uniq } from './persona.js';
 import { bullets, type ResumeDraft, stripMd } from './resume.js';
 
 /*
@@ -87,7 +88,7 @@ const levelRank = (title: string): number => {
   const l = LEVEL_OF.find(([re]) => re.test(title))?.[1];
   return l ? (LEVEL_RANK[l] ?? 1) : /\b(analyst|associate|junior|intern)\b/i.test(title) ? 0 : 1;
 };
-/** The growth.ceiling option one step above a level. */
+/** The growth.ceiling option one step above a level when no persona is recognized (the product ladder). */
 const NEXT_SCOPE: Record<string, string> = {
   senior: 'principal IC',
   staff: 'principal IC',
@@ -100,6 +101,15 @@ const NEXT_SCOPE: Record<string, string> = {
 
 type Role = { company?: string; title?: string; dates?: string; bullets?: string[] };
 const rolesOf = (story: Record<string, unknown>): Role[] => (Array.isArray(story.roles) ? (story.roles as Role[]) : []);
+
+/** The resume's job titles, newest first, specialty dropped (#74): suggested for craft.titles, never confirmed. */
+export function resumeTitles(story: Record<string, unknown>): string[] {
+  const roles = rolesOf(story)
+    .map((r) => r.title ?? '')
+    .filter((t) => t && !/^(early roles?|various)$/i.test(t));
+  const headline = typeof story.headline === 'string' && story.headline.split(/\s+/).length <= 8 ? [story.headline] : [];
+  return uniq((roles.length ? roles : headline).map(coreTitle), 4);
+}
 
 function craftHint(parsed: ResumeDraft): ComponentHint | null {
   const c = parsed.craft;
@@ -115,10 +125,17 @@ function craftHint(parsed: ResumeDraft): ComponentHint | null {
   if (typeof c.mode === 'string') fields.mode = c.mode;
   // Titles name the function and level plainly; a mode derived from the level alone is weaker.
   const conf = fields.level && fields.functions ? 0.85 : 0.6;
-  return makeHint(fields, conf, items, 'preview');
+  return withTitles(makeHint(fields, conf, items, 'preview'), resumeTitles(parsed.story), items);
 }
 
-function growthHint(parsed: ResumeDraft): ComponentHint | null {
+/** The resume's titles as a craft.titles suggestion (#74): pre-filled, never part of the confirm. */
+export function withTitles(h: ComponentHint | null, titles: string[], items: string[] = []): ComponentHint | null {
+  if (!titles.length) return h;
+  if (!h) return { data: {}, suggest: { titles }, confidence: 0.5, items: items.slice(0, 6), by: 'preview' };
+  return { ...h, suggest: { ...h.suggest, titles } };
+}
+
+function growthHint(parsed: ResumeDraft, persona: Persona | null): ComponentHint | null {
   const titles = rolesOf(parsed.story)
     .map((r) => r.title ?? '')
     .filter(Boolean);
@@ -129,7 +146,8 @@ function growthHint(parsed: ResumeDraft): ComponentHint | null {
   const level = typeof parsed.craft.level === 'string' ? parsed.craft.level : undefined;
   const fields: Record<string, unknown> = {};
   if (titles.length > 1) fields.trajectory = newest > oldest ? 'up' : 'steady';
-  if (level && NEXT_SCOPE[level]) fields.scope_ceiling = NEXT_SCOPE[level];
+  const next = persona?.next ?? NEXT_SCOPE;
+  if (level && next[level]) fields.scope_ceiling = next[level];
   // Where someone wants to go next is theirs to say: growth is always asked, only pre-filled.
   return makeHint(fields, 0.5, [`Title path: ${[...titles].reverse().join(' > ')}`], 'preview');
 }
@@ -187,9 +205,28 @@ export function resumeHints(text: string, parsed: ResumeDraft): ResumeHints {
   set('story', storyHint(text, parsed.story));
   set('craft', craftHint(parsed));
   set('domain', domainHint(text));
-  set('growth', growthHint(parsed));
+  set('growth', growthHint(parsed, personaOfResume(parsed)));
   set('voice', voiceHint(text, parsed.story));
   return out;
+}
+
+/** The persona the resume's headline and role titles point at (#74). */
+export function personaOfResume(parsed: ResumeDraft): Persona | null {
+  const headline = typeof parsed.story.headline === 'string' ? [parsed.story.headline] : [];
+  return detectPersona([...headline, ...rolesOf(parsed.story).map((r) => r.title ?? '')]);
+}
+
+/** The instant preview's persona-dependent options (#74): from the resume's persona, titles, functions and domains. */
+export function resumeOptions(parsed: ResumeDraft, hints: ResumeHints): PersonaOptions {
+  const headline = typeof parsed.story.headline === 'string' ? [parsed.story.headline] : [];
+  const d = hints.domain;
+  const ranked = d ? ((d.data.ranked ?? d.suggest.ranked ?? []) as string[]) : [];
+  return previewOptions({
+    titles: resumeTitles(parsed.story),
+    personaTitles: [...headline, ...rolesOf(parsed.story).map((r) => r.title ?? '')],
+    functions: Array.isArray(parsed.craft.functions) ? (parsed.craft.functions as string[]) : [],
+    domains: ranked,
+  });
 }
 
 /** Hint from the agent's extracted Story (verbatim facts; the headline is confirmed). */

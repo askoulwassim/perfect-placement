@@ -20,6 +20,7 @@ export const SKILL_LABEL: Record<Skill, string> = {
   fill: 'Fill',
   inbox: 'Inbox',
   learn: 'Learn',
+  voice: 'Learn voice',
 };
 
 /** The in-progress label a start button shows while its run is running. */
@@ -34,6 +35,7 @@ export const SKILL_ACTIVE: Record<Skill, string> = {
   fill: 'Filling',
   inbox: 'Reading inbox',
   learn: 'Learning',
+  voice: 'Reading your writing',
 };
 
 export const isActive = (s: RunStatus) => (RUN_ACTIVE_STATUSES as readonly RunStatus[]).includes(s);

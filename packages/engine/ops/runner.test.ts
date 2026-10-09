@@ -119,11 +119,45 @@ describe('runner command lines', () => {
     expect(off.args).not.toContain('--chrome');
     expect(flag(off.args, '--allowedTools')).toBe(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(','));
     expect(flag(off.args, '--disallowedTools')).toBe(connectDeniedTools().join(','));
-    // No other skill but fill (#81) gets Chrome.
-    for (const skill of SKILLS.filter((x) => x !== 'connect' && x !== 'fill')) {
+    // No other skill but fill (#81) and voice (#76, LinkedIn posts) gets Chrome.
+    for (const skill of SKILLS.filter((x) => x !== 'connect' && x !== 'fill' && x !== 'voice')) {
       expect(spec('claude', skill).args).not.toContain('--chrome');
       expect(skillAllowedTools(skill).some((t) => t.startsWith(CHROME_PREFIX))).toBe(false);
     }
+  });
+
+  it('voice (#76): sent Gmail read-only, LinkedIn posts via Chrome only when live; every Gmail write and acting tool denied', () => {
+    const on = spec('claude', 'voice');
+    expect(on.args).toContain('--chrome');
+    expect(flag(on.args, '--allowedTools')?.split(',')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, ...CHROME_READ_TOOLS]);
+    expect(flag(on.args, '--tools')).toBe('');
+    expect(on.args).not.toContain('--strict-mcp-config');
+    expect(flag(on.args, '--permission-mode')).toBe('dontAsk');
+    const denied = flag(on.args, '--disallowedTools')?.split(',') ?? [];
+    for (const t of [...GMAIL_WRITE_TOOLS, ...BUILTIN_WRITE_TOOLS, `${CHROME_PREFIX}computer`, `${CHROME_PREFIX}form_input`])
+      expect(denied).toContain(t);
+    expect(denied).not.toContain(GMAIL_READ_TOOLS[0]);
+    const off = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'voice',
+      home: '/h',
+      mcp,
+      linkedin: false,
+    });
+    expect(off.args).not.toContain('--chrome');
+    expect(flag(off.args, '--allowedTools')).toBe(['mcp__pp', ...GMAIL_READ_TOOLS].join(','));
+    expect(flag(off.args, '--disallowedTools')?.split(',')).toEqual(GMAIL_WRITE_TOOLS);
+    expect(usesChrome('voice', false)).toBe(false);
+    // The prompt states the sources and caps; LinkedIn off drops the Chrome tools from the Tools line.
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'voice', voice: { linkedin: true, max_pages: 5 } });
+    expect(p).toContain('only messages the user sent');
+    expect(p).toContain('at most 10 posts and 5 pages');
+    expect(p).toContain('never apply the diff');
+    const pOff = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'voice', voice: { linkedin: false, max_pages: 5 } });
+    expect(pOff).toContain(`Tools: the pp MCP tools and ${GMAIL_READ_TOOLS.join(', ')}, nothing else.`);
+    expect(pOff).toContain('LinkedIn: off for this run');
   });
 
   it('fill (#81): Claude in Chrome on, read + navigate tools only; form_input, typing, uploads, script and submit denied', () => {
@@ -346,7 +380,7 @@ describe('SKILL.md tools vs the allowlist (#79, #80)', () => {
       (t) => t.slice(GMAIL_PREFIX.length),
     ),
   );
-  /** Read-only skills: never granted a Gmail write (or any built-in write). */
+  /** Read-only skills (voice too, #76): never granted a Gmail write (or any built-in write). */
   const READ_ONLY: Skill[] = SKILLS.filter((s) => s !== 'connect');
 
   it('every SKILL.md declares exactly its allowlist in a ## Tools section', () => {

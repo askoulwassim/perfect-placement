@@ -6,7 +6,7 @@
 
 1. **Watchlist boards (ATS API).** `scout.watchlist_scan` lists every open role on each watchlist company's Greenhouse, Lever or Ashby board and drops clear title, seniority and work-mode misses plus roles already in the pipeline. It then ranks each company's survivors by title and profile fit (Craft function and level, Domain rank), groups near-identical titles (same company, title similarity >= 0.85: one candidate stands for the group) and returns at most **`config.scout.max_per_company`** per company (default `scoring.company_active_cap` + 2 = 5), reporting `capped` and `grouped` per company. Every watchlist company is scanned every run. Board scans are API reads, not search queries: they do not count toward the query share cap or `max_queries`.
 2. **Watchlist web search.** Only for watchlist companies the scan reports `no_board` or `error` (Workday, custom career sites). One query per company per run, under the share cap below.
-3. **Open market (web search).** Queries built from the profile, not from company names: Craft (function, level), Domain (ranked problem spaces), Work mode (remote, locations).
+3. **Open market (web search).** Queries built from the profile, not from company names: Craft (titles, function, level), Domain (ranked problem spaces), Work mode (remote, locations). `scout.plan` returns them.
 
 ## Share cap (watchlist adds, #67)
 
@@ -24,7 +24,7 @@
 
 - A run aims for **`config.scout.target_new_roles`** (default 25) roles added, using at most **`config.scout.max_queries`** (default 30) web searches.
 - Start with the strongest combinations, then widen. Variations are the cross product, in this order:
-  1. titles: each Craft function at the profile level, then its synonyms and one level up or down ("Principal Product Manager", "Director of Product", "Group PM", "Head of Product");
+  1. titles: `scout.plan` `titles` in order (Craft `titles` first, then each Craft function's typical titles at the profile level, then one level around). They follow the profile's persona: a product profile gets "Principal Product Manager", "Head of Product"; a sales profile "Enterprise Account Executive", "Sales Manager". Never fall back to product titles for a non-product profile;
   2. domains: each ranked Domain, highest first ("data platform", "AI infrastructure");
   3. seniority words: `principal`, `staff`, `director`, `head of`, per Craft level;
   4. work mode: `remote` plus each Work mode location;
@@ -43,7 +43,7 @@ Every added role costs one score. The intake limits bound it: at most `max_per_c
 ## Rotation
 
 - Rotate watchlist web queries across runs so each company without a board gets a turn: order by last-queried date, oldest first, then affinity.
-- After a profile change (Learn), rebuild open-market queries from the new Domain and Craft ranking.
+- After a profile change (Learn), rebuild open-market queries from the new Domain and Craft ranking (`scout.plan` again).
 
 ## Never
 

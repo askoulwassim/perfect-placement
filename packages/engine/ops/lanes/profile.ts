@@ -23,6 +23,7 @@ import {
   profileSetDefaults,
   undoDiff,
 } from '../../profile/profile-ops.js';
+import { profileProposeVoice } from '../../profile/voice-learn.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
 import { rescoreInputOf } from './scoring.js';
 
@@ -105,6 +106,9 @@ export const LANE_E_HANDLERS = {
         queued: r.queued.map(({ diff_id, decision_id }) => ({ diff_id, decision_id })),
       };
     },
+  }),
+  'profile.propose_voice': defineHandler('profile.propose_voice', {
+    run: (i, h) => profileProposeVoice(profileDeps(h), i, h.ctx).output,
   }),
   'onboard.start': defineHandler('onboard.start', { run: (i, h) => onboardStart(profileDeps(h), i, h.ctx) }),
   'onboard.state': defineHandler('onboard.state', { run: (_i, h) => onboardState(profileDeps(h)) }),

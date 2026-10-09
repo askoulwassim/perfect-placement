@@ -600,6 +600,45 @@ describe('click paths', () => {
     expect($(container, '.timeline__item.is-current').textContent).toContain('Onboard: re interview growth');
   });
 
+  it('You > Voice: Learn voice queues a voice run (#76)', async () => {
+    await boot('#/you/voice');
+    const learn = await screen.findByRole('button', { name: 'Learn voice' });
+    expect(learn.getAttribute('data-op')).toBe('runs.start');
+    fireEvent.click(learn);
+    await waitFor(() => expect(live?.calls.find((c) => c.name === 'runs.start')?.body).toEqual({ skill: 'voice' }));
+  });
+
+  it('Craft offers Other with free entry (#74)', async () => {
+    const { container } = await boot('#/you/craft');
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-interview' }));
+    await waitFor(() =>
+      expect($(container, '.onboard-q__text').textContent).toBe('What kind of work do you want to do in your next role?'),
+    );
+    const other = $(container, '.chip--other');
+    expect(other.getAttribute('data-op')).toBe('local');
+    fireEvent.click(other);
+    const field = $(container, '.onboard-q__other') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'Revenue Operations' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await screen.findByRole('button', { name: 'Revenue Operations' });
+    fireEvent.click(primary(container));
+    await waitFor(() =>
+      expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toMatchObject({ question_id: 'craft.functions' }),
+    );
+    const sent = live?.calls.find((c) => c.name === 'onboard.answer')?.body as { value: string[] };
+    expect(sent.value).toContain('Revenue Operations');
+  });
+
+  it('Voice Skip skips the whole step (#76)', async () => {
+    const { container } = await boot('#/you/voice');
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-interview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'onboard.answer').at(-1)?.body).toMatchObject({ skip: true, skip_component: true }),
+    );
+    await waitFor(() => expect(primary(container).textContent).toBe('Save'));
+  });
+
   it('You: Recalibrate reuses the calibration step from the current weights; Save shows before / after and a new version (#25)', async () => {
     const { container } = await boot('#/you', async (l) => {
       // Clear the fixture's pending diffs so Recalibrate is the primary.
@@ -741,7 +780,8 @@ describe('click paths', () => {
       const chip = container.querySelector('.onboard-q .chip');
       const text = container.querySelector('.onboard-q textarea');
       const entry = container.querySelector('.onboard-q .chip-input input');
-      if (chip) fireEvent.click(chip);
+      // A resume suggestion is pre-selected (#74 titles): clicking it again would clear the answer.
+      if (chip && !container.querySelector('.onboard-q .chip[aria-pressed="true"]')) fireEvent.click(chip);
       if (text) fireEvent.change(text, { target: { value: 'Short and direct.' } });
       if (entry) {
         fireEvent.change(entry, { target: { value: 'Acme' } });

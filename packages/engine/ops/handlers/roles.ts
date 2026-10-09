@@ -17,6 +17,7 @@ import {
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
 import { connectStateFor } from '../../people/queries.js';
+import { personaOfCraft, titleVariations } from '../../profile/persona.js';
 import { getComponent, getCurrentVersion } from '../../profile/versions.js';
 import { watchlistFrom } from '../../scoring/source-mix.js';
 import {
@@ -465,6 +466,26 @@ export const rolesAdd = defineHandler('roles.add', {
       resolved,
       by_source: bySource,
       ...(showBudget ? { watchlist_budget: wb } : {}),
+    };
+  },
+});
+
+// --------------------------------------------------------- scout.plan
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String).filter(Boolean) : typeof v === 'string' && v ? [v] : []);
+
+/** The scout's query ingredients from the profile (#74): persona-aware title variations, domains, locations. */
+export const scoutPlanHandler = defineHandler('scout.plan', {
+  run(_input, h) {
+    const version = getCurrentVersion(h.repos);
+    const comp = (key: 'craft' | 'work_mode' | 'domain') =>
+      version ? ((getComponent(h.repos, version.id, key)?.data_json as Record<string, unknown> | undefined) ?? {}) : {};
+    const craft = comp('craft');
+    return {
+      persona: personaOfCraft(craft)?.id ?? null,
+      titles: titleVariations(craft),
+      domains: strings(comp('domain').ranked),
+      locations: strings(comp('work_mode').locations),
     };
   },
 });
