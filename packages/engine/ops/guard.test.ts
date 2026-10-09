@@ -47,6 +47,9 @@ const FS_ALLOWED = [
   'packages/resolver/src/eval/cli.ts',
   'packages/fixtures/',
   'packages/contracts/scripts/',
+  // pp setup / pp kev: agent client configs (outside the vault, backed up first) and Kev runtime
+  // files under $PP_HOME/kev/ (clone, pid, log). Never vault data: config goes through config.update.
+  'packages/cli/src/system/',
 ];
 const LANES = [
   'packages/engine/profile',
@@ -90,6 +93,8 @@ describe('(d) ops-only writes', () => {
       [
         // lane A's `pp doctor` command calls lane A directly.
         'packages/cli/src/commands/doctor.ts',
+        // Machine access for setup / kev (see FS_ALLOWED).
+        'packages/cli/src/system/',
       ],
     );
     expect(hits).toEqual([]);

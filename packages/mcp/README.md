@@ -52,7 +52,7 @@ Underscore names are what all three already show the model, are stable across cl
 
 ## Client config
 
-Snippets to paste (nothing here edits your config). Replace `/ABS/PATH` with the absolute path of your clone and `/ABS/VAULT` with your PP_HOME. The server key is `pp`, matching the headless runner (`mcp__pp__*` in Claude Code). Add `--fixtures` to `args` to try the synthetic demo first.
+`pp setup` writes these for you (asks first, backs up the file, keeps other servers). Snippets to paste by hand: Replace `/ABS/PATH` with the absolute path of your clone and `/ABS/VAULT` with your PP_HOME. The server key is `pp`, matching the headless runner (`mcp__pp__*` in Claude Code). Add `--fixtures` to `args` to try the synthetic demo first.
 
 **Claude Code** (verified against code.claude.com/docs/en/mcp):
 

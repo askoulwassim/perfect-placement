@@ -19,6 +19,8 @@ import { applicationFor, getCompany, getRole, latestScore, latestScores, moveRol
 
 // ------------------------------------------------------------------ roles.add
 
+// Legal suffixes are dropped from the slug / dedupe key only ("Acme, Inc." and "Acme" are one company).
+// The display name is kept exactly as given, trimmed ("Example Co" stays "Example Co").
 const LEGAL_SUFFIX = /[,.]?\s+(inc|llc|ltd|limited|corp|corporation|co|gmbh|plc|sa|ag|bv)\.?$/i;
 export const companySlug = (name: string) => slugify(name.trim().replace(LEGAL_SUFFIX, ''));
 const hostOf = (d: string | null | undefined) =>
@@ -53,7 +55,7 @@ function createCompany(h: HandlerContext, name: string, domain: string | undefin
   const company: Company = {
     id: slug,
     slug,
-    name: name.trim().replace(LEGAL_SUFFIX, ''),
+    name: name.trim(),
     domain: hostOf(domain),
     ats_type: ats.type,
     ats_board: ats.board,

@@ -94,7 +94,8 @@ export const ROUTABLE_BACKENDS = ['kev', 'agent', 'jev', 'llm'] as const;
 export const BackendsConfig = z.object({
   default: z.enum(ROUTABLE_BACKENDS),
   fallback: z.enum(ROUTABLE_BACKENDS),
-  kev: z.object({ baseUrl: z.string() }),
+  /** `model`: the Kev checkpoint `pp kev start` serves (`KEV_MODELS` in the cli); absent = kev-4b. */
+  kev: z.object({ baseUrl: z.string(), model: z.string().optional() }),
   /** Optional hosted System One adapter; off by default (Kev only). */
   jev: z.object({ baseUrl: z.string(), keyEnv: z.string(), enabled: z.boolean().default(false) }),
   /** The calling agent session (Claude Code, Codex, Cursor) over MCP. No settings yet. */
