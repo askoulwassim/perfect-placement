@@ -7,7 +7,7 @@ import { C, display, eyebrow, F, mono, tab, X } from './theme';
 
 // ------------------------------------------------------------ NavRail
 
-export type NavTarget = 'now' | 'needs-you' | 'river' | 'role' | 'people' | 'you' | 'onboarding' | 'settings' | 'ask';
+export type NavTarget = 'now' | 'needs-you' | 'river' | 'role' | 'people' | 'you' | 'settings' | 'ask';
 
 const RAIL: ReadonlyArray<[NavTarget, IconName, string]> = [
   ['now', 'now', 'Now'],
@@ -15,8 +15,8 @@ const RAIL: ReadonlyArray<[NavTarget, IconName, string]> = [
   ['river', 'river', 'River'],
   ['role', 'role', 'Role'],
   ['people', 'people', 'People'],
+  // Setup lives in You (#25): no separate rail entry.
   ['you', 'you', 'You'],
-  ['onboarding', 'onboard', 'Setup'],
   ['settings', 'settings', 'Settings'],
 ];
 

@@ -220,8 +220,15 @@ const OnboardState = z.object({
 /** Added in Wave 2 (lane E): start full onboarding, or re-interview only some components. */
 export const onboardStart = defineOp({
   name: 'onboard.start',
-  description: 'Start onboarding; with components, re-interview only those.',
-  input: z.object({ components: z.array(ProfileComponentKey).optional() }),
+  description: 'Start onboarding; with components, re-interview only those; with calibrate, recalibrate the weights (needs a profile).',
+  input: z.object({
+    components: z.array(ProfileComponentKey).optional(),
+    /**
+     * Added (#25): recalibrate. A session at the calibrate step, seeded from the current profile (the bars
+     * start from its weights); confirm writes only the weighted components as a new version.
+     */
+    calibrate: z.boolean().optional(),
+  }),
   output: OnboardState,
   impact: 'low',
   emits: [],

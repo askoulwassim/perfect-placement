@@ -1,6 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CRITERIA, type Criterion, type OpContext, type OpOutput } from '@perfect-placement/contracts';
+import {
+  CRITERIA,
+  type Criterion,
+  type OpContext,
+  type OpOutput,
+  PROFILE_COMPONENT_KIND,
+  type ProfileComponentKey,
+} from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine, tickingClock } from '../testing/index.js';
 import { type CalibrationSample, deriveWeights } from './calibration.js';
@@ -179,6 +186,32 @@ describe('onboarding end to end via ops', () => {
     expect(p.components.find((c) => c.key === 'growth')?.data_json.trajectory).toBe('deeper');
     const prev = await comps('pv_0002');
     for (const c of p.components.filter((x) => x.key !== 'growth'))
+      expect(c.data_json).toEqual(prev.components.find((x) => x.key === c.key)?.data_json);
+  });
+
+  it('fixtures: recalibrate (onboard.start with calibrate) starts from the current weights and saves only weighted components (#25)', async () => {
+    e = openFixtureEngine();
+    const prev = await comps();
+    const current = rubricWeights(prev.components as never);
+    const state = (await op('onboard.start', { calibrate: true })) as State;
+    expect(state.step).toBe('calibrate');
+    expect(state.next_question).toBeNull();
+    const samples = (await op('onboard.samples', {})) as OpOutput<'onboard.samples'>;
+    for (const c of CRITERIA) expect(samples.weights[c]).toBeCloseTo(current[c], 5);
+    // Nothing answered yet: nothing to save.
+    expect(await (e as FixtureEngine).runOp('onboard.confirm', {}, ctx())).toMatchObject({ status: 'error', code: 'conflict' });
+    let last: OpOutput<'onboard.calibrate'> | undefined;
+    for (const [i, s] of samples.items.entries())
+      last = (await op('onboard.calibrate', { sample_id: s.id, choice: i % 2 ? 'no' : 'yes' })) as never;
+    expect(last?.remaining).toBe(0);
+    expect((await op('onboard.state', {})).step).toBe('confirm');
+    await op('onboard.confirm', {});
+    const p = await comps();
+    expect(p.version.parent_id).toBe(prev.version.id);
+    expect(p.version.reason).toBe('onboard: recalibrate');
+    const after = rubricWeights(p.components as never);
+    expect(CRITERIA.some((c) => Math.abs(after[c] - current[c]) > 0.01)).toBe(true);
+    for (const c of p.components.filter((x) => PROFILE_COMPONENT_KIND[x.key as ProfileComponentKey] !== 'weighted'))
       expect(c.data_json).toEqual(prev.components.find((x) => x.key === c.key)?.data_json);
   });
 

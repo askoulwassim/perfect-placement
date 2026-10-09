@@ -20,7 +20,7 @@ import { C, display, eyebrow, mono, tab, X } from '../components/theme';
 import { humanize, k } from '../lib/format';
 import { COMPONENT_NAME, chipsOf } from '../lib/profile';
 import { activeLabel, isActive, runOutcome } from '../lib/runs';
-import { go } from '../router';
+import { go, type YouFlow } from '../router';
 
 type OnboardState = OpOutput<'onboard.answer'>;
 const NODE_COUNT = PROFILE_COMPONENT_KEYS.length;
@@ -33,10 +33,16 @@ async function toBase64(f: File): Promise<string> {
   return btoa(bin);
 }
 
-export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolean } = {}) {
+/**
+ * The onboarding steps, run inside You (#25): `setup` (resume, interview, calibrate, confirm), `interview`
+ * (a re-interview started by `onboard.start { components }`) or `calibrate` (a recalibration started by
+ * `onboard.start { calibrate }`, its bars starting from the current weights).
+ */
+export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
+  const startAtCalibrate = flow === 'calibrate';
   const act = useAct();
   const { showToast, client, watchRun, runs, activeRun } = useApp();
-  const [step, setStep] = useState(startAtCalibrate ? 2 : 0);
+  const [step, setStep] = useState(startAtCalibrate ? 2 : flow === 'interview' ? 1 : 0);
   const [state, setState] = useState<OnboardState | null>(null);
   const [file, setFile] = useState<string | null>(null);
   const [parsed, setParsed] = useState(0);
@@ -219,17 +225,19 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const total = samples.data?.items.length ?? 12;
   const card = samples.data?.items[Math.min(ci, total - 1)];
   const calDone = !!samples.data && ci >= total;
+  /** A recalibration saves only once at least one card is answered. */
+  const recalEmpty = flow === 'calibrate' && step === 2 && !weights;
 
   const primary =
     step === 3 ? (
       <PrimaryButton
-        label="Start"
+        label={flow === 'setup' ? 'Start' : 'Save'}
         op="onboard.confirm"
         onClick={async () => {
           const o = await act('onboard.confirm', {});
           if (o.status === 'ok') {
-            showToast('Profile live');
-            go(reinterview ? { screen: 'you', component: reinterview } : { screen: 'now' });
+            showToast(flow === 'setup' ? 'Profile live' : 'Profile saved');
+            go(reinterview ? { screen: 'you', component: reinterview } : flow === 'setup' ? { screen: 'now' } : { screen: 'you' });
           }
         }}
       />
@@ -237,8 +245,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       <PrimaryButton
         label="Next"
         op={step === 1 ? 'onboard.answer' : null}
-        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && !answered)}
-        disabled={(step === 0 && !state) || (step === 1 && !answered)}
+        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && !answered) || recalEmpty}
+        disabled={(step === 0 && !state) || (step === 1 && !answered) || recalEmpty}
         onClick={() => void next()}
       />
     );
@@ -255,7 +263,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const story = profile.data?.components.find((c) => c.key === 'story');
 
   return (
-    <div data-screen-label="Onboarding" style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div data-screen-label={`You · ${flow}`} style={{ maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 72 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
           <PPMark />
@@ -266,7 +274,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             label="Exit"
             op={null}
             height={44}
-            onClick={() => go({ screen: 'now' })}
+            onClick={() => go(flow === 'setup' ? { screen: 'now' } : { screen: 'you' })}
             style={{ color: C.muted, padding: '0 18px' }}
             hover={{ borderColor: C['emerald-2'], color: C.fg }}
           />
@@ -720,7 +728,9 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
         </div>
       )}
 
-      {step === 3 && (
+      {step === 3 && flow === 'calibrate' && base && w && <WeightsDiff before={base} after={w} />}
+
+      {step === 3 && flow !== 'calibrate' && (
         <div
           style={{
             maxWidth: 1000,
@@ -783,6 +793,72 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Recalibration result (#25): every criterion's weight before and after, changed ones marked. */
+function WeightsDiff({ before, after }: { before: Record<Criterion, number>; after: Record<Criterion, number> }) {
+  return (
+    <div
+      className="weights-diff"
+      style={{
+        maxWidth: 720,
+        margin: '48px auto 0',
+        background: C.panel,
+        border: `1px solid ${C['line-2']}`,
+        borderRadius: 12,
+        padding: 36,
+      }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '28px 110px minmax(0,1fr) 40px 40px', gap: 12, marginBottom: 16 }}>
+        <span />
+        <span style={eyebrow()}>Weights</span>
+        <span />
+        <span style={{ ...eyebrow(), textAlign: 'right' }}>Before</span>
+        <span style={{ ...eyebrow(C.emerald), textAlign: 'right' }}>After</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {CRITERIA.map((c, j) => {
+          const b = Math.round(before[c]);
+          const a = Math.round(after[c]);
+          return (
+            <div
+              key={c}
+              className="weights-diff__row"
+              data-criterion={c}
+              data-changed={a !== b}
+              style={{ display: 'grid', gridTemplateColumns: '28px 110px minmax(0,1fr) 40px 40px', gap: 12, alignItems: 'center' }}
+            >
+              <span style={mono(11, C.dim)}>C{j + 1}</span>
+              <span style={{ fontSize: 13, color: C.muted }}>{CRITERION_LABELS[c]}</span>
+              <div style={{ position: 'relative', height: 8, borderRadius: 4, background: C.line, overflow: 'hidden' }}>
+                <div
+                  style={{ position: 'absolute', inset: 0, width: `${Math.min(100, (before[c] / 22) * 100)}%`, background: C['line-2'] }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: `${Math.min(100, (after[c] / 22) * 100)}%`,
+                    background: a > b ? C.emerald : a < b ? C.gold : C['emerald-2'],
+                    opacity: 0.85,
+                  }}
+                />
+              </div>
+              <span className="weights-diff__before" style={{ ...mono(13, C.muted), textAlign: 'right', ...tab }}>
+                {b}
+              </span>
+              <span
+                className="weights-diff__after"
+                style={{ ...mono(13, a > b ? C.emerald : a < b ? C.gold : C.fg), textAlign: 'right', ...tab }}
+              >
+                {a}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -644,3 +644,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: the interview ignored the uploaded resume (#22) and asked unclear or duplicate questions ("Warm companies", #23).
 - Shim: none for callers (new input fields optional, new output fields defaulted). Migration 007 is additive (`ALTER TABLE onboard_session ADD COLUMN interview_json TEXT NOT NULL DEFAULT '{}'`); an older session resumes with an empty plan (the bank only).
 - Status: accepted
+
+## One profile experience
+
+### `onboard.start { calibrate }`; You primary Recalibrate calls `onboard.start` (#25)
+- Lane: one-profile (D, E)
+- Date: 2026-10-09
+- Contract: registry `onboardStart.input.calibrate` (optional boolean); ui.ts `PRIMARY_ACTIONS.you` Recalibrate op `onboard.start` (was `null`), `PRIMARY_ACTIONS.onboarding` gains `Save` (`onboard.confirm`)
+- Change: `onboard.start { calibrate: true }` starts a recalibration: a session at the `calibrate` step with an empty scope, seeded from the current profile (`not_found` without one). Its prior is the current profile's weights as they are (no stated nudges re-applied), so `onboard.samples` bars start there; `onboard.calibrate` works as in full onboarding; `onboard.confirm` refuses (`conflict`) with no card answered, else writes only the weighted components as a new version with reason `onboard: recalibrate`. UI (not a contract): Setup and You are one place. The Setup rail entry is gone; a fresh vault lands on You, which is setup (resume, interview, calibrate, confirm) until a profile exists. With a profile You shows the constellation; a selected component has **Re-interview** (`onboard.start { components: [key] }`) and the primary **Recalibrate** (`onboard.start { calibrate }`), both running the same steps in place (`#/you/interview`, `#/you/calibrate`; `#/you/setup` redoes everything; old `#/onboarding` links open it) and ending in **Save** (`onboard.confirm`); recalibration's confirm step shows every criterion's weight before and after.
+- Why: Setup and You / Recalibrate were two places for one profile, and Recalibrate had no session to calibrate in (#25).
+- Shim: none (new optional input; without `calibrate` `onboard.start` is unchanged).
+- Status: accepted

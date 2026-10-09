@@ -24,10 +24,10 @@ export const CUE_TARGET: Record<CueId, string> = Object.fromEntries(
   CUE_IDS.map((id) => [id, id === 'ask' ? '.ask input' : '.btn--primary']),
 ) as Record<CueId, string>;
 
-/** The cue for what is on screen (`shown`: the screen actually rendered), or null (Onboarding). */
+/** The cue for what is on screen (`shown`: the screen actually rendered; null while You runs setup). */
 export function cueFor(shown: Route['screen'] | null, askOpen: boolean): CueId | null {
   if (askOpen) return 'ask';
-  if (!shown || shown === 'onboarding' || shown === 'runs') return null;
+  if (!shown || shown === 'runs') return null;
   return shown === 'outreach-draft' ? 'outreach' : shown;
 }
 

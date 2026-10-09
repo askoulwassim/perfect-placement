@@ -525,6 +525,19 @@ export function startComponentInterview(deps: ProfileDeps, components: ProfileCo
   return stateOf(s);
 }
 
+/**
+ * Recalibrate (#25): a session at the calibrate step with an empty scope, seeded from the current profile.
+ * The bars start from the current weights; confirm writes only the weighted components.
+ */
+export function startRecalibration(deps: ProfileDeps, ctx: OpContext): OnboardState {
+  if (!getCurrentVersion(deps.repos)) throw new OpError('not_found', 'no profile yet: run full onboarding');
+  const s = newSession(deps, ctx.now(), []);
+  s.step = 'calibrate';
+  samplesFor(deps, s);
+  if (!ctx.dryRun) store(deps).save(s);
+  return stateOf(s);
+}
+
 export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'>, ctx: OpContext): OnboardState {
   const s = activeSession(deps);
   if (s.step !== 'interview') throw new OpError('conflict', `onboarding is at '${s.step}', not 'interview'`);
@@ -574,10 +587,14 @@ function samplesFor(deps: ProfileDeps, s: OnboardSession): CalibrationSample[] {
   return all.filter((x) => s.calibration.sample_ids.includes(x.id));
 }
 
+/** A recalibration session (#25): empty scope, calibration only. */
+const recalibrating = (s: OnboardSession) => s.scope?.length === 0;
+
 function priorFor(deps: ProfileDeps, s: OnboardSession): Record<Criterion, number> {
   const v = getCurrentVersion(deps.repos);
   const base = v ? rubricWeights(getComponents(deps.repos, v.id)) : null;
-  return statedPrior(base, s.draft);
+  // A recalibration starts from the current weights as they are (the stated nudges are already in them).
+  return statedPrior(base, recalibrating(s) ? {} : s.draft);
 }
 
 /** The current calibration sample set (for the UI to render the 12 cards). */
@@ -632,6 +649,7 @@ export async function onboardConfirm(
   const prevComps = current ? getComponents(deps.repos, current.id) : [];
 
   const calibrated = Object.keys(s.calibration.choices).length > 0;
+  if (recalibrating(s) && !calibrated) throw new OpError('conflict', 'recalibration has no answers yet');
   const samples = calibrated ? samplesFor(deps, s) : [];
   const weights = calibrated ? deriveWeights(priorFor(deps, s), samples, s.calibration.choices).weights : priorFor(deps, s);
   const byComp = weightsByComponent(weights);
@@ -680,7 +698,13 @@ export async function onboardConfirm(
       proposed_diffs: [],
     };
   }
-  const reason = s.scope ? `onboard: re-interview ${s.scope.join(', ')}` : current ? 'onboard: redo' : 'onboard';
+  const reason = s.scope
+    ? s.scope.length
+      ? `onboard: re-interview ${s.scope.join(', ')}`
+      : 'onboard: recalibrate'
+    : current
+      ? 'onboard: redo'
+      : 'onboard';
   const { version, components } = insertVersion(deps.repos, { now, parent_id: current?.id ?? null, reason, event_id: null, drafts });
 
   if (deps.vault) {
@@ -711,6 +735,7 @@ export async function onboardConfirm(
 
 /** onboard.start: a full onboarding (step resume), or a re-interview of some components. */
 export function onboardStart(deps: ProfileDeps, input: OpInput<'onboard.start'>, ctx: OpContext): OnboardState {
+  if (input.calibrate) return startRecalibration(deps, ctx);
   if (input.components?.length) return startComponentInterview(deps, input.components, ctx);
   const s = newSession(deps, ctx.now(), null);
   if (!ctx.dryRun) store(deps).save(s);
@@ -740,7 +765,10 @@ export function onboardSamples(deps: ProfileDeps): OpOutput<'onboard.samples'> {
     s && s.step !== 'done' && s.calibration.sample_ids.length ? all.filter((x) => s.calibration.sample_ids.includes(x.id)) : null;
   const samples = live?.length ? live : all.slice(0, CALIBRATION_SIZE);
   const v = getCurrentVersion(deps.repos);
-  const weights = statedPrior(v ? rubricWeights(getComponents(deps.repos, v.id)) : null, s && s.step !== 'done' ? s.draft : {});
+  const weights = statedPrior(
+    v ? rubricWeights(getComponents(deps.repos, v.id)) : null,
+    s && s.step !== 'done' && !recalibrating(s) ? s.draft : {},
+  );
   return {
     items: samples.map((x) => ({
       id: x.id,

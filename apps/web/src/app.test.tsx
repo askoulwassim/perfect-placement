@@ -99,7 +99,7 @@ describe('screens', () => {
     [`#/people/${R.linearDraft}`, 'Draft for Maya'],
     ['#/outreach/or_0001', 'Create Gmail draft'],
     ['#/you', 'Review 2 diff'],
-    ['#/onboarding', 'Next'],
+    ['#/you/setup', 'Next'],
     ['#/settings', 'Save'],
   ] as const;
   for (const [hash, label] of routes) {
@@ -433,13 +433,13 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).textContent).toBe('Review 1 diff'));
   });
 
-  it('Onboarding resumes the saved session at Calibrate', async () => {
-    await boot('#/onboarding');
+  it('You setup resumes the saved session at Calibrate', async () => {
+    await boot('#/you/setup');
     await screen.findByText('1 / 12');
   });
 
   it('Onboarding: Voice keeps several writing samples (add, remove)', async () => {
-    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['voice'] }));
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['voice'] }));
     await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How do you want your writing to sound?'));
     fireEvent.click($(container, '.onboard-q .chip'));
     fireEvent.click(primary(container));
@@ -465,7 +465,7 @@ describe('click paths', () => {
     expect(sent.value).toHaveLength(3);
     expect(sent.value.slice(1)).toEqual(['Sample two, short.', 'Sample three, pending.']);
     // The re-interview leaves the questions: confirm step, then You with Voice selected.
-    await waitFor(() => expect(primary(container).textContent).toBe('Start'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Save'));
     expect(container.querySelector('.onboard-q__text')).toBeNull();
     fireEvent.click(primary(container));
     await waitFor(() => expect(window.location.hash).toBe('#/you/voice'));
@@ -475,7 +475,7 @@ describe('click paths', () => {
   });
 
   it('Onboarding: the resume upload is kept and parsed by a run; derived years are confirmed (#38)', async () => {
-    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
+    const { container } = await boot('#/you/setup', (l) => l.client.run('onboard.start', {}));
     const text = [
       '# Riley Sample',
       '',
@@ -515,7 +515,7 @@ describe('click paths', () => {
   });
 
   it('Onboarding: a dictated answer is shown cleaned, then saved with its raw text (#38)', async () => {
-    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['story'] }));
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['story'] }));
     await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How would you describe yourself in one line?'));
     fireEvent.change($(container, '.onboard-q textarea'), { target: { value: 'um, data platform uh product lead' } });
     fireEvent.click(primary(container));
@@ -529,6 +529,71 @@ describe('click paths', () => {
       value: 'Data platform product lead',
       raw: 'um, data platform uh product lead',
     });
+  });
+
+  it('You: Re-interview one component runs its questions in place and saves a new version (#25)', async () => {
+    const { container } = await boot('#/you/growth');
+    const btn = await screen.findByRole('button', { name: 'Re-interview' });
+    expect(btn.getAttribute('data-op')).toBe('onboard.start');
+    const eyebrowV = () => container.querySelector('[data-screen-label="You"]')?.textContent ?? '';
+    await waitFor(() => expect(eyebrowV()).toMatch(/Profile · v2/));
+    fireEvent.click(btn);
+    await waitFor(() => expect(window.location.hash).toBe('#/you/interview'));
+    expect(live?.calls.find((c) => c.name === 'onboard.start')?.body).toEqual({ components: ['growth'] });
+    for (let i = 0; i < 6 && !container.querySelector('.btn--primary')?.textContent?.startsWith('Save'); i++) {
+      const q = (await waitFor(() => $(container, '.onboard-q__text'))).textContent;
+      expect($(container, '.onboard-q__for').textContent).toMatch(/Growth$/);
+      fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+      await waitFor(() =>
+        expect(primary(container).textContent === 'Save' || container.querySelector('.onboard-q__text')?.textContent !== q).toBe(true),
+      );
+    }
+    await waitFor(() => expect(primary(container).textContent).toBe('Save'));
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(window.location.hash).toBe('#/you/growth'));
+    await waitFor(() => expect(eyebrowV()).toMatch(/Profile · v3/));
+    expect($(container, '.timeline__item.is-current .timeline__v').textContent).toBe('v3');
+    expect($(container, '.timeline__item.is-current').textContent).toContain('Onboard: re interview growth');
+  });
+
+  it('You: Recalibrate reuses the calibration step from the current weights; Save shows before / after and a new version (#25)', async () => {
+    const { container } = await boot('#/you', async (l) => {
+      // Clear the fixture's pending diffs so Recalibrate is the primary.
+      const p = (await l.client.run('profile.get', {})) as { status: 'ok'; output: { pending_diffs: { id: string }[] } };
+      for (const d of p.output.pending_diffs) await l.client.run('profile.reject_diff', { diff_id: d.id });
+    });
+    await waitFor(() => expect(primary(container).textContent).toBe('Recalibrate'));
+    expect(primary(container).getAttribute('data-op')).toBe('onboard.start');
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(window.location.hash).toBe('#/you/calibrate'));
+    // The bars start from the current profile's weights (the engine test checks they equal its rubric).
+    const current = await live?.as('human', 'onboard.samples', {});
+    expect(live?.calls.find((c) => c.name === 'onboard.start')?.body).toEqual({ calibrate: true });
+    await screen.findByText('1 / 12');
+    // Nothing answered yet: Next stays off.
+    expect(primary(container).disabled).toBe(true);
+    const shown = Array.from(container.querySelectorAll('.weights__row span:nth-child(4)')).map((x) => x.textContent);
+    const base = current?.status === 'ok' ? (current.output as { weights: Record<string, number> }).weights : {};
+    expect(shown).toEqual(Object.values(base).map((x) => String(Math.round(x))));
+    fireEvent.click(screen.getByRole('button', { name: 'Y' }));
+    for (let i = 2; i <= 12; i++) {
+      await screen.findByText(`${i} / 12`);
+      fireEvent.keyDown(window, { key: i % 3 ? 'n' : 'y' });
+    }
+    await waitFor(() => $(container, '.cal-done'));
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(primary(container).textContent).toBe('Save'));
+    const rows = container.querySelectorAll('.weights-diff__row');
+    expect(rows).toHaveLength(9);
+    expect(container.querySelectorAll('.weights-diff__row[data-changed="true"]').length).toBeGreaterThan(0);
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(window.location.hash).toBe('#/you'));
+    await waitFor(() => expect(container.querySelector('[data-screen-label="You"]')?.textContent).toMatch(/Profile · v3/));
+    const h = await live?.as('human', 'profile.history', {});
+    const versions = h?.status === 'ok' ? (h.output as { versions: { reason: string }[] }).versions : [];
+    expect(versions.at(-1)?.reason).toBe('onboard: recalibrate');
   });
 
   it('You: Story opens the kept source resume (#38)', async () => {
@@ -553,7 +618,7 @@ describe('click paths', () => {
   });
 
   it('Onboarding: full-sentence questions with an example, which component they fill, and "I don\'t know" (#23)', async () => {
-    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['company', 'network'] }));
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['company', 'network'] }));
     await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which company stages appeal to you?'));
     expect($(container, '.onboard-q__for').textContent).toBe('Q 1 · Company');
     const skip = screen.getByRole('button', { name: "I don't know" });
@@ -572,8 +637,8 @@ describe('click paths', () => {
     expect($(container, '.onboard-q__for').textContent).toBe('Q 4 · Network');
   });
 
-  it('Onboarding: four steps end to end', async () => {
-    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
+  it('You setup: four steps end to end', async () => {
+    const { container } = await boot('#/you/setup', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));
     const resume = new File(['# Resume\n\nData product lead. Built a self-serve analytics product.'], 'resume.md', {
       type: 'text/markdown',

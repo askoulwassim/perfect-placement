@@ -8,7 +8,7 @@ import { CUE_IDS, CUES, cueFor, pendingCue } from './lib/cues';
 import { type Live, openLive } from './test/live';
 
 /*
- * First launch: a fresh vault lands on Onboarding; first-visit cues (wave1-decisions #27) show
+ * First launch: a fresh vault lands on You, which is setup until a profile exists (#25); first-visit cues (wave1-decisions #27) show
  * once per screen, persist in the vault (config.ui.cues_seen) and come back with Settings > Show cues.
  */
 
@@ -41,19 +41,22 @@ const savedCues = async () => {
 const allSeen = { config: { ui: { cues_seen: CUE_IDS } } };
 
 describe('fresh start lands on setup', () => {
-  it('a vault with no profile opens Onboarding step 1 from /, with the rail still there', async () => {
+  it('a vault with no profile opens You at setup step 1 from /, with the rail still there and no Setup entry', async () => {
     const { container } = boot('', { seed: false, ...allSeen });
-    await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
-    await waitFor(() => expect(screenLabel(container)).toBe('Onboarding'));
+    await waitFor(() => expect(window.location.hash).toBe('#/you'));
+    await waitFor(() => expect(screenLabel(container)).toBe('You · setup'));
     expect((container.querySelector('.btn--primary') as HTMLElement).textContent).toBe('Next');
+    expect(container.querySelector('.dropzone')).not.toBeNull();
     expect(container.querySelector('nav[aria-label="Main"]')).not.toBeNull();
+    expect(rail(container, 'Setup')).toBeNull();
+    expect(rail(container, 'You').getAttribute('aria-current')).toBe('page');
     const state = await live?.client.run('onboard.state', {});
     expect(state?.status === 'ok' && state.output.step).toBe('resume');
   });
 
   it('any route on first open goes to setup; Settings stays reachable, Now / Needs you / River redirect', async () => {
     const { container } = boot('#/settings', { seed: false, ...allSeen });
-    await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
+    await waitFor(() => expect(window.location.hash).toBe('#/you'));
     fireEvent.click(rail(container, 'Settings'));
     await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
     expect(window.location.hash).toBe('#/settings');
@@ -61,32 +64,37 @@ describe('fresh start lands on setup', () => {
       await nav('#/settings');
       await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
       fireEvent.click(rail(container, label));
-      await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
-      expect(screenLabel(container)).toBe('Onboarding');
+      await waitFor(() => expect(window.location.hash).toBe('#/you'));
+      expect(screenLabel(container)).toBe('You · setup');
     }
   });
 
-  it('with a confirmed profile, / goes to Now and setup hides the rail as before', async () => {
+  it('with a confirmed profile, / goes to Now; You is the profile and a redo hides the rail as before', async () => {
     const { container } = boot('', allSeen);
     await waitFor(() => expect(screenLabel(container)).toBe('Now'));
     await waitFor(() => expect((container.querySelector('.btn--primary') as HTMLElement).textContent).toBe('Review 7'));
     expect(window.location.hash).toBe('');
+    await nav('#/you');
+    await waitFor(() => expect(screenLabel(container)).toBe('You'));
+    expect(container.querySelector('nav[aria-label="Main"]')).not.toBeNull();
+    // Old Setup links open the same steps inside You.
     await nav('#/onboarding');
-    await waitFor(() => expect(screenLabel(container)).toBe('Onboarding'));
+    await waitFor(() => expect(screenLabel(container)).toBe('You · setup'));
     expect(container.querySelector('nav[aria-label="Main"]')).toBeNull();
   });
 
-  it('shownRoute: gated screens wait, then show Onboarding while fresh; others pass through', () => {
+  it('shownRoute: gated screens wait, then show You (setup) while fresh; others pass through', () => {
     const o = (fresh: boolean | null, lastFresh: boolean | null, mobile = false) => ({ mobile, fresh, lastFresh });
     expect(shownRoute({ screen: 'now' }, o(null, null))).toBeNull();
-    expect(shownRoute({ screen: 'river' }, o(true, true))).toEqual({ screen: 'onboarding' });
+    expect(shownRoute({ screen: 'river' }, o(true, true))).toEqual({ screen: 'you' });
     expect(shownRoute({ screen: 'needs-you' }, o(null, true))).toBeNull(); // refetching after a write
     expect(shownRoute({ screen: 'now' }, o(false, false))).toEqual({ screen: 'now' });
     expect(shownRoute({ screen: 'now' }, o(null, false))).toEqual({ screen: 'now' }); // never flickers once a profile exists
     expect(shownRoute({ screen: 'settings' }, o(true, true))).toEqual({ screen: 'settings' });
     expect(shownRoute({ screen: 'you' }, o(true, true))).toEqual({ screen: 'you' });
-    expect(shownRoute({ screen: 'settings' }, o(true, true, true))).toEqual({ screen: 'onboarding' });
-    expect(shownRoute({ screen: 'onboarding' }, o(false, false, true))).toEqual({ screen: 'now' });
+    expect(shownRoute({ screen: 'settings' }, o(true, true, true))).toEqual({ screen: 'you' });
+    expect(shownRoute({ screen: 'settings' }, o(false, false, true))).toEqual({ screen: 'now' });
+    expect(shownRoute({ screen: 'you', flow: 'calibrate' }, o(false, false))).toEqual({ screen: 'you', flow: 'calibrate' });
   });
 });
 
@@ -95,7 +103,7 @@ describe('first-visit cues', () => {
     expect(CUE_IDS.sort()).toEqual(['ask', 'needs-you', 'now', 'outreach', 'people', 'river', 'role', 'settings', 'you']);
     for (const l of Object.values(CUES)) expect(l.split(/\s+/).length).toBeLessThanOrEqual(3);
     expect(cueFor('outreach-draft', false)).toBe('outreach');
-    expect(cueFor('onboarding', false)).toBeNull();
+    expect(cueFor(null, false)).toBeNull();
     expect(cueFor('now', true)).toBe('ask');
     expect(pendingCue('now', null)).toBeNull();
     expect(pendingCue('now', ['now'])).toBeNull();

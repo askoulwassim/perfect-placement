@@ -1,4 +1,4 @@
-import { PROFILE_COMPONENT_KEYS, PROFILE_COMPONENT_KIND, type ProfileComponentKey } from '@perfect-placement/contracts';
+import { type OpOutput, PROFILE_COMPONENT_KEYS, PROFILE_COMPONENT_KIND, type ProfileComponentKey } from '@perfect-placement/contracts';
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
@@ -7,18 +7,30 @@ import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText } from '../lib/profile';
 import { timeline } from '../lib/view';
-import { go } from '../router';
+import { go, type YouFlow } from '../router';
+import { Onboarding } from './Onboarding';
 
-export function You({ component }: { component?: ProfileComponentKey } = {}) {
+/**
+ * The one profile place (#25). No profile yet: You is setup (resume, interview, calibrate, confirm).
+ * With one: the constellation, where Re-interview and Recalibrate run the same steps in place.
+ */
+export function You({ component, flow }: { component?: ProfileComponentKey; flow?: YouFlow } = {}) {
+  const profile = useOp('profile.get', {});
+  if (profile.error === 'not_found') return <Onboarding flow="setup" />;
+  if (flow) return <Onboarding flow={flow} />;
+  if (!profile.data && !profile.error) return null;
+  return <Profile component={component} profile={profile.data} />;
+}
+
+function Profile({ component, profile }: { component?: ProfileComponentKey; profile: OpOutput<'profile.get'> | undefined }) {
   const { mobile } = useLayout();
   const { showToast } = useApp();
   const act = useAct();
-  const profile = useOp('profile.get', {});
   const history = useOp('profile.history', {});
   const [selected, setSelected] = useState<ProfileComponentKey | null>(component ?? null);
 
-  const comps = profile.data?.components ?? [];
-  const diffs = [...(profile.data?.pending_diffs ?? [])].sort(
+  const comps = profile?.components ?? [];
+  const diffs = [...(profile?.pending_diffs ?? [])].sort(
     (a, b) => PROFILE_COMPONENT_KEYS.indexOf(a.component_key) - PROFILE_COMPONENT_KEYS.indexOf(b.component_key),
   );
   const nodes: NodeData[] = PROFILE_COMPONENT_KEYS.map((key) => ({
@@ -33,6 +45,17 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
   const versions = history.data?.versions ?? [];
   const tl = timeline(versions);
 
+  /** Recalibrate and Re-interview start an onboarding session, then run its steps here. */
+  const recalibrate = async () => {
+    const o = await act('onboard.start', { calibrate: true });
+    if (o.status === 'ok') go({ screen: 'you', flow: 'calibrate' });
+  };
+  const reinterview = selected
+    ? async () => {
+        const o = await act('onboard.start', { components: [selected] });
+        if (o.status === 'ok') go({ screen: 'you', flow: 'interview' });
+      }
+    : undefined;
   const accept = async (id: string) => {
     const o = await act('profile.apply_diff', { diff_id: id });
     if (o.status === 'ok') showToast('Diff accepted');
@@ -41,7 +64,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
     ? { label: 'Accept diff', op: 'profile.apply_diff' as const, onClick: () => void accept(selDiff.id) }
     : diffs.length > 0
       ? { label: `Review ${diffs.length} diff`, op: null, onClick: () => setSelected(diffs[0]?.component_key ?? null) }
-      : { label: 'Recalibrate', op: null, onClick: () => go({ screen: 'onboarding', calibrate: true }) };
+      : { label: 'Recalibrate', op: 'onboard.start' as const, onClick: () => void recalibrate() };
 
   const dj = selDiff?.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> } | undefined;
   const before = chipText(dj?.before ?? {});
@@ -72,6 +95,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                 </span>
               ))}
             </div>
+            {reinterview && <Reinterview onClick={reinterview} />}
             {source && <ResumeSource path={source} />}
             {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
@@ -180,6 +204,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                   </span>
                 ))}
               </div>
+              {reinterview && <Reinterview onClick={reinterview} />}
               {source && <ResumeSource path={source} />}
               {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
@@ -211,6 +236,32 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** Re-interview the selected component (`onboard.start { components }`); the questions run in You. */
+function Reinterview({ onClick }: { onClick: () => void }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Btn
+        op="onboard.start"
+        className="reinterview"
+        onClick={onClick}
+        style={{
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: C.fg,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Re-interview
+      </Btn>
+    </div>
   );
 }
 
