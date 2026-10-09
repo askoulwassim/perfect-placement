@@ -360,6 +360,30 @@ describe('click paths', () => {
     expect(o?.status === 'ok' && o.output.outreach).toMatchObject({ status: 'in_gmail', gmail_draft_id: 'r-agent-1' });
   });
 
+  it('People (#82): "LinkedIn not read" with the reason until the agent reads LinkedIn, then "LinkedIn: N people"', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`);
+    const tag = await waitFor(() => $(container, '.people-linkedin'));
+    expect(tag.getAttribute('data-linkedin')).toBe('not-read');
+    expect(tag.textContent).toBe('LinkedIn not read · Not run');
+    // One run per role here: runs in a test share a timestamp, so "latest" would be ambiguous.
+    await live?.as('agent', 'people.find', { role_id: R.airtableOnDeck, linkedin: { pages_opened: 0, skipped: 'checkpoint' } });
+    await go(`#/people/${R.airtableOnDeck}`);
+    await waitFor(() => expect($(container, '.people-linkedin').textContent).toBe('LinkedIn not read · Checkpoint'));
+    await live?.as('agent', 'people.find', {
+      role_id: R.linearDraft,
+      linkedin: { pages_opened: 2 },
+      hints: [
+        { name: 'Fixture Pat', linkedin_url: 'https://www.linkedin.com/in/fixture-pat', source: 'linkedin', degree: '1' },
+        { name: 'Fixture Lee', linkedin_url: 'https://www.linkedin.com/in/fixture-lee', source: 'linkedin', degree: 'cold' },
+      ],
+    });
+    await go(`#/people/${R.airtableOnDeck}`);
+    await go(`#/people/${R.linearDraft}`);
+    await waitFor(() => expect($(container, '.people-linkedin').getAttribute('data-linkedin')).toBe('read'));
+    expect($(container, '.people-linkedin').textContent).toBe('LinkedIn: 2 people');
+    assertButtons(container);
+  });
+
   it('People: Draft for <best path> starts a connect run for that person and opens the draft it wrote', async () => {
     const { container } = await boot(`#/people/${R.linearDraft}`);
     await waitFor(() => expect(primary(container).textContent).toBe('Draft for Maya'));
@@ -769,8 +793,10 @@ describe('click paths', () => {
     };
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     await send('Score my inbox roles', 1);
-    const thread = window.localStorage.getItem(ASK_THREAD_KEY);
-    expect(thread).toMatch(/^ask_/);
+    // #88: the app stores the thread id after the turn renders; wait for it instead of reading it once.
+    const storedThread = () => window.localStorage.getItem(ASK_THREAD_KEY) ?? '';
+    await waitFor(() => expect(storedThread()).toMatch(/^ask_/));
+    const thread = storedThread();
     unmount();
     (live as Live).restartAsk();
     render(<App client={(live as Live).client} now={now} pollMs={20} />);
@@ -778,12 +804,13 @@ describe('click paths', () => {
     await send('and now?', 1);
     const args = live?.ask.specs[1]?.args ?? [];
     expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
-    expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBe(thread);
+    await waitFor(() => expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBe(thread));
     fireEvent.click($(document.body, '.ask__new'));
     await waitFor(() => expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBeNull());
     await send('fresh', 1);
     expect(live?.ask.specs[2]?.args).not.toContain('--resume');
-    expect(window.localStorage.getItem(ASK_THREAD_KEY)).not.toBe(thread);
+    await waitFor(() => expect(storedThread()).toMatch(/^ask_/));
+    expect(storedThread()).not.toBe(thread);
   });
 
   it('Ask: a missing runner shows clearly; New thread starts fresh', async () => {

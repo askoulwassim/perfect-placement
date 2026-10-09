@@ -1,4 +1,5 @@
 import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { linkedinReadsOn } from '../../people/queries.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
@@ -166,6 +167,12 @@ function launchRun(run: Run, h: HandlerContext): void {
   const skill = run.op as Skill;
   const id = run.id;
   const outreachId = s.outreach_id;
+  // #82: a connect run reads LinkedIn via Claude in Chrome only when config.linkedin.mode is `live`.
+  const li = h.config.linkedin;
+  const linkedin =
+    skill === 'connect' && !outreachId
+      ? { ...li, budget_left: Math.max(0, li.max_profiles_per_day - linkedinReadsOn(h.repos, h.ctx.now())) }
+      : undefined;
   const spec = buildRunnerSpec({
     runner: h.config.runner,
     skill,
@@ -173,6 +180,7 @@ function launchRun(run: Run, h: HandlerContext): void {
     home: h.home,
     mcp: defaultMcpServer(h.home),
     ...(outreachId ? { gmailDraft: true } : {}),
+    ...(skill === 'connect' ? { linkedin: li.mode === 'live' } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
         ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
@@ -181,6 +189,7 @@ function launchRun(run: Run, h: HandlerContext): void {
             skill,
             ...(s.role_id ? { roleId: s.role_id } : {}),
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
+            ...(linkedin ? { linkedin } : {}),
           }),
   });
   const launcher = h.services.launcher ?? createSpawnLauncher();

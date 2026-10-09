@@ -10,8 +10,11 @@
  * - Slow: a randomized delay (min_delay_s .. 2 x min_delay_s) before every page open.
  * - Minimal data: only name, headline, profile URL and relationship (degree, via mutual) leave here.
  *
- * Modes: `dry-run` uses the recorded/synthetic driver and never sleeps for real; `live` needs a real
- * driver (Playwright attached to the user's Chrome profile, or Claude in Chrome), supplied in Wave 2.
+ * Live reads are agent-side (#82, wave1-decisions #4): the `connect` run has Claude in Chrome (read
+ * and navigate tools only) and hands what it read to `people.find` as hints with `source: 'linkedin'`;
+ * the engine checks each profile URL (`canonicalProfileUrl`), the daily budget and the per-run caps.
+ * There is no engine-side live driver: this adapter runs the recorded driver only (`dry-run`, tests and
+ * fixtures). The URL builders and `assertReadOnlyUrl` below are the allowlist the skill follows.
  */
 
 // Lane H owns this folder.
@@ -34,10 +37,10 @@ export interface RawPeopleCard {
 
 /**
  * The only two capabilities a LinkedIn driver may have. No click, no type, no evaluate.
- * Real drivers (Wave 2) implement `readPeopleCards` with a fixed, read-only DOM query.
+ * Only the recorded driver exists (#82: live reads happen in the agent session via Claude in Chrome).
  */
 export interface LinkedInDriver {
-  readonly kind: 'recorded' | 'playwright' | 'claude-in-chrome';
+  readonly kind: 'recorded';
   open(url: string): Promise<void>;
   readPeopleCards(): Promise<RawPeopleCard[]>;
 }
@@ -76,20 +79,20 @@ export interface CollectResult {
   pagesOpened: number;
   /** True when the daily budget or the page cap stopped the read early. */
   capped: boolean;
-  mode: 'dry-run' | 'live';
+  mode: 'dry-run';
 }
 
 export interface LinkedInSource {
-  readonly mode: 'dry-run' | 'live';
+  readonly mode: 'dry-run';
   collect(req: CollectRequest): Promise<CollectResult>;
 }
 
 export interface LinkedInAdapterOptions {
   driver: LinkedInDriver;
-  mode: 'dry-run' | 'live';
+  mode: 'dry-run';
   /** config.linkedin.min_delay_s */
   minDelayS: number;
-  /** Injected for tests; defaults to a real timer in live mode and a no-op in dry-run. */
+  /** Injected for tests; defaults to a no-op (dry-run never sleeps for real). */
   sleep?: (ms: number) => Promise<void>;
   /** Injected for tests; defaults to Math.random. */
   random?: () => number;
@@ -197,10 +200,11 @@ const RANK: Record<Degree, number> = { '1': 0, '2': 1, cold: 2 };
  * role title), then the mutuals of up to `maxMutualExpansions` 2nd-degree people. Stops at the budget.
  */
 export function createLinkedInAdapter(opts: LinkedInAdapterOptions): LinkedInSource {
-  if (opts.mode === 'live' && opts.driver.kind === 'recorded') throw new Error('live mode needs a real driver');
-  if (opts.mode === 'dry-run' && opts.driver.kind !== 'recorded') throw new Error('dry-run mode only runs the recorded driver');
+  // #82: no engine-side live driver. Live LinkedIn reads are the agent's (Claude in Chrome) and arrive as hints.
+  if ((opts.mode as string) !== 'dry-run' || opts.driver.kind !== 'recorded')
+    throw new Error('the LinkedIn adapter runs the recorded driver in dry-run only; live reads are agent-side (Claude in Chrome)');
   const random = opts.random ?? Math.random;
-  const sleep = opts.sleep ?? (opts.mode === 'live' ? (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) : async () => {});
+  const sleep = opts.sleep ?? (async () => {});
   const minMs = Math.max(0, opts.minDelayS) * 1000;
 
   return {

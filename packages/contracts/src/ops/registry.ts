@@ -17,6 +17,7 @@ import {
 import {
   ArchiveReason,
   Band,
+  ContactDegree,
   ContactRole,
   ContactTier,
   Criterion,
@@ -857,24 +858,63 @@ export const applyMarkSubmitted = defineOp({
 
 // ------------------------------------------------------------------ people (H)
 
+/**
+ * Why a people.find run read no LinkedIn (#82). The agent reports the first six; the engine adds `off`
+ * and `dry_run` (config), `invalid` (no hint passed the profile URL allowlist) and `not_reported`.
+ */
+export const LINKEDIN_SKIP_REASONS = [
+  'no_browser',
+  'signed_out',
+  'checkpoint',
+  'capped',
+  'not_found',
+  'error',
+  'off',
+  'dry_run',
+  'invalid',
+  'not_reported',
+] as const;
+export const LinkedInSkipReason = z.enum(LINKEDIN_SKIP_REASONS);
+export type LinkedInSkipReason = z.infer<typeof LinkedInSkipReason>;
+/** Where people.find's LinkedIn people came from (#82): the agent's Claude in Chrome read, the recorded test adapter, or nothing (off). */
+export const LINKEDIN_PROVENANCE = ['agent', 'dry-run', 'off'] as const;
+export const LinkedInProvenance = z.enum(LINKEDIN_PROVENANCE);
+export type LinkedInProvenance = z.infer<typeof LinkedInProvenance>;
+
+/** One person the connect skill found (JD, team page, the user, or its own LinkedIn read via Claude in Chrome, #82). */
+export const PeopleFindHint = z.object({
+  name: z.string().min(1),
+  headline: z.string().nullable().optional(),
+  linkedin_url: z.string().url().nullable().optional(),
+  email: z.string().email().nullable().optional(),
+  source: z.enum(['jd', 'company_site', 'manual', 'linkedin']),
+  /** LinkedIn only: relationship shown on the card (`1` connection, `2` via a mutual, `cold`). Default `cold`. */
+  degree: ContactDegree.optional(),
+  /** LinkedIn only, degree 2: the 1st-degree mutual this person is reachable through. */
+  via: z
+    .object({ name: z.string().min(1), headline: z.string().nullable().optional(), linkedin_url: z.string().url() })
+    .nullable()
+    .optional(),
+  /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
+  hiring_team: z.boolean().optional(),
+});
+export type PeopleFindHint = z.infer<typeof PeopleFindHint>;
+
 export const peopleFind = defineOp({
   name: 'people.find',
-  description: 'Find people for a picked role via LinkedIn (read-only, rate-limited), Gmail and the JD.',
+  description:
+    'Find people for a picked role: the LinkedIn people the agent read (read-only via Claude in Chrome, capped), Gmail and the JD.',
   input: z.object({
     role_id: Id,
     dry_run: z.boolean().optional(),
-    /** People the skill found in the JD, on the company site, or that the user named. */
-    hints: z
-      .array(
-        z.object({
-          name: z.string().min(1),
-          headline: z.string().nullable().optional(),
-          linkedin_url: z.string().url().nullable().optional(),
-          email: z.string().email().nullable().optional(),
-          source: z.enum(['jd', 'company_site', 'manual']),
-        }),
-      )
-      .max(20)
+    /** People the skill found: in the JD, on the company site, named by the user, or on LinkedIn (source `linkedin`). */
+    hints: z.array(PeopleFindHint).max(60).optional(),
+    /** What the agent's LinkedIn read did (#82): pages opened, or why it read nothing. */
+    linkedin: z
+      .object({
+        pages_opened: z.number().int().min(0).default(0),
+        skipped: LinkedInSkipReason.extract(['no_browser', 'signed_out', 'checkpoint', 'capped', 'not_found', 'error']).optional(),
+      })
       .optional(),
     /** LinkedIn vanity slug when it differs from the company slug. */
     linkedin_company_slug: z
@@ -882,7 +922,20 @@ export const peopleFind = defineOp({
       .regex(/^[a-z0-9-]+$/)
       .optional(),
   }),
-  output: z.object({ found: z.array(z.object({ contact: Contact, link: ContactLink })), capped: z.boolean() }),
+  output: z.object({
+    found: z.array(z.object({ contact: Contact, link: ContactLink })),
+    capped: z.boolean(),
+    /** #82: where LinkedIn people came from, how many were kept, and why none were read. */
+    linkedin: z
+      .object({
+        mode: LinkedInProvenance,
+        people: z.number().int().min(0),
+        rejected: z.number().int().min(0),
+        budget_left: z.number().int().min(0),
+        reason: LinkedInSkipReason.nullable(),
+      })
+      .optional(),
+  }),
   impact: 'low',
   emits: ['contact_found'],
   owner: 'H',

@@ -1,6 +1,13 @@
-import { type Contact, type ContactLink, ContactSource, peopleFind } from '@perfect-placement/contracts';
+import {
+  type Contact,
+  type ContactLink,
+  type LinkedInProvenance,
+  type LinkedInSkipReason,
+  PeopleFindHint,
+  peopleFind,
+} from '@perfect-placement/contracts';
 import { z } from 'zod';
-import type { CollectResult, Degree } from '../integrations/linkedin/index.js';
+import { type CollectResult, canonicalProfileUrl, type Degree } from '../integrations/linkedin/index.js';
 import { KNOWN_CONFIDENCE } from './email.js';
 import {
   emitEvent,
@@ -21,18 +28,19 @@ import {
 import { tierFor } from './tier.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
 
-/** People named in the JD or on the company team page, supplied by the connect skill (judgment). */
-export const PersonHint = z.object({
+/**
+ * People the connect skill found (judgment): named in the JD or on the team page, named by the user, or
+ * read on LinkedIn by the agent via Claude in Chrome (`source: 'linkedin'`, #82). Lane H keeps only name,
+ * headline, profile URL, email and relationship (degree, via mutual, hiring-team signal).
+ */
+export const PersonHint = PeopleFindHint.extend({
   name: z.string().min(1).max(120),
   headline: z.string().max(200).nullable().optional(),
-  linkedin_url: z.string().url().nullable().optional(),
-  email: z.string().email().nullable().optional(),
-  source: ContactSource.exclude(['linkedin', 'gmail']).default('jd'),
 });
 export type PersonHint = z.infer<typeof PersonHint>;
 
 export const PeopleFindInput = peopleFind.input.extend({
-  hints: z.array(PersonHint).max(20).optional(),
+  hints: z.array(PersonHint).max(60).optional(),
   /** LinkedIn company vanity slug when it differs from the PP company slug. */
   linkedin_company_slug: z
     .string()
@@ -49,6 +57,53 @@ interface Candidate {
   source: Contact['source'];
   degree: Degree;
   via: { name: string; headline: string | null; url: string } | null;
+  hiringTeam: boolean;
+}
+
+/** LinkedIn hints the engine kept and the summary it records (#82). */
+interface AgentLinkedIn {
+  kept: PersonHint[];
+  rejected: number;
+  /** Profiles counted against the daily budget: distinct people plus their via mutuals. */
+  profiles: number;
+  capped: boolean;
+  overPageCap: boolean;
+}
+
+/**
+ * Applies lane H's rules to the agent's LinkedIn hints: config mode must be `live`, every profile URL
+ * must be a linkedin.com `/in/<slug>` URL (canonicalized), at most `remaining` profiles today (each
+ * person and each new via mutual counts), via kept for at most `max_mutual_expansions` 2nd-degree people.
+ */
+function screenLinkedInHints(
+  hints: readonly PersonHint[],
+  opts: { live: boolean; remaining: number; maxExpansions: number; maxPages: number; pagesOpened: number },
+): AgentLinkedIn {
+  const out: AgentLinkedIn = { kept: [], rejected: 0, profiles: 0, capped: false, overPageCap: opts.pagesOpened > opts.maxPages };
+  if (!opts.live) return { ...out, rejected: hints.length };
+  const counted = new Set<string>();
+  let expansions = 0;
+  for (const h of hints) {
+    const url = h.linkedin_url ? canonicalProfileUrl(h.linkedin_url) : null;
+    if (!url) {
+      out.rejected++;
+      continue;
+    }
+    let via = h.via ? { ...h.via, linkedin_url: canonicalProfileUrl(h.via.linkedin_url) } : null;
+    if (via && (!via.linkedin_url || h.degree !== '2' || expansions >= opts.maxExpansions)) via = null;
+    const cost = [url, via?.linkedin_url].filter((u): u is string => !!u && !counted.has(u));
+    if (new Set(cost).size > opts.remaining - out.profiles) {
+      out.rejected++;
+      out.capped = true;
+      continue;
+    }
+    for (const u of cost) counted.add(u);
+    out.profiles = counted.size;
+    if (via) expansions++;
+    out.kept.push({ ...h, linkedin_url: url, via: via ? { ...via, linkedin_url: via.linkedin_url as string } : null });
+  }
+  if (out.overPageCap) out.capped = true;
+  return out;
 }
 
 /** Source + confidence of an address people.find saw (#37): Gmail, LinkedIn, the JD or a public page. */
@@ -58,16 +113,11 @@ export function knownEmail(email: string | null, source: Contact['source']): Pic
   return { email_source: s, email_confidence: KNOWN_CONFIDENCE[s] };
 }
 
-const EMPTY_COLLECT = (mode: 'dry-run' | 'live', capped: boolean): CollectResult => ({
-  people: [],
-  profilesRead: 0,
-  pagesOpened: 0,
-  capped,
-  mode,
-});
+const EMPTY_COLLECT = (capped: boolean): CollectResult => ({ people: [], profilesRead: 0, pagesOpened: 0, capped, mode: 'dry-run' });
 
 /**
- * people.find: LinkedIn (read-only, capped), Gmail contacts at the company domain, and skill hints.
+ * people.find: the agent's LinkedIn read (hints with `source: 'linkedin'`, #82; read-only, capped), the
+ * recorded LinkedIn adapter in tests, Gmail contacts at the company domain, and other skill hints.
  * Upserts contacts (name, headline, URL, email only) and links them to the role with a provisional
  * tier (not hiring team) until people.classify runs. Picked roles only.
  */
@@ -85,21 +135,55 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   if (!isPicked(db, role)) return err('conflict', `role ${role.id} is not picked; people.find runs on picked roles only`);
 
   const started = ctx.now().toISOString();
-  const cap = deps.config.linkedin.max_profiles_per_day;
-  const remaining = Math.max(0, cap - linkedinReadsOn(db, ctx.now()));
+  const li = deps.config.linkedin;
+  const remaining = Math.max(0, li.max_profiles_per_day - linkedinReadsOn(db, ctx.now()));
 
-  let collected: CollectResult = EMPTY_COLLECT(deps.linkedin?.mode ?? 'dry-run', false);
-  if (deps.linkedin) {
+  // #82: the agent's own LinkedIn read (Claude in Chrome) arrives as hints; it counts first against the budget.
+  const liHints = (input.hints ?? []).filter((h) => h.source === 'linkedin');
+  const pagesOpened = input.linkedin?.pages_opened ?? 0;
+  const agent = screenLinkedInHints(liHints, {
+    live: li.mode === 'live',
+    remaining,
+    maxExpansions: li.max_mutual_expansions,
+    maxPages: li.max_pages_per_run,
+    pagesOpened,
+  });
+  const agentRead = li.mode === 'live' && (agent.kept.length > 0 || pagesOpened > 0);
+
+  let collected: CollectResult = EMPTY_COLLECT(false);
+  const adapterBudget = remaining - agent.profiles;
+  if (deps.linkedin && li.mode !== 'off') {
     collected =
-      remaining > 0
+      adapterBudget > 0
         ? await deps.linkedin.collect({
             companyName: company.name,
             companyLinkedInSlug: input.linkedin_company_slug ?? company.slug,
             roleTitle: role.title,
-            maxProfiles: remaining,
+            maxProfiles: adapterBudget,
+            maxPages: li.max_pages_per_run,
+            maxMutualExpansions: li.max_mutual_expansions,
           })
-        : EMPTY_COLLECT(deps.linkedin.mode, true);
+        : EMPTY_COLLECT(true);
   }
+  const profilesRead = agent.profiles + collected.profilesRead;
+  const capped = agent.capped || collected.capped;
+  const mode: LinkedInProvenance = li.mode === 'off' ? 'off' : agentRead ? 'agent' : 'dry-run';
+  const linkedinPeople = agent.kept.length + collected.people.length;
+  const reason = ((): LinkedInSkipReason | null => {
+    if (mode === 'agent') return null;
+    if (li.mode === 'off') return 'off';
+    if (li.mode === 'dry-run' || deps.linkedin) return 'dry_run';
+    if (input.linkedin?.skipped) return input.linkedin.skipped;
+    if (liHints.length) return agent.capped || remaining === 0 ? 'capped' : 'invalid';
+    return 'not_reported';
+  })();
+  const linkedinOut = {
+    mode,
+    people: linkedinPeople,
+    rejected: agent.rejected,
+    budget_left: Math.max(0, remaining - profilesRead),
+    reason,
+  };
 
   const candidates: Candidate[] = collected.people.map((p) => ({
     name: p.name,
@@ -109,21 +193,33 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
     source: 'linkedin',
     degree: p.degree,
     via: p.via,
+    hiringTeam: false,
   }));
   if (deps.gmailContacts && company.domain) {
     for (const g of await deps.gmailContacts.searchByDomain(company.domain)) {
-      candidates.push({ name: g.name, headline: null, linkedin_url: null, email: g.email, source: 'gmail', degree: '1', via: null });
+      candidates.push({
+        name: g.name,
+        headline: null,
+        linkedin_url: null,
+        email: g.email,
+        source: 'gmail',
+        degree: '1',
+        via: null,
+        hiringTeam: false,
+      });
     }
   }
-  for (const h of input.hints ?? []) {
+  for (const h of [...agent.kept, ...(input.hints ?? []).filter((x) => x.source !== 'linkedin')]) {
+    const fromLinkedIn = h.source === 'linkedin';
     candidates.push({
       name: h.name,
       headline: h.headline ?? null,
       linkedin_url: h.linkedin_url ?? null,
       email: h.email ?? null,
       source: h.source,
-      degree: 'cold',
-      via: null,
+      degree: fromLinkedIn ? (h.degree ?? 'cold') : 'cold',
+      via: fromLinkedIn && h.via ? { name: h.via.name, headline: h.via.headline ?? null, url: h.via.linkedin_url } : null,
+      hiringTeam: h.hiring_team === true,
     });
   }
 
@@ -132,7 +228,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   const seen = new Set<string>();
 
   /** Resolve or create a contact row. In dry run, nothing is written and ids are placeholders. */
-  const resolveContact = (c: Omit<Candidate, 'degree' | 'via'>): { contact: Contact; created: boolean } => {
+  const resolveContact = (c: Omit<Candidate, 'degree' | 'via' | 'hiringTeam'>): { contact: Contact; created: boolean } => {
     const existing = findContact(db, { linkedin_url: c.linkedin_url, email: c.email });
     if (existing) {
       return { contact: dryRun ? existing : fillContact(db, existing, { ...c, ...knownEmail(c.email, c.source) }), created: false };
@@ -172,12 +268,17 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
       if (link) {
         // Closer relationship found: upgrade degree, keep the hiring-team call already made.
         const rank = { '1': 0, '2': 1, cold: 2 } as const;
-        if (rank[cand.degree] < rank[link.degree]) {
+        const closer = rank[cand.degree] < rank[link.degree];
+        // A hiring-team signal (LinkedIn "hiring team", #82) only ever adds; it never clears an earlier call.
+        const hiring = link.is_hiring_team || cand.hiringTeam;
+        if (closer || hiring !== link.is_hiring_team) {
+          const degree = closer ? cand.degree : link.degree;
           link = {
             ...link,
-            degree: cand.degree,
-            via_contact_id: viaId ?? link.via_contact_id,
-            tier: tierFor(cand.degree, link.is_hiring_team),
+            degree,
+            via_contact_id: closer ? (viaId ?? link.via_contact_id) : link.via_contact_id,
+            is_hiring_team: hiring,
+            tier: tierFor(degree, hiring),
           };
           if (!dryRun) updateLink(db, link);
         }
@@ -188,9 +289,9 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
           company_id: company.id,
           role_id: role.id,
           degree: cand.degree,
-          tier: tierFor(cand.degree, false),
+          tier: tierFor(cand.degree, cand.hiringTeam),
           via_contact_id: viaId,
-          is_hiring_team: false,
+          is_hiring_team: cand.hiringTeam,
         };
         if (!dryRun) {
           insertLink(db, link);
@@ -213,14 +314,19 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
         op: 'people.find',
         started_at: started,
         finished_at: ctx.now().toISOString(),
-        status: collected.capped ? 'partial' : 'ok',
+        status: capped ? 'partial' : 'ok',
         summary: {
           role_id: role.id,
-          linkedin_mode: collected.mode,
-          linkedin_profiles_read: collected.profilesRead,
-          linkedin_pages_opened: collected.pagesOpened,
-          linkedin_budget_left: Math.max(0, remaining - collected.profilesRead),
-          capped: collected.capped,
+          // #82: honest provenance. `agent` = people the agent read on LinkedIn via Claude in Chrome.
+          linkedin_mode: mode,
+          linkedin_people: linkedinPeople,
+          linkedin_reason: reason,
+          linkedin_rejected: agent.rejected,
+          linkedin_profiles_read: profilesRead,
+          linkedin_pages_opened: pagesOpened + collected.pagesOpened,
+          linkedin_budget_left: linkedinOut.budget_left,
+          ...(agent.overPageCap ? { linkedin_over_page_cap: true } : {}),
+          capped,
           found: found.length,
         },
       });
@@ -230,7 +336,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   // Inside runOp's transaction (dry run: nothing is written).
   apply();
 
-  return { status: 'ok', output: { found, capped: collected.capped }, eventIds };
+  return { status: 'ok', output: { found, capped, linkedin: linkedinOut }, eventIds };
 };
 
 export type { PeopleDeps };

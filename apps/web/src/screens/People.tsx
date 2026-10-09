@@ -2,7 +2,7 @@ import { useAct, useApp, useOp } from '../client/context';
 import { PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
 import { eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { bestPath, emailTag, initials } from '../lib/people';
+import { bestPath, emailTag, initials, linkedinState } from '../lib/people';
 import { activeLabel } from '../lib/runs';
 import { graphLayout } from '../lib/view';
 import { go } from '../router';
@@ -13,6 +13,8 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   const { watchRun, activeRun } = useApp();
   const res = useOp('roles.get', { role_id: roleId });
   const drafts = useOp('outreach.list', { role_id: roleId });
+  // #82: did the agent really read LinkedIn for this role? From the latest people.find run.
+  const finds = useOp('runs.list', { op: 'people.find', limit: 200 });
 
   if (!res.data) return <div data-screen-label="People" aria-busy={!res.error} />;
   const { role, company, contacts } = res.data;
@@ -47,6 +49,13 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
     title: 'People',
     back: () => go({ screen: 'role', roleId: role.id }),
   };
+  const li = finds.data ? linkedinState(finds.data.items, role.id) : null;
+  const linkedin = li ? (
+    <div className="people-linkedin" data-linkedin={li.read ? 'read' : 'not-read'} style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>
+      {li.label}
+      {li.read ? null : <span data-reason={li.reason}>{` · ${li.reason}`}</span>}
+    </div>
+  ) : null;
   const rows = people.map((p) => (
     <PersonRow
       key={p.contact.id}
@@ -66,6 +75,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   if (mobile)
     return (
       <Screen label="People · mobile" {...header} primary={primary}>
+        {linkedin}
         <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {rows}
         </div>
@@ -78,6 +88,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, marginTop: 28 }}>
         <PeopleGraph nodes={g.nodes} edges={g.edges} bestTarget={g.best} onOpen={open} />
         <div style={{ flex: '0 1 340px', minWidth: 300 }}>
+          {linkedin}
           <div style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>List</div>
           <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {rows}

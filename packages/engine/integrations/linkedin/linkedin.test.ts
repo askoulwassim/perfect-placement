@@ -100,10 +100,12 @@ describe('adapter', () => {
     expect(r.capped).toBe(true);
   });
 
-  it('refuses mode and driver mismatches', () => {
-    const live: LinkedInDriver = { kind: 'playwright', open: async () => {}, readPeopleCards: async () => [] };
-    expect(() => createLinkedInAdapter({ driver: createRecordedDriver(SYNTHETIC_RECORDING), mode: 'live', minDelayS: 20 })).toThrow();
-    expect(() => createLinkedInAdapter({ driver: live, mode: 'dry-run', minDelayS: 20 })).toThrow();
+  it('has no engine-side live path (#82): live reads are agent-side', () => {
+    const live = { kind: 'claude-in-chrome', open: async () => {}, readPeopleCards: async () => [] } as unknown as LinkedInDriver;
+    expect(() =>
+      createLinkedInAdapter({ driver: createRecordedDriver(SYNTHETIC_RECORDING), mode: 'live' as never, minDelayS: 20 }),
+    ).toThrow(/agent-side/);
+    expect(() => createLinkedInAdapter({ driver: live, mode: 'dry-run', minDelayS: 20 })).toThrow(/agent-side/);
   });
 
   it('never opens a page the guard refuses, even if a recording hands it one', async () => {

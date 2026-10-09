@@ -4,7 +4,12 @@ import { SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ctxAt, type FixtureEngine, fakeLauncher, okOut, openFixtureEngine } from '../testing/index.js';
 import {
+  BUILTIN_WRITE_TOOLS,
   buildRunnerSpec,
+  CHROME_PREFIX,
+  CHROME_READ_TOOLS,
+  CHROME_WRITE_TOOLS,
+  connectDeniedTools,
   cursorPermissions,
   DEFAULT_SKILLS_DIR,
   defaultMcpServer,
@@ -60,9 +65,12 @@ describe('runner command lines', () => {
       mcp,
     });
     expect(connect.args).toEqual(expect.arrayContaining(['--chrome', '--model', 'opus']));
-    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed; #37: Gmail search + read
-    // (the connector loads, so no strict MCP config); #79: create_draft allowed, every other Gmail write denied.
-    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(','));
+    // connect: pp pre-approved; #37: Gmail search + read (the connector loads, so no strict MCP config);
+    // #79: create_draft allowed, every other Gmail write denied; #82: Chrome read + navigate tools allowed.
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(
+      ['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL, ...CHROME_READ_TOOLS].join(','),
+    );
+    expect(flag(connect.args, '--permission-mode')).toBe('dontAsk');
     expect(connect.args).not.toContain('--tools');
     expect(connect.args).not.toContain('--strict-mcp-config');
     const denied = (connect.args[connect.args.indexOf('--disallowedTools') + 1] as string).split(',');
@@ -78,6 +86,60 @@ describe('runner command lines', () => {
     ])
       expect(denied).toContain(`mcp__claude_ai_Gmail__${t}`);
     expect(denied).not.toContain(GMAIL_DRAFT_TOOL);
+  });
+
+  it('connect (#82): Claude in Chrome on, read + navigate tools only, every acting Chrome tool and built-in write denied', () => {
+    const { args } = spec('claude', 'connect');
+    expect(args).toContain('--chrome');
+    const allowed = flag(args, '--allowedTools')?.split(',') ?? [];
+    const denied = flag(args, '--disallowedTools')?.split(',') ?? [];
+    expect(allowed.filter((t) => t.startsWith(CHROME_PREFIX)).sort()).toEqual(
+      ['find', 'get_page_text', 'navigate', 'read_page', 'tabs_context_mcp', 'tabs_create_mcp'].map((t) => `${CHROME_PREFIX}${t}`).sort(),
+    );
+    for (const t of ['computer', 'form_input', 'javascript_tool', 'browser_batch', 'file_upload', 'upload_image', 'shortcuts_execute'])
+      expect(denied).toContain(`${CHROME_PREFIX}${t}`);
+    for (const t of BUILTIN_WRITE_TOOLS) expect(denied).toContain(t);
+    expect(denied).toEqual(connectDeniedTools());
+    for (const t of allowed) expect(denied).not.toContain(t);
+    for (const t of [...CHROME_WRITE_TOOLS, ...BUILTIN_WRITE_TOOLS]) expect(allowed).not.toContain(t);
+
+    // config.linkedin.mode not live: no Chrome at all, the acting tools still denied.
+    const off = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'connect',
+      home: '/h',
+      mcp,
+      linkedin: false,
+    });
+    expect(off.args).not.toContain('--chrome');
+    expect(flag(off.args, '--allowedTools')).toBe(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(','));
+    expect(flag(off.args, '--disallowedTools')).toBe(connectDeniedTools().join(','));
+    // No other skill gets Chrome.
+    for (const skill of SKILLS.filter((x) => x !== 'connect')) {
+      expect(spec('claude', skill).args).not.toContain('--chrome');
+      expect(skillAllowedTools(skill).some((t) => t.startsWith(CHROME_PREFIX))).toBe(false);
+    }
+  });
+
+  it('connect prompt (#82): states the LinkedIn caps and budget, or that LinkedIn is off', () => {
+    const li = {
+      mode: 'live' as const,
+      driver: 'claude-in-chrome' as const,
+      max_profiles_per_day: 40,
+      max_pages_per_run: 6,
+      max_mutual_expansions: 3,
+      min_delay_s: 20,
+      budget_left: 12,
+    };
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'connect', roleId: 'r_1', linkedin: li });
+    expect(p).toContain('at most 6 pages this run, 12 profiles left today (of 40), at most 3 mutual lists, wait 20 to 40 s');
+    expect(p).toContain(CHROME_READ_TOOLS.join(', '));
+    const off = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'connect', roleId: 'r_1', linkedin: { ...li, mode: 'off' } });
+    expect(off).toContain('LinkedIn: off for this run');
+    // The Tools line drops the Chrome tools (the SKILL.md below still documents them).
+    expect(off).toContain(`Tools: the pp MCP tools and ${[...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(', ')}, nothing else.`);
   });
 
   it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
@@ -154,7 +216,7 @@ describe('per-skill tools (#20)', () => {
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
     for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
     expect(skillAllowedTools('inbox')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
-    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL]);
+    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL, ...CHROME_READ_TOOLS]);
   });
 
   it('claude: each skill pre-approves exactly its tools, narrows built-ins to them, denies the rest (dontAsk)', () => {
@@ -241,7 +303,7 @@ describe('SKILL.md tools vs the allowlist (#79, #80)', () => {
       const md = read(skill);
       const allowed = new Set(skillAllowedTools(skill));
       // Full MCP tool names anywhere (mcp__pp__<op> is covered by mcp__pp).
-      for (const [name] of md.matchAll(/\bmcp__[A-Za-z0-9_]+/g))
+      for (const [name] of md.matchAll(/\bmcp__[A-Za-z0-9_-]+/g))
         if (!name.startsWith(`mcp__${MCP_SERVER_NAME}`)) expect(allowed, `${skill}: ${name}`).toContain(name);
       // Gmail connector short names in backticks, and made-up Gmail tool names (gmail_search_messages, #80).
       for (const [, name] of md.matchAll(/`([a-z_]+)`/g)) {
@@ -454,6 +516,22 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     expect(prompt).toContain('outreach_id: or_0001');
     expect(prompt).toMatch(/role_id: \S+/);
     expect(prompt).toContain('gmail_draft_id');
+  });
+
+  it('runs.start { skill: connect, role_id } (#82): Chrome on when config.linkedin.mode is live, off otherwise (fake launcher)', async () => {
+    e = openFixtureEngine();
+    okOut(await e.runOp('runs.start', { skill: 'connect', role_id: 'linear_product-lead-insights' }, ctxAt('human')));
+    const live = e.launcher.specs[0];
+    expect(live?.args).toContain('--chrome');
+    expect(flag(live?.args ?? [], '--allowedTools')).toContain(`${CHROME_PREFIX}navigate`);
+    expect(live?.args[1]).toContain('profiles left today (of 40)');
+    e.cleanup();
+    e = openFixtureEngine({ config: { linkedin: { mode: 'off' } } });
+    okOut(await e.runOp('runs.start', { skill: 'connect', role_id: 'linear_product-lead-insights' }, ctxAt('human')));
+    const off = e.launcher.specs[0];
+    expect(off?.args).not.toContain('--chrome');
+    expect(flag(off?.args ?? [], '--allowedTools')).not.toContain(CHROME_PREFIX);
+    expect(off?.args[1]).toContain('LinkedIn: off for this run');
   });
 
   it('refuses outreach_id on another skill, an unknown outreach, a mismatched role, or a draft already in Gmail', async () => {
