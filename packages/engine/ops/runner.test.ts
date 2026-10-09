@@ -9,12 +9,14 @@ import {
   CHROME_PREFIX,
   CHROME_READ_TOOLS,
   CHROME_WRITE_TOOLS,
+  chromeDeniedTools,
   connectDeniedTools,
   cursorPermissions,
   DEFAULT_SKILLS_DIR,
   defaultMcpServer,
   deniedTools,
   deniedToolsError,
+  fillLine,
   GMAIL_DENIED_TOOLS,
   GMAIL_DRAFT_TOOL,
   GMAIL_PREFIX,
@@ -30,6 +32,7 @@ import {
   skillAllowedTools,
   skillPrompt,
   stableNodePath,
+  usesChrome,
 } from './runner.js';
 
 /* runs.start launches the configured headless runner (fake launcher: nothing spawns in tests or CI). */
@@ -116,11 +119,62 @@ describe('runner command lines', () => {
     expect(off.args).not.toContain('--chrome');
     expect(flag(off.args, '--allowedTools')).toBe(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(','));
     expect(flag(off.args, '--disallowedTools')).toBe(connectDeniedTools().join(','));
-    // No other skill gets Chrome.
-    for (const skill of SKILLS.filter((x) => x !== 'connect')) {
+    // No other skill but fill (#81) gets Chrome.
+    for (const skill of SKILLS.filter((x) => x !== 'connect' && x !== 'fill')) {
       expect(spec('claude', skill).args).not.toContain('--chrome');
       expect(skillAllowedTools(skill).some((t) => t.startsWith(CHROME_PREFIX))).toBe(false);
     }
+  });
+
+  it('fill (#81): Claude in Chrome on, read + navigate tools only; form_input, typing, uploads, script and submit denied', () => {
+    const { args } = spec('claude', 'fill');
+    expect(args).toContain('--chrome');
+    const allowed = flag(args, '--allowedTools')?.split(',') ?? [];
+    const denied = flag(args, '--disallowedTools')?.split(',') ?? [];
+    expect(allowed).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS]);
+    // Built-ins narrowed to WebFetch; dontAsk denies anything not pre-approved.
+    expect(flag(args, '--tools')).toBe('WebFetch');
+    expect(flag(args, '--permission-mode')).toBe('dontAsk');
+    // No click tool exists that cannot also type: `computer` is denied with every other acting tool.
+    for (const t of ['form_input', 'computer', 'javascript_tool', 'file_upload', 'upload_image', 'browser_batch', 'shortcuts_execute'])
+      expect(denied).toContain(`${CHROME_PREFIX}${t}`);
+    for (const t of [...BUILTIN_WRITE_TOOLS, ...GMAIL_WRITE_TOOLS]) expect(denied).toContain(t);
+    expect(denied).toEqual(chromeDeniedTools('fill'));
+    for (const t of allowed) expect(denied).not.toContain(t);
+    // config.linkedin never turns the portal read off.
+    const li = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'fill',
+      home: '/h',
+      mcp,
+      linkedin: false,
+    });
+    expect(li.args).toContain('--chrome');
+    expect(usesChrome('fill', false)).toBe(true);
+    expect(usesChrome('connect', false)).toBe(false);
+    // Codex and Cursor have no Chrome: WebFetch only.
+    expect(cursorPermissions('fill').allow).toEqual(['Mcp(pp:*)', 'WebFetch(*)']);
+  });
+
+  it('fill prompt (#81): read the portal read-only, or answer the pasted questions', () => {
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1' });
+    expect(p).toContain(fillLine());
+    expect(p).toContain('Never click, type, fill a field, upload or submit.');
+    expect(p).toContain('portal questions unreadable');
+    expect(p).toContain(`Tools: the pp MCP tools and WebFetch, ${CHROME_READ_TOOLS.join(', ')}, nothing else.`);
+    const pasted = skillPrompt(DEFAULT_SKILLS_DIR, {
+      runId: 'rn_9',
+      skill: 'fill',
+      roleId: 'r_1',
+      questions: 'applications/r_1/questions.md',
+    });
+    expect(pasted).toContain('vault.read { path: "applications/r_1/questions.md" }');
+    expect(pasted).toContain('do not read the portal for questions');
+    expect(pasted).not.toContain(fillLine());
+    // Only fill gets the portal line.
+    expect(skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'tailor', roleId: 'r_1' })).not.toContain('Portal (read-only');
   });
 
   it('connect prompt (#82): states the LinkedIn caps and budget, or that LinkedIn is off', () => {
@@ -207,7 +261,7 @@ const flag = (args: string[], name: string) => (args.includes(name) ? args[args.
 
 describe('per-skill tools (#20)', () => {
   const WEB: Skill[] = ['scout', 'research', 'freshness'];
-  const FETCH: Skill[] = ['tailor', 'score', 'fill'];
+  const FETCH: Skill[] = ['tailor', 'score'];
   const PP_ONLY: Skill[] = ['learn', 'onboard'];
 
   it('the allowlist covers every skill: web search + fetch for scout/research/freshness, fetch for JD/portal reads, pp only otherwise', () => {
@@ -215,6 +269,7 @@ describe('per-skill tools (#20)', () => {
     for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
     for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+    expect(skillAllowedTools('fill')).toEqual(['mcp__pp', 'WebFetch', ...CHROME_READ_TOOLS]);
     expect(skillAllowedTools('inbox')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
     expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL, ...CHROME_READ_TOOLS]);
   });
@@ -228,9 +283,13 @@ describe('per-skill tools (#20)', () => {
       expect(flag(args, '--permission-mode')).toBe('dontAsk');
       expect(flag(args, '--permission-prompts')).toBe('none');
       // A skill with Gmail tools (inbox) loads the claude.ai connector: no strict MCP config, Gmail writes denied.
+      // A Chrome skill (fill, #81) loads Claude in Chrome: no strict MCP config, acting tools and writes denied.
       const gmail = SKILL_TOOLS[skill].gmail.length > 0;
-      expect(args.includes('--strict-mcp-config')).toBe(!gmail);
-      expect(flag(args, '--disallowedTools')).toBe(gmail ? gmailDeniedTools(skill).join(',') : undefined);
+      const chrome = usesChrome(skill);
+      expect(args.includes('--strict-mcp-config')).toBe(!gmail && !chrome);
+      expect(flag(args, '--disallowedTools')).toBe(
+        chrome ? chromeDeniedTools(skill).join(',') : gmail ? gmailDeniedTools(skill).join(',') : undefined,
+      );
       for (const broad of ['Bash', 'Write', 'Edit', 'Read']) {
         expect(flag(args, '--allowedTools')?.split(',')).not.toContain(broad);
         expect(flag(args, '--tools')?.split(',')).not.toContain(broad);

@@ -111,6 +111,8 @@ export interface PromptContext {
   contactId?: string;
   /** `connect` (#82): config.linkedin and today's remaining profile budget, stated in the prompt. */
   linkedin?: PolicyConfig['linkedin'] & { budget_left: number };
+  /** `fill` (#81): the vault path of questions the user pasted (`apply.set_questions`); answer those, no portal read. */
+  questions?: string;
 }
 
 /** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
@@ -161,16 +163,18 @@ export const GMAIL_DENIED_TOOLS = GMAIL_WRITE_TOOLS.filter((t) => t !== GMAIL_DR
 /** Claude Code's Claude in Chrome tool name prefix (`--chrome`). */
 export const CHROME_PREFIX = 'mcp__claude-in-chrome__';
 /**
- * The Claude in Chrome tools a `connect` run may use to read LinkedIn (#82, wave1-decisions #4, #6): open a
- * tab, navigate to an allowlisted people page, read its text or accessibility tree, find an element. No
- * click, type, form input, script, upload or shortcut: nothing that can send, connect, follow or like.
+ * The Claude in Chrome tools a run may use to read a page: `connect` reads LinkedIn (#82, wave1-decisions #4, #6),
+ * `fill` reads the application portal's questions on every tab and step (#81). Open a tab, navigate to a URL,
+ * read its text or accessibility tree, find an element. No click, type, form input, script, upload or shortcut:
+ * nothing that can send, connect, follow, like, fill a field or submit.
  */
 export const CHROME_READ_TOOLS = ['tabs_context_mcp', 'tabs_create_mcp', 'navigate', 'get_page_text', 'read_page', 'find'].map(
   (t) => `${CHROME_PREFIX}${t}`,
 );
 /**
  * Claude in Chrome tools that act on a page (or batch actions), always denied to every run that could load
- * them: `computer` clicks and types (its screenshot action rides on it, so it goes too).
+ * them: `computer` clicks and types (its screenshot action rides on it, so it goes too). With no safe click
+ * tool, a fill run reaches other tabs and steps by navigating to their URLs (#81).
  */
 export const CHROME_WRITE_TOOLS = [
   'computer',
@@ -182,7 +186,7 @@ export const CHROME_WRITE_TOOLS = [
   'shortcuts_execute',
   'gif_creator',
 ].map((t) => `${CHROME_PREFIX}${t}`);
-/** Built-in tools a `connect` run denies outright (its built-ins are not narrowed with `--tools`). */
+/** Built-in tools a Chrome run denies outright (`connect`'s built-ins are not narrowed with `--tools`). */
 export const BUILTIN_WRITE_TOOLS = ['Bash', 'Write', 'Edit', 'NotebookEdit'] as const;
 
 /**
@@ -190,7 +194,7 @@ export const BUILTIN_WRITE_TOOLS = ['Bash', 'Write', 'Edit', 'NotebookEdit'] as 
  * tools only where the SKILL.md needs them; Gmail connector tools only for `inbox` (search + read,
  * #80) and `connect` (search + read + create_draft, #37, #79). Nothing else (no Bash, no Write/Edit,
  * no file reads): every read and write goes through ops. Chrome read tools only for `connect` (LinkedIn,
- * #82). Each SKILL.md declares the same list in its `## Tools` section (runner.test.ts checks they match).
+ * #82) and `fill` (the portal's questions, #81). Each SKILL.md declares the same list in its `## Tools` section (runner.test.ts checks they match).
  */
 export const SKILL_TOOLS: Readonly<
   Record<Skill, { web: readonly WebTool[]; gmail: readonly string[]; chrome?: readonly string[]; why: string }>
@@ -200,7 +204,12 @@ export const SKILL_TOOLS: Readonly<
   freshness: { web: ['WebSearch', 'WebFetch'], gmail: [], why: 'judges unsure postings from the live page when asked' },
   tailor: { web: ['WebFetch'], gmail: [], why: 'captures the full JD from the posting when only a title is on file' },
   score: { web: ['WebFetch'], gmail: [], why: 'captures the full JD from the posting when only a title is on file' },
-  fill: { web: ['WebFetch'], gmail: [], why: 'reads the real portal questions (a headless run has no browser)' },
+  fill: {
+    web: ['WebFetch'],
+    gmail: [],
+    chrome: CHROME_READ_TOOLS,
+    why: 'reads the real portal questions on every tab and step via Claude in Chrome (--chrome, read + navigate tools only, #81); WebFetch for a plain posting page',
+  },
   inbox: { web: [], gmail: GMAIL_READ_TOOLS, why: 'Gmail search + read (read-only) to classify replies, plus ops' },
   learn: { web: [], gmail: [], why: 'ops only' },
   onboard: {
@@ -217,20 +226,26 @@ export const SKILL_TOOLS: Readonly<
 };
 
 /**
- * Claude Code tool names a skill's headless run pre-approves. `linkedin: false` (config.linkedin.mode is
- * not `live`) drops the Chrome tools.
+ * Claude Code tool names a skill's headless run pre-approves. For `connect`, `linkedin: false`
+ * (config.linkedin.mode is not `live`) drops the Chrome tools.
  */
 export function skillAllowedTools(skill: Skill, opts: { linkedin?: boolean } = {}): string[] {
   const t = SKILL_TOOLS[skill];
-  return [`mcp__${MCP_SERVER_NAME}`, ...t.web, ...t.gmail, ...(opts.linkedin === false ? [] : (t.chrome ?? []))];
+  return [`mcp__${MCP_SERVER_NAME}`, ...t.web, ...t.gmail, ...(usesChrome(skill, opts.linkedin !== false) ? (t.chrome ?? []) : [])];
 }
 
-/** Does this skill's run read LinkedIn through Claude in Chrome? */
-export const usesChrome = (skill: Skill, linkedin = true): boolean => linkedin && (SKILL_TOOLS[skill].chrome?.length ?? 0) > 0;
+/** Does this skill's run use Claude in Chrome? `connect` only when LinkedIn is live; `fill` always (#81). */
+export const usesChrome = (skill: Skill, linkedin = true): boolean =>
+  (skill !== 'connect' || linkedin) && (SKILL_TOOLS[skill].chrome?.length ?? 0) > 0;
+
+/** Everything a Chrome skill's run denies: Gmail writes it is not granted, every acting Chrome tool, built-in writes. */
+export function chromeDeniedTools(skill: Skill): string[] {
+  return [...gmailDeniedTools(skill), ...CHROME_WRITE_TOOLS, ...BUILTIN_WRITE_TOOLS];
+}
 
 /** Everything a `connect` run denies: Gmail writes but create_draft, every acting Chrome tool, built-in writes. */
 export function connectDeniedTools(): string[] {
-  return [...gmailDeniedTools('connect'), ...CHROME_WRITE_TOOLS, ...BUILTIN_WRITE_TOOLS];
+  return chromeDeniedTools('connect');
 }
 
 /** Gmail write tools a skill's run denies outright: every write it is not granted. */
@@ -277,6 +292,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     `Tools: the ${MCP_SERVER_NAME} MCP tools${extra.length ? ` and ${extra.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
+    ...(c.skill === 'fill' ? ['', fillLine(c.questions)] : []),
     '',
     skill,
     ...(assets.length ? ['', ...assets] : []),
@@ -288,6 +304,13 @@ export function linkedinLine(l: NonNullable<PromptContext['linkedin']>): string 
   if (l.mode !== 'live')
     return `LinkedIn: off for this run (config.linkedin.mode = ${l.mode}). Do not open LinkedIn; call people.find with linkedin: { pages_opened: 0 } and no linkedin hints.`;
   return `LinkedIn (read-only via Claude in Chrome): at most ${l.max_pages_per_run} pages this run, ${l.budget_left} profiles left today (of ${l.max_profiles_per_day}), at most ${l.max_mutual_expansions} mutual lists, wait ${l.min_delay_s} to ${l.min_delay_s * 2} s before every page. Never message, connect, follow, like or click a button.`;
+}
+
+/** The portal line of a `fill` prompt (#81): pasted questions on file, or read the portal read-only. */
+export function fillLine(questions?: string): string {
+  if (questions)
+    return `Questions: the user pasted this portal's questions (vault.read { path: "${questions}" }). Answer exactly those; do not read the portal for questions.`;
+  return 'Portal (read-only via Claude in Chrome): open the apply page in a new tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type, fill a field, upload or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.';
 }
 
 /** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
@@ -414,26 +437,41 @@ export function buildRunnerSpec(opts: {
                   '--permission-mode',
                   'dontAsk',
                 ]
-              : [
-                  // A skill with Gmail tools (inbox, #80) loads the claude.ai Gmail connector, so no strict
-                  // MCP config for it, and every Gmail write is denied outright.
-                  ...(SKILL_TOOLS[opts.skill].gmail.length ? [] : ['--strict-mcp-config']),
-                  // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
-                  // dontAsk denies anything else instead of falling back to the user's permission mode.
-                  '--tools',
-                  SKILL_TOOLS[opts.skill].web.join(','),
-                  '--allowedTools',
-                  skillAllowedTools(opts.skill).join(','),
-                  ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
-                  '--permission-mode',
-                  'dontAsk',
-                ]),
+              : usesChrome(opts.skill)
+                ? // #81 (fill): the portal is read through Claude in Chrome. No strict MCP config (as for connect,
+                  // so the Chrome integration loads); built-ins narrowed to the skill's web tools; the Chrome read +
+                  // navigate tools pre-approved; every acting Chrome tool (form_input, computer, javascript_tool,
+                  // file_upload, ...), every Gmail write and built-in writes denied; dontAsk denies anything else.
+                  [
+                    '--tools',
+                    SKILL_TOOLS[opts.skill].web.join(','),
+                    '--allowedTools',
+                    skillAllowedTools(opts.skill).join(','),
+                    '--disallowedTools',
+                    chromeDeniedTools(opts.skill).join(','),
+                    '--permission-mode',
+                    'dontAsk',
+                  ]
+                : [
+                    // A skill with Gmail tools (inbox, #80) loads the claude.ai Gmail connector, so no strict
+                    // MCP config for it, and every Gmail write is denied outright.
+                    ...(SKILL_TOOLS[opts.skill].gmail.length ? [] : ['--strict-mcp-config']),
+                    // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
+                    // dontAsk denies anything else instead of falling back to the user's permission mode.
+                    '--tools',
+                    SKILL_TOOLS[opts.skill].web.join(','),
+                    '--allowedTools',
+                    skillAllowedTools(opts.skill).join(','),
+                    ...(SKILL_TOOLS[opts.skill].gmail.length ? ['--disallowedTools', gmailDeniedTools(opts.skill).join(',')] : []),
+                    '--permission-mode',
+                    'dontAsk',
+                  ]),
           '--permission-prompts',
           'none',
           '--output-format',
           'json',
-          // LinkedIn people reads go through Claude in Chrome (wave1-decisions #4, #82); the Gmail step reads no
-          // LinkedIn, and config.linkedin.mode other than `live` turns it off.
+          // LinkedIn people reads (wave1-decisions #4, #82) and fill's portal reads (#81) go through Claude in Chrome;
+          // the Gmail step reads no LinkedIn, and config.linkedin.mode other than `live` turns it off for connect.
           ...(usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft ? ['--chrome'] : []),
           ...extra,
         ],

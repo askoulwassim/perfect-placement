@@ -804,6 +804,14 @@ const FillQuestion = z
   })
   .refine((a) => !a.needs_human || !!a.reason?.trim(), { message: 'needs_human needs a one-line reason', path: ['reason'] });
 
+/**
+ * Added (#81): who saved an answer. `fill`: a fill run; `ask`: the Ask panel (answers given in Ask for the role in
+ * focus, merged into that role's Answers and shown as "Saved from Ask").
+ */
+export const ANSWER_SOURCES = ['fill', 'ask'] as const;
+export const AnswerSource = z.enum(ANSWER_SOURCES);
+export type AnswerSource = z.infer<typeof AnswerSource>;
+
 const FilledAnswer = z.object({
   question: z.string(),
   kind: z.enum(FILL_KINDS),
@@ -812,6 +820,8 @@ const FilledAnswer = z.object({
   needs_human: z.boolean(),
   /** One line: why it needs you ("no saved answer for relocation to Canada"). */
   reason: z.string().optional(),
+  /** Added (#81): who saved it. Absent on answers filed before #81 (read as `fill`). */
+  source: AnswerSource.optional(),
 });
 
 export const applyFill = defineOp({
@@ -822,6 +832,12 @@ export const applyFill = defineOp({
     role_id: Id,
     portal_url: z.string().url().optional(),
     answers: z.array(FillQuestion),
+    /**
+     * Added (#81): who is saving. `fill` (default): the answers replace the file, keeping earlier Ask answers to
+     * questions this call does not answer. `ask`: merged into the saved answers (same question replaced, others
+     * kept). An Ask session's MCP server sets `ask` when it is absent.
+     */
+    source: AnswerSource.default('fill'),
   }),
   output: z.object({
     application: Application,
@@ -839,6 +855,35 @@ export const applyFill = defineOp({
     fact_check: z
       .object({ checked: z.number().int().min(0), needs_you: z.array(FactNeedsYou.extend({ doc: z.literal('answers') })) })
       .default({ checked: 0, needs_you: [] }),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added (#81): the paste fallback for portals a fill run cannot read (questions on other tabs or steps, a
+ * login wall). Saves the pasted questions to `applications/<role_id>/questions.md` (package path `questions`)
+ * and queues a fill run that answers them instead of reading the portal (`run: false` saves only).
+ */
+export const applySetQuestions = defineOp({
+  name: 'apply.set_questions',
+  description:
+    'Save portal questions the user pasted for a draft-ready role and queue a fill run that answers them instead of reading the portal.',
+  input: z.object({
+    role_id: Id,
+    /** The questions as pasted, one or more per line; blank lines are dropped. */
+    questions_text: z.string().trim().min(1).max(20000),
+    /** Queue the fill run (default true). */
+    run: z.boolean().default(true),
+  }),
+  output: z.object({
+    application: Application,
+    path: VaultPath,
+    /** Non-empty lines saved. */
+    count: z.number().int().min(1),
+    /** The queued (or already active) fill run; null with `run: false`. */
+    run: Run.nullable(),
   }),
   impact: 'low',
   emits: [],
@@ -1581,6 +1626,7 @@ export const OPS = {
   'companies.dossier.write': companiesDossierWrite,
   'apply.tailor': applyTailor,
   'apply.fill': applyFill,
+  'apply.set_questions': applySetQuestions,
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
   'apply.skip_connect': applySkipConnect,

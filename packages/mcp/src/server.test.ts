@@ -198,4 +198,16 @@ describe('MCP server on the real engine (fixtures vault)', () => {
     const own = await call('runs_start', { skill: 'research', role_id: FIXTURE_ROLE_IDS.figmaIv });
     expect(own.structuredContent.output.run).toMatchObject({ status: 'running', summary_json: { actor: 'agent' } });
   });
+
+  it('#81: an Ask session server marks the answers it saves with apply.fill as from Ask; a plain agent server does not', async () => {
+    await client.close();
+    await connect(undefined, undefined, true);
+    const answers = [{ question: 'Why this team?', kind: 'written', answer: 'I build data products people use.' }];
+    const asked = await call('apply_fill', { role_id: FIXTURE_ROLE_IDS.linearDraft, answers });
+    expect(asked.structuredContent.output.answers.map((a: { source?: string }) => a.source)).toEqual(['ask']);
+    await client.close();
+    await connect();
+    const own = await call('apply_fill', { role_id: FIXTURE_ROLE_IDS.linearDraft, answers });
+    expect(own.structuredContent.output.answers.map((a: { source?: string }) => a.source)).toEqual(['fill']);
+  });
 });

@@ -50,7 +50,9 @@ export type DocLine =
   | { t: 'k'; text: string }
   | { t: 't'; text: string }
   | { t: 'b'; w: string }
-  | { t: 'c'; chips: string[] };
+  | { t: 'c'; chips: string[] }
+  /** Who saved the answer above (#81): `ask` = Saved from Ask. */
+  | { t: 'p'; source: 'ask' };
 
 /** Skeleton bars for a document that does not exist yet (documents themselves render as markdown, #35). */
 export const DOC_SKELETON: readonly DocLine[] = [
@@ -62,7 +64,8 @@ export const DOC_SKELETON: readonly DocLine[] = [
 
 /**
  * The answers file (#42) as doc lines: groups (Needs you, Written, Standard, Portal fills) as headings,
- * each question as a key, a needs-you reason as a muted line, portal fills as chips.
+ * each question as a key, a needs-you reason as a muted line, portal fills as chips, and an answer saved
+ * from Ask with its provenance tag (#81).
  */
 export function answerLines(md: string | null | undefined): DocLine[] {
   if (!md) return [...DOC_SKELETON];
@@ -80,6 +83,7 @@ export function answerLines(md: string | null | undefined): DocLine[] {
     }
     const q = /^### (.*)$/.exec(line);
     if (q) out.push({ t: 'k', text: q[1] as string });
+    else if (line === '_Saved from Ask_') out.push({ t: 'p', source: 'ask' });
     else if (fills && /^[-*]\s/.test(line)) fills.push(line.replace(/^[-*]\s+/, ''));
     else if (line.startsWith('>')) out.push({ t: 's', text: line.replace(/^>\s*/, '') });
     else out.push({ t: 't', text: line.replace(/^_(.*)_$/, '$1') });

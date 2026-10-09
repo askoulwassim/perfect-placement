@@ -2,7 +2,7 @@ import type { HandlerMap } from '../runtime.js';
 import { applyMarkSubmitted, applySkipConnect, applyTailor, companiesDossierWrite } from './apply.js';
 import { applyResolveClaim } from './claims.js';
 import { configGet, configUpdate } from './config.js';
-import { applyFill } from './fill.js';
+import { applyFill, applySetQuestions } from './fill.js';
 import { inboxIngest } from './inbox.js';
 import { companiesGet, vaultRead } from './reads.js';
 import { pipelineSummary, rolesAdd, rolesArchive, rolesGet, rolesList, rolesMove, scoutWatchlistScanHandler } from './roles.js';
@@ -22,6 +22,7 @@ export const LANE_B_HANDLERS: HandlerMap = {
   'companies.dossier.write': companiesDossierWrite,
   'apply.tailor': applyTailor,
   'apply.fill': applyFill,
+  'apply.set_questions': applySetQuestions,
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
   'apply.skip_connect': applySkipConnect,

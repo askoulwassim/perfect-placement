@@ -1141,6 +1141,65 @@ describe('run status (#21)', () => {
     assertButtons(container);
   });
 
+  it('Role -> Answers: Add questions saves the pasted questions and queues a fill run that uses them (#81)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Connect'));
+    // Off the Answers tab: no box.
+    expect(container.querySelector('button[data-op="apply.set_questions"]')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Answers' }));
+    const box = await waitFor(() => screen.getByRole('textbox', { name: 'Questions' }));
+    expect(within($(container, '.add-questions')).getByText('Add questions')).toBeTruthy();
+    const run = () => $<HTMLButtonElement>(container, 'button[data-op="apply.set_questions"]');
+    expect(run().textContent).toBe('Run');
+    expect(run().disabled).toBe(true);
+    assertButtons(container);
+    fireEvent.change(box, { target: { value: 'Why Linear?\nWhat would you change about Insights?' } });
+    expect(run().disabled).toBe(false);
+    fireEvent.click(run());
+    await waitFor(() => expect(toast().textContent).toBe('2 questions saved'));
+    expect(live?.calls.filter((c) => c.name === 'apply.set_questions').map((c) => c.body)).toEqual([
+      { role_id: R.linearDraft, questions_text: 'Why Linear?\nWhat would you change about Insights?' },
+    ]);
+    // One op: it queued the fill run itself; the headless runner got the pasted questions, not a portal crawl.
+    expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(0);
+    const spec = live?.engine.launcher.specs.at(-1);
+    expect(spec?.args[1]).toContain('# Fill');
+    expect(spec?.args[1]).toContain(`vault.read { path: "applications/${R.linearDraft}/questions.md" }`);
+    expect((box as HTMLTextAreaElement).value).toBe('');
+    await waitFor(() => expect(run().disabled).toBe(true));
+    expect(run().textContent).not.toBe('Run');
+  });
+
+  it('Role -> Answers: an answer saved from Ask shows Saved from Ask (#81)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      await l.as('agent', 'apply.fill', {
+        role_id: R.linearDraft,
+        answers: [{ question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' }],
+      });
+      return l.as('agent', 'apply.fill', {
+        role_id: R.linearDraft,
+        source: 'ask',
+        answers: [{ question: 'What would you change?', kind: 'written', answer: 'Ship insights faster.' }],
+      });
+    });
+    fireEvent.click(await waitFor(() => screen.getByRole('tab', { name: 'Answers' })));
+    const tag = await waitFor(() => $(container, '.answer-source[data-source="ask"]'));
+    expect(tag.textContent).toBe('Saved from Ask');
+    expect(container.querySelectorAll('.answer-source')).toHaveLength(1);
+    const text = container.textContent ?? '';
+    // The tag sits under the Ask answer's question, not the fill one.
+    expect(text.indexOf('What would you change?')).toBeLessThan(text.indexOf('Saved from Ask'));
+    expect(text.indexOf('Saved from Ask')).toBeLessThan(text.indexOf('Ship insights faster.'));
+  });
+
+  it('Role: no Add questions before draft-ready (#81)', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    fireEvent.click(await waitFor(() => screen.getByRole('tab', { name: 'Answers' })));
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="apply.set_questions"]')).toBeNull();
+  });
+
   it('Role: no Skip off the Connect stage', async () => {
     const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Research'));

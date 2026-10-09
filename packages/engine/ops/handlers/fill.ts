@@ -1,9 +1,19 @@
-import { type ApplicationDefaults, EEO_DEFAULT, isRemoteOnly, type OpInput, type OpOutput, vaultPath } from '@perfect-placement/contracts';
+import {
+  AnswerSource,
+  type ApplicationDefaults,
+  EEO_DEFAULT,
+  isRemoteOnly,
+  type OpInput,
+  type OpOutput,
+  type Run,
+  vaultPath,
+} from '@perfect-placement/contracts';
 import { checkFacts } from '../../profile/facts.js';
 import { getComponents, getCurrentVersion } from '../../profile/versions.js';
 import { OpError } from '../errors.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown } from '../vault.js';
+import { savedAnswers } from './answers-store.js';
 import { type DocClaim, factSources, queueFactChecks, readBody, roleContext } from './claims.js';
 import { getCompany, getRole, laterStage, upsertApplication } from './shared.js';
 
@@ -11,6 +21,9 @@ import { getCompany, getRole, laterStage, upsertApplication } from './shared.js'
  * apply.fill (#42): the model classifies each portal question and drafts the written answers; this code
  * fills standard answers from the saved Application defaults, lists identity and upload fields as portal
  * fills, fact-checks the written answers, and flags only what needs the user, each with a reason.
+ * #81: each answer records who saved it (`fill` or `ask`); an Ask save merges into the saved answers, and a
+ * fill run keeps earlier Ask answers to questions it does not answer. The filed list rides in the answers
+ * file's frontmatter (`answers`, written and read only by this op), so a merge never parses the markdown body.
  */
 
 type FillIn = OpInput<'apply.fill'>['answers'][number];
@@ -178,6 +191,11 @@ export function standardAnswer(field: string, a: Pick<FillIn, 'question' | 'coun
 
 const GROUP_ORDER: Record<Filled['kind'], number> = { written: 0, standard: 1, autofill: 2 };
 
+/** The provenance line under an answer saved from Ask (#81); the Answers tab shows it as a tag. */
+export const SAVED_FROM_ASK = '_Saved from Ask_';
+
+const sameQuestion = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 function answersMarkdown(portalUrl: string | undefined, filed: Filled[]): string {
   const needs = filed.filter((a) => a.needs_human);
   const written = filed.filter((a) => !a.needs_human && a.kind === 'written');
@@ -194,6 +212,7 @@ function answersMarkdown(portalUrl: string | undefined, filed: Filled[]): string
     out.push('', `## ${title}`);
     for (const a of items) {
       out.push('', `### ${a.question}`);
+      if (a.source === 'ask') out.push('', SAVED_FROM_ASK);
       if (a.needs_human && a.reason) out.push('', `> ${a.reason}`);
       out.push('', a.answer.trim() || '_No answer yet._');
     }
@@ -253,16 +272,25 @@ export const applyFill = defineHandler('apply.fill', {
         ? { ...base, answer: a.answer.trim(), needs_human: true, reason: reasons.join('; ') }
         : { ...base, answer: a.answer.trim(), needs_human: false };
     });
+    // #81: an Ask save merges into the saved answers; a fill run keeps earlier Ask answers it does not answer.
+    const path = vaultPath.application(role.id, 'answers');
+    const prior = savedAnswers(h.vault.read(paths.answers ?? path));
+    const source = AnswerSource.parse(input.source ?? 'fill');
+    const fresh = filed.map((a) => ({ ...a, source }));
+    const kept = prior.filter((p) => (source === 'ask' || p.source === 'ask') && !fresh.some((a) => sameQuestion(a.question, p.question)));
+    const all = [...kept, ...fresh];
     // Needs you first, then written, standard, portal fills (stable inside each group).
-    const ordered = filed
+    const ordered = all
       .map((a, i) => ({ a, i }))
       .sort((x, y) => Number(y.a.needs_human) - Number(x.a.needs_human) || GROUP_ORDER[x.a.kind] - GROUP_ORDER[y.a.kind] || x.i - y.i)
       .map((x) => x.a);
 
-    const path = vaultPath.application(role.id, 'answers');
     h.vault.write(
       path,
-      renderMarkdown({ id: `${app.id}-answers`, type: 'application_answers' }, answersMarkdown(input.portal_url, ordered)),
+      renderMarkdown(
+        { id: `${app.id}-answers`, type: 'application_answers', answers: ordered },
+        answersMarkdown(input.portal_url ?? app.portal_url ?? undefined, ordered),
+      ),
     );
     const application = upsertApplication(h, role.id, {
       package_paths_json: { ...app.package_paths_json, answers: path },
@@ -279,12 +307,46 @@ export const applyFill = defineHandler('apply.fill', {
     if (h.ctx.runId)
       h.runLog({
         title: 'apply.fill',
-        summary: { role_id: role.id, ...counts, claims: needs_you.length },
+        summary: { role_id: role.id, ...counts, claims: needs_you.length, source },
         lines: [
-          `${role.id}: ${counts.needs_you} need you, ${counts.written} written, ${counts.standard} standard, ${counts.autofill} portal fills`,
+          `${role.id}: ${counts.needs_you} need you, ${counts.written} written, ${counts.standard} standard, ${counts.autofill} portal fills${source === 'ask' ? ' (saved from Ask)' : ''}`,
           ...ordered.filter((a) => a.needs_human).map((a) => `- ${a.question}: ${a.reason}`),
         ],
       });
     return { application, answers: ordered, counts, fact_check: { checked, needs_you } };
+  },
+});
+
+/**
+ * apply.set_questions (#81): the paste fallback. The pasted questions are saved to the application
+ * (`questions.md`, package path `questions`) and a fill run is queued; its prompt points it at them, so it
+ * answers those instead of reading the portal.
+ */
+export const applySetQuestions = defineHandler('apply.set_questions', {
+  async run(input, h) {
+    const role = getRole(h.db, input.role_id);
+    if (role.status !== 'draft-ready') throw new OpError('conflict', `${role.id}: fill needs a draft-ready role (is ${role.status})`);
+    const lines = input.questions_text
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const app = upsertApplication(h, role.id, {});
+    const path = vaultPath.application(role.id, 'questions');
+    h.vault.write(
+      path,
+      renderMarkdown(
+        { id: `${app.id}-questions`, type: 'application_questions', source: 'pasted', count: lines.length },
+        ['# Portal questions', '', ...lines].join('\n'),
+      ),
+    );
+    const application = upsertApplication(h, role.id, { package_paths_json: { ...app.package_paths_json, questions: path } });
+    let run: Run | null = null;
+    if (input.run) {
+      // A human (or schedule) queues the run; an agent asks for a queued one rather than becoming it.
+      const start = { skill: 'fill' as const, role_id: role.id, ...(h.ctx.actor === 'agent' ? { queue: true } : {}) };
+      const o = await h.runOp('runs.start', start, { actor: h.ctx.actor, now: h.ctx.now, ...(h.ctx.dryRun ? { dryRun: true } : {}) });
+      if (o.status === 'ok') run = (o.output as { run: Run }).run;
+    }
+    return { application, path, count: lines.length, run };
   },
 });

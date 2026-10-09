@@ -19,7 +19,7 @@ import {
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
-import { getRole } from './shared.js';
+import { applicationFor, getRole } from './shared.js';
 
 /**
  * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
@@ -173,6 +173,8 @@ function launchRun(run: Run, h: HandlerContext): void {
     skill === 'connect' && !outreachId
       ? { ...li, budget_left: Math.max(0, li.max_profiles_per_day - linkedinReadsOn(h.repos, h.ctx.now())) }
       : undefined;
+  // #81: a fill run answers the questions the user pasted (apply.set_questions) instead of reading the portal.
+  const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
   const spec = buildRunnerSpec({
     runner: h.config.runner,
     skill,
@@ -190,6 +192,7 @@ function launchRun(run: Run, h: HandlerContext): void {
             ...(s.role_id ? { roleId: s.role_id } : {}),
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
             ...(linkedin ? { linkedin } : {}),
+            ...(questions ? { questions } : {}),
           }),
   });
   const launcher = h.services.launcher ?? createSpawnLauncher();

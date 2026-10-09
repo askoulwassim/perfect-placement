@@ -101,10 +101,11 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `roles.get`, `roles.list`, `pipeline.summary` | low | read |
 | `companies.dossier.write` | low | |
 | `apply.tailor` | low | writes package, moves to draft-ready; unsupported prose claims queue `apply.fact_check` decisions (#54) |
-| `apply.fill` | low | answers file: portal fills, standard answers from Application defaults, fact-checked written answers; needs-you only with a reason (#42) |
+| `apply.fill` | low | answers file: portal fills, standard answers from Application defaults, fact-checked written answers; needs-you only with a reason (#42); `source` `fill` / `ask` per answer, Ask saves merge (#81) |
 | `apply.resolve_claim` | low | keep / remove / rewrite the line of an unsupported claim (the `apply.fact_check` action, #54) |
 | `apply.mark_submitted` | high | human only |
 | `apply.skip_connect` | low | application `connect` -> `fill` with a reason, so a role never stalls (#78) |
+| `apply.set_questions` | low | save pasted portal questions (`questions.md`) and queue a fill run that answers them instead of reading the portal (#81) |
 | `people.find` | low | runs LinkedIn adapter (rate-limited) |
 | `people.link`, `people.classify` | low | |
 | `people.find_email` | low | known address or a ranked pattern guess with a confidence; unsure guesses queue a `people.email` decision (#37) |
