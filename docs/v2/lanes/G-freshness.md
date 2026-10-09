@@ -11,7 +11,7 @@
 - Page fallback: fetch, detect 404 / redirect to listing / closed phrases.
 - Resolver question: Noulli 'still accepting applications?' with the page text as state.
 - Outcomes: open (last_checked_at), closed (archive reason closed, medium impact), unsure (human), age > 45 days (flag).
-- Daily run over active, held, on-deck, draft-ready; run log.
+- Daily run over inbox, active, held, on-deck, draft-ready (inbox since #77); run log.
 
 ## Done when
 

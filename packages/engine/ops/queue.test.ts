@@ -1,6 +1,7 @@
 import type { Run } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fakeFetch, page } from '../integrations/ats/__fixtures__/fake-fetch.js';
 import { ctxAt, type FixtureEngine, fakeLauncher, okOut, openFixtureEngine } from '../testing/index.js';
 
 /*
@@ -107,6 +108,69 @@ describe('pipeline', () => {
     expect(fin.summary_json).toMatchObject({ triggered: [score.id] });
     expect(launched()).toEqual([scout.id, score.id]);
     expect(okOut(await e.runOp('runs.get', { run_id: scout.id }, human)).log_md).toContain(`Queued next: ${score.id}`);
+  });
+
+  it('pre-checks the inbox roles the scout added before scoring: closed ones are archived and never scored (#77)', async () => {
+    const at = (p: string) => `https://careers.example.org/jobs/${p}`;
+    const replies: Record<string, { status: number; body?: string }> = {
+      [at('gone')]: { status: 403, body: page('Access denied') },
+      [at('walled')]: { status: 403, body: page('Access denied') },
+    };
+    const f = fakeFetch((url) => replies[url]);
+    e = openFixtureEngine({ services: { fetch: f } });
+    const scout = (await start({ skill: 'scout' })).run;
+    const added = okOut(
+      await e.runOp(
+        'roles.add',
+        {
+          candidates: [
+            { company_name: 'Example Org', title: 'PM Gone', url: at('gone'), source: 'scout' },
+            { company_name: 'Example Org', title: 'PM Walled', url: at('walled'), source: 'scout' },
+          ],
+        },
+        ctxAt('agent', { runId: scout.id }),
+      ),
+    ).added as string[];
+    expect(added).toEqual(['example-org_pm-gone', 'example-org_pm-walled']);
+    // The posting closed after intake.
+    replies[at('gone')] = { status: 404, body: page('Not found') };
+    f.calls.length = 0;
+
+    const fin = okOut(await finish(scout.id, 'ok')).run as Run;
+    expect(fin.summary_json).toMatchObject({ precheck: { checked: 2, closed: 1, unsure: 1 } });
+    // Only the roles this scout added; the fixture inbox roles are not fetched.
+    expect(f.calls).toEqual([at('gone'), at('walled')]);
+    const gone = e.db.prepare('SELECT status, archive_reason FROM role WHERE id = ?').get('example-org_pm-gone');
+    expect(gone).toEqual({ status: 'archived', archive_reason: 'closed' });
+    const walled = e.db.prepare('SELECT status, freshness, flags_json FROM role WHERE id = ?').get('example-org_pm-walled') as {
+      status: string;
+      freshness: string;
+      flags_json: string;
+    };
+    expect(walled).toMatchObject({ status: 'inbox', freshness: 'unsure' });
+    expect(JSON.parse(walled.flags_json)).toMatchObject({ unverified_checks: 1 });
+    // The score run is still queued for what is left in the inbox.
+    expect((await all()).find((r) => r.op === 'score')?.summary_json).toMatchObject({ triggered_by: scout.id });
+    expect(okOut(await e.runOp('runs.get', { run_id: scout.id }, human)).log_md).toContain('Pre-check: 2 checked, 1 closed, 1 unsure');
+  });
+
+  it('when the pre-check closes every new role and the inbox is empty, no score run is queued', async () => {
+    const url = 'https://careers.example.org/jobs/soon';
+    let reply = { status: 403, body: page('Access denied') };
+    e = openFixtureEngine({ services: { fetch: fakeFetch((u) => (u === url ? reply : undefined)) } });
+    e.db.prepare(`UPDATE role SET status = 'archived', archive_reason = 'passed' WHERE status = 'inbox'`).run();
+    const scout = (await start({ skill: 'scout' })).run;
+    okOut(
+      await e.runOp(
+        'roles.add',
+        { candidates: [{ company_name: 'Example Org', title: 'PM Soon Gone', url, source: 'scout' }] },
+        ctxAt('agent', { runId: scout.id }),
+      ),
+    );
+    reply = { status: 410, body: page('Gone') };
+    const fin = okOut(await finish(scout.id, 'ok')).run as Run;
+    expect(fin.summary_json).toMatchObject({ precheck: { checked: 1, closed: 1 } });
+    expect((await all()).some((r) => r.op === 'score')).toBe(false);
   });
 
   it('a scout that fails, or with the rule off, queues nothing; an agent-run scout chains too', async () => {

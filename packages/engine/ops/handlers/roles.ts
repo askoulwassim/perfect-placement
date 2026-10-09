@@ -146,7 +146,11 @@ export function scoutRunOf(db: Database.Database, runId: string | undefined): Ru
 }
 
 /** Roles a scout run added so far, by source (role_added events linked to it; unlinked since it started without a run id). */
-export function scoutRunAdds(db: Database.Database, run: Run, linked: boolean): Array<{ source: string; company_id: string }> {
+export function scoutRunAdds(
+  db: Database.Database,
+  run: Run,
+  linked: boolean,
+): Array<{ role_id: string; source: string; company_id: string }> {
   const rows = linked
     ? select(db, 'event', `type = 'role_added' AND json_extract(payload_json, '$.run_id') = ? ORDER BY ts ASC, id ASC`, [run.id])
     : select(db, 'event', `type = 'role_added' AND ts >= ? AND json_extract(payload_json, '$.run_id') IS NULL ORDER BY ts ASC, id ASC`, [
@@ -154,7 +158,7 @@ export function scoutRunAdds(db: Database.Database, run: Run, linked: boolean): 
       ]);
   return rows.map((e) => {
     const p = (e.payload_json ?? {}) as { source?: unknown; company_id?: unknown };
-    return { source: String(p.source ?? ''), company_id: String(p.company_id ?? '') };
+    return { role_id: e.subject_id, source: String(p.source ?? ''), company_id: String(p.company_id ?? '') };
   });
 }
 

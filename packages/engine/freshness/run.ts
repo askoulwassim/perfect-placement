@@ -1,11 +1,22 @@
-import type { AskFn, AskRequest, OpContext, OpOutput, PolicyConfig, PolicyOutcome } from '@perfect-placement/contracts';
+import type {
+  AskFn,
+  AskRequest,
+  DecisionAction,
+  KindThresholds,
+  OpContext,
+  OpOutput,
+  PolicyConfig,
+  PolicyOutcome,
+  RecordRequest,
+  RecordResult,
+} from '@perfect-placement/contracts';
 import { vaultPath } from '@perfect-placement/contracts';
 import { createAtsClient, type FetchLike } from '../integrations/ats/index.js';
 import { assess, type Evidence } from './ladder.js';
 import { renderRunLog } from './report.js';
 import type { FreshnessStore, ScopeRole } from './store.js';
 
-export type CheckFreshnessInput = { role_ids?: string[]; all_in_scope?: boolean };
+export type CheckFreshnessInput = { role_ids?: string[]; all_in_scope?: boolean; precheck?: boolean };
 export type CheckFreshnessOutput = OpOutput<'roles.check_freshness'>;
 export type FreshnessResult = CheckFreshnessOutput['results'][number];
 
@@ -19,6 +30,11 @@ export interface FreshnessDeps {
   fetch: FetchLike;
   /** Resolver `ask` (lane I). Not called in dry-run. */
   ask: AskFn;
+  /**
+   * Resolver `record` (lane I): logs a rule judgment through the policy (#77: the pre-check's hard close,
+   * the unverified close). Without it those rules are off and the run only asks.
+   */
+  record?: (req: RecordRequest, opts?: { thresholds?: Partial<KindThresholds> }) => Promise<RecordResult>;
   config: Pick<PolicyConfig, 'freshness'>;
   /** Politeness gap between roles that hit the network. Default 750 ms. */
   delayMs?: number;
@@ -44,6 +60,8 @@ export interface FreshnessRow extends FreshnessResult {
   /** What a non-dry run would do / did: `touch`, `archive`, `queue`, `none`. */
   action: 'touch' | 'archive' | 'queue' | 'none';
   p: number | null;
+  /** Consecutive checks that could not confirm the posting open, this one included (#77). */
+  unverified_checks: number;
   error?: string;
 }
 
@@ -69,6 +87,43 @@ export interface FreshnessSummary {
 }
 
 const APPLIED: readonly PolicyOutcome[] = ['auto', 'auto_second', 'auto_undo'];
+
+/** After this many consecutive checks that cannot confirm a posting open, the run proposes closing it (#77). */
+export const UNVERIFIED_CLOSE_AFTER = 2;
+
+/** p of the pre-check's rule close on hard evidence (ATS says gone, page 404/410, closed phrase, listing redirect). */
+export const HARD_CLOSED_P = 0.97;
+
+/**
+ * p of the unverified close by what the last check saw (#77). Bot wall, no ATS match, hard closed evidence the
+ * resolver contradicted, or no URL: confident (auto + undo). A page that loads but shows nothing decisive: low
+ * (Needs you), since the posting may well be live.
+ */
+export const UNVERIFIED_P = { closed_evidence: 0.97, no_ats_match: 0.95, no_url: 0.95, blocked: 0.93, page: 0.75 } as const;
+export type UnverifiedBasis = keyof typeof UNVERIFIED_P;
+
+export function unverifiedBasis(role: Pick<ScopeRole, 'url'>, ev: Evidence): UnverifiedBasis {
+  if (!role.url) return 'no_url';
+  if (ev.verdict === 'closed') return 'closed_evidence';
+  if (ev.blocked) return 'blocked';
+  if (ev.ats !== null) return 'no_ats_match';
+  return 'page';
+}
+
+const prevUnverified = (role: ScopeRole): number => {
+  const n = Number(role.flags_json.unverified_checks ?? 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+};
+
+/** The close action every freshness decision carries: archive on "not open", undo restores the prior status. */
+function closeAction(role: ScopeRole): DecisionAction {
+  return {
+    op: 'roles.archive',
+    input: { role_id: role.id, reason: 'closed' },
+    when: false,
+    undo: { op: 'roles.move', input: { role_id: role.id, to: role.status } },
+  };
+}
 
 export function ageDays(role: Pick<ScopeRole, 'posted_at' | 'found_at'>, now: Date): number | null {
   const ref = role.posted_at ?? role.found_at;
@@ -109,6 +164,9 @@ function isYes(v: unknown): boolean | null {
  * - closed (resolver no + auto/auto_second/auto_undo): archive reason `closed` (medium, undo window is the resolver's).
  * - unsure (resolver routed to human, conflict, or error): freshness `unsure`, decision waits in Needs you.
  * - stale (age > config.freshness.stale_after_days): flag only.
+ * - precheck (#77, the pipeline before scoring): hard closed evidence closes on a rule decision, no backend asked.
+ * - unverified (#77): the UNVERIFIED_CLOSE_AFTER-th consecutive unsure check records a rule close (`UNVERIFIED_P`):
+ *   confident -> auto + undo, else Needs you; it replaces the role's pending close decisions.
  * Never touches applied-or-later roles: the store only lists and writes FRESHNESS_SCOPE.
  */
 export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext, deps: FreshnessDeps): Promise<FreshnessRun> {
@@ -161,6 +219,7 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
       age_days: age,
       action: 'queue',
       p: null,
+      unverified_checks: 0,
     };
 
     if (ev.verdict === 'open') {
@@ -170,6 +229,9 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
       // Dry run: no resolver call, no writes. Hard closed evidence reads as closed; the rest would be asked.
       row.freshness = ev.verdict === 'closed' ? 'closed' : 'unsure';
       row.action = ev.verdict === 'closed' ? 'archive' : 'queue';
+    } else if (input.precheck && ev.verdict === 'closed' && deps.record) {
+      // Pre-check (#77): hard evidence closes on a rule decision; no backend is asked.
+      await ruleClose(row, role, ev, deps, { p: HARD_CLOSED_P, rule: 'hard_closed' });
     } else {
       const req: AskRequest = {
         decision: 'freshness.closed',
@@ -178,12 +240,7 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
         questions: [OPEN_QUESTION],
         subject: { type: 'role', id: role.id },
         // A human accept of "not open" archives it; undo restores the prior status.
-        action: {
-          op: 'roles.archive',
-          input: { role_id: role.id, reason: 'closed' },
-          when: false,
-          undo: { op: 'roles.move', input: { role_id: role.id, to: role.status } },
-        },
+        action: closeAction(role),
       };
       try {
         const res = await deps.ask(req);
@@ -210,6 +267,23 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
         row.freshness = 'unsure';
         row.action = 'none';
         row.error = `resolver: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+
+    if (!dry && row.freshness === 'unsure') {
+      // #77: one more check that could not confirm the posting open. At UNVERIFIED_CLOSE_AFTER, propose the close.
+      row.unverified_checks = prevUnverified(role) + 1;
+      if (row.unverified_checks >= UNVERIFIED_CLOSE_AFTER && deps.record) {
+        const basis = unverifiedBasis(role, ev);
+        await deps.store.expirePendingCloses?.(role.id, at);
+        await ruleClose(row, role, ev, deps, {
+          p: UNVERIFIED_P[basis],
+          rule: 'unverified',
+          basis,
+          // Confident: auto + undo (a close nobody could verify stays one tap from undone).
+          thresholds: { confident_outcome: 'auto_undo' },
+        });
+        row.evidence = `${row.evidence}; not confirmed open in ${row.unverified_checks} checks (${basis})`;
       }
     }
 
@@ -240,16 +314,65 @@ export async function checkFreshness(input: CheckFreshnessInput, ctx: OpContext,
   return { output, rows, skipped, summary, runId };
 }
 
+/** A rule judgment "not open" logged through the policy (`record`): applied -> archive, else Needs you. */
+async function ruleClose(
+  row: FreshnessRow,
+  role: ScopeRole,
+  ev: Evidence,
+  deps: FreshnessDeps,
+  r: { p: number; rule: 'hard_closed' | 'unverified'; basis?: UnverifiedBasis; thresholds?: Partial<KindThresholds> },
+): Promise<void> {
+  if (!deps.record) return;
+  const state = resolverState(role, ev);
+  try {
+    const res = await deps.record(
+      {
+        decision: 'freshness.closed',
+        impact: 'medium',
+        subject: { type: 'role', id: role.id },
+        question: {
+          ...OPEN_QUESTION,
+          state,
+          rule: r.rule,
+          ...(r.basis ? { basis: r.basis, unverified_checks: row.unverified_checks } : {}),
+        },
+        answer: { id: OPEN_QUESTION.id, value: false, p: r.p },
+        backend: 'rule',
+        action: closeAction(role),
+      },
+      r.thresholds ? { thresholds: r.thresholds } : undefined,
+    );
+    row.method = 'resolver';
+    row.decision_id = res.decisionId;
+    row.p = r.p;
+    delete row.error;
+    if (APPLIED.includes(res.outcome)) {
+      row.freshness = 'closed';
+      row.action = 'archive';
+    } else {
+      row.freshness = 'unsure';
+      row.action = 'queue';
+    }
+  } catch (e) {
+    row.freshness = 'unsure';
+    row.action = 'none';
+    row.error = `resolver: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 async function persist(role: ScopeRole, row: FreshnessRow, at: string, ctx: OpContext, store: FreshnessStore): Promise<void> {
   const flags: Record<string, unknown> = { ...role.flags_json };
   if (row.stale) flags.stale = true;
   else delete flags.stale;
+  if (row.freshness === 'open') delete flags.unverified_checks;
+  else if (row.unverified_checks > 0) flags.unverified_checks = row.unverified_checks;
   const payload = {
     freshness: row.freshness,
     method: row.method,
     evidence: row.evidence,
     stale: row.stale,
     ...(row.p === null ? {} : { p: row.p }),
+    ...(row.unverified_checks > 0 ? { unverified_checks: row.unverified_checks } : {}),
     ...(row.error ? { error: row.error } : {}),
   };
   const emit = (type: 'freshness_checked' | 'role_closed' | 'role_archived', extra: Record<string, unknown> = {}) =>

@@ -16,8 +16,8 @@ export type RoleStatus = z.infer<typeof RoleStatus>;
  */
 export const PROTECTED_STATUSES = ['draft-ready', 'applied', 'interviews', 'offers'] as const satisfies readonly RoleStatus[];
 
-/** Statuses the freshness check covers (blueprint.md "Freshness"). */
-export const FRESHNESS_SCOPE = ['active', 'held', 'on-deck', 'draft-ready'] as const satisfies readonly RoleStatus[];
+/** Statuses the freshness check covers (blueprint.md "Freshness"; inbox since #77). */
+export const FRESHNESS_SCOPE = ['inbox', 'active', 'held', 'on-deck', 'draft-ready'] as const satisfies readonly RoleStatus[];
 
 /**
  * Manual moves a human may make by dragging in River (design handoff §4).

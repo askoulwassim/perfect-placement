@@ -619,7 +619,15 @@ export const rolesArchive = defineOp({
 export const rolesCheckFreshness = defineOp({
   name: 'roles.check_freshness',
   description: 'Check if postings are still open. Medium impact when it closes a role.',
-  input: z.object({ role_ids: z.array(Id).optional(), all_in_scope: z.boolean().optional() }),
+  input: z.object({
+    role_ids: z.array(Id).optional(),
+    all_in_scope: z.boolean().optional(),
+    /**
+     * Pipeline pre-check before scoring (#77): hard closed evidence from the ATS API or the page closes the
+     * role on a rule decision without asking a backend; only an inconclusive check asks the resolver.
+     */
+    precheck: z.boolean().optional(),
+  }),
   output: z.object({
     results: z.array(
       z.object({

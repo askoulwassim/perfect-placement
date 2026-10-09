@@ -717,3 +717,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: LinkedIn was never read; every run said `dry-run` with 0 pages (#82).
 - Shim: none for callers (all new input and output fields optional; old hints still parse). Run rows from before carry only `linkedin_mode`, shown as not read.
 - Status: accepted
+
+## Inbox dead postings
+
+### `FRESHNESS_SCOPE` gains `inbox`; `roles.check_freshness { precheck }`; unverified close; Pass (#77)
+- Lane: r2/04-inbox-dead-postings (G, runs, B, D)
+- Date: 2026-10-09
+- Contract: enums `FRESHNESS_SCOPE` (adds `inbox`, first); registry `rolesCheckFreshness.input.precheck` (optional boolean). Not contracts: resolver `AskOptions.thresholds` / `effectiveThresholds` per-call override widened to `Partial<KindThresholds>` (`confident_outcome` included); engine `FreshnessDeps.record`, `FreshnessStore.expirePendingCloses`, `UNVERIFIED_CLOSE_AFTER`, `UNVERIFIED_P`, `HARD_CLOSED_P`, `scoutRunAdds` rows carry `role_id`
+- Change: the daily freshness run checks inbox roles too (an automated close of an inbox role is a plain archive, reason `closed`). Pipeline: when a scout run ends `ok` and `score_after_scout` is on, `runs.finish` first runs `roles.check_freshness { role_ids, precheck: true }` over the inbox roles that run added and intake did not confirm open (linked to the scout run; `summary_json.precheck { checked, closed, unsure }` and a log line); with `precheck`, hard closed evidence (ATS gone, 404/410, closed phrase, listing redirect) archives on a rule `freshness.closed` decision (p 0.97, plain grid: auto) without asking a backend, and only an inconclusive check asks the resolver. The score run is queued only if the inbox still has roles, so closed ones are never scored. Unverified: every unsure check bumps `flags_json.unverified_checks` (open clears it); the 2nd in a row expires the role's pending `freshness.closed` decisions and records a rule decision "not open" with p by what the check saw (contradicted closed evidence 0.97, no ATS match or no URL 0.95, bot wall 0.93, a page that loads with nothing decisive 0.75) and per-call `confident_outcome: 'auto_undo'`: confident -> archived `closed` with a 24h undo back to the prior status; else Needs you with the archive action. UI (not a contract): **Pass** (`roles.archive { reason: 'passed' }`, a human actor so it runs directly) on an inbox Role screen (secondary, next to Open posting) and on River Inbox tiles (hover or focus menu); Shift-click selects Inbox tiles and **Pass N** (with **Clear**) passes them together.
+- Why: dead or unverifiable postings sat in Inbox: freshness skipped Inbox and Score all scored them anyway (#77).
+- Shim: none (new input optional; roles in inbox were never checked before, so they start with no unverified count).
+- Status: accepted

@@ -1088,6 +1088,73 @@ describe('run status (#21)', () => {
     expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(1);
   });
 
+  it('Role: Pass archives an inbox role as passed (#77)', async () => {
+    const { container } = await boot(`#/role/${R.notionInbox}`, quiet);
+    const pass = () => $<HTMLButtonElement>(container, 'button[data-op="roles.archive"]');
+    await waitFor(() => expect(pass().textContent).toBe('Pass'));
+    assertButtons(container);
+    fireEvent.click(pass());
+    await waitFor(() => expect(toast().textContent).toBe('Notion passed'));
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual([
+      { role_id: R.notionInbox, reason: 'passed' },
+    ]);
+    const got = await live?.client.run('roles.get', { role_id: R.notionInbox });
+    expect(got?.status === 'ok' && [got.output.role.status, got.output.role.archive_reason]).toEqual(['archived', 'passed']);
+    await waitFor(() => expect(window.location.hash).toBe('#/river'));
+  });
+
+  it('Role: Pass shows on inbox roles only', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="roles.archive"]')).toBeNull();
+  });
+
+  it('River: an inbox tile passes from its menu (#77)', async () => {
+    const { container } = await boot('#/river', quiet);
+    const inbox = () => $(container, '.river-col[data-status="inbox"]');
+    const tilePass = () => $<HTMLButtonElement>(inbox(), `.inbox-tile:has([data-role="${R.notionInbox}"]) .tile-pass`);
+    await waitFor(() => expect(tilePass().textContent).toBe('Pass'));
+    expect(tilePass().getAttribute('data-op')).toBe('roles.archive');
+    expect(container.querySelector('.river-col[data-status="active"] .tile-pass')).toBeNull();
+    assertButtons(container);
+    fireEvent.click(tilePass());
+    await waitFor(() => expect(toast().textContent).toBe('Notion passed'));
+    await waitFor(() => expect(inbox().querySelector(`[data-role="${R.notionInbox}"]`)).toBeNull());
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual([
+      { role_id: R.notionInbox, reason: 'passed' },
+    ]);
+  });
+
+  it('River: Shift-click selects inbox tiles, then Pass N passes them all (#77)', async () => {
+    const { container } = await boot('#/river', quiet);
+    const inbox = () => $(container, '.river-col[data-status="inbox"]');
+    const tiles = () => Array.from(inbox().querySelectorAll<HTMLButtonElement>('.river-tile'));
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    const [a, b] = tiles() as [HTMLButtonElement, HTMLButtonElement];
+    const ids = [a.getAttribute('data-role'), b.getAttribute('data-role')];
+    fireEvent.click(a, { shiftKey: true });
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 2'));
+    expect(a.getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.hash).toBe('#/river');
+    // Shift-click again deselects; Clear drops the selection.
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 1'));
+    fireEvent.click($(inbox(), '.river-pass-clear'));
+    await waitFor(() => expect(inbox().querySelector('.river-pass')).toBeNull());
+    fireEvent.click(a, { shiftKey: true });
+    fireEvent.click(b, { shiftKey: true });
+    await waitFor(() => expect($(inbox(), '.river-pass').textContent).toBe('Pass 2'));
+    assertButtons(container);
+    fireEvent.click($(inbox(), '.river-pass'));
+    await waitFor(() => expect(toast().textContent).toBe('2 passed'));
+    await waitFor(() => expect(tiles()).toHaveLength(1));
+    expect(live?.calls.filter((c) => c.name === 'roles.archive').map((c) => c.body)).toEqual(
+      ids.map((role_id) => ({ role_id, reason: 'passed' })),
+    );
+    expect(inbox().querySelector('.river-pass')).toBeNull();
+  });
+
   it('Role: an inbox role scores in one click; an all-inbox run also shows Scoring', async () => {
     const { container } = await boot(`#/role/${R.notionInbox}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Score'));

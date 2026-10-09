@@ -198,6 +198,23 @@ export function RoleScreen({ roleId }: { roleId: string }) {
       {md && tabId !== 'answers' ? <Markdown source={md} compact={m} /> : <Doc lines={md ? answerLines(md) : DOC_SKELETON} compact={m} />}
     </>
   );
+  // Pass (#77): an inbox role the human will not pursue. Archived with reason passed; River next.
+  const passBtn = (m: boolean) =>
+    role.status === 'inbox' && (
+      <SecondaryButton
+        op="roles.archive"
+        label="Pass"
+        height={m ? 26 : 30}
+        style={{ fontSize: m ? 12 : 13, borderRadius: 999 }}
+        hover={{ borderColor: C.coral, color: C.coral }}
+        onClick={async () => {
+          const o = await act('roles.archive', { role_id: role.id, reason: 'passed' });
+          if (o.status !== 'ok') return;
+          showToast(`${company.name} passed`);
+          go({ screen: 'river' });
+        }}
+      />
+    );
   const posting = (m: boolean) =>
     role.url && (
       <a
@@ -250,6 +267,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               <StatusChip small status={role.status} />
               <span style={mono(10, C.muted)}>{checked}</span>
               {posting(true)}
+              {passBtn(true)}
             </div>
           </div>
           <div style={display(52, 800, '-0.05em')}>{tl.fit ?? '—'}</div>
@@ -320,6 +338,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               checked {checked}
             </span>
             {posting(false)}
+            {passBtn(false)}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
