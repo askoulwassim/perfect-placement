@@ -1,10 +1,10 @@
 import { vaultPath } from '@perfect-placement/contracts';
-import { checkFacts, type FactClaim, storySourceText } from '../../profile/facts.js';
-import { getComponents, getCurrentVersion } from '../../profile/versions.js';
+import { checkFacts, type FactClaim } from '../../profile/facts.js';
 import { OpError } from '../errors.js';
 import { select, update } from '../rows.js';
-import { defineHandler, type HandlerContext } from '../runtime.js';
-import { renderMarkdown, stripFrontmatter } from '../vault.js';
+import { defineHandler } from '../runtime.js';
+import { renderMarkdown } from '../vault.js';
+import { type DocClaim, factSources, queueFactChecks, roleContext } from './claims.js';
 import { applicationFor, getCompany, getRole, laterStage, moveRole, upsertApplication } from './shared.js';
 
 // ------------------------------------------------------- companies.dossier.write
@@ -30,23 +30,6 @@ export const companiesDossierWrite = defineHandler('companies.dossier.write', {
 
 // ---------------------------------------------------------------- apply.tailor
 
-const readBody = (h: HandlerContext, path: string | null | undefined): string | null => {
-  if (!path) return null;
-  const md = h.vault.read(path);
-  return md === null ? null : stripFrontmatter(md);
-};
-
-/** Fact sources (#38): the kept resume text and the confirmed Story. */
-function factSources(h: HandlerContext): { texts: string[]; resumePath: string | null } {
-  const v = getCurrentVersion(h.repos);
-  const story = v ? (getComponents(h.repos, v.id).find((c) => c.key === 'story')?.data_json ?? null) : null;
-  const resumePath = typeof story?.source_path === 'string' ? story.source_path : null;
-  const resume = readBody(h, resumePath);
-  return { texts: [resume ?? '', storySourceText(story)].filter((t) => t.trim()), resumePath: resume === null ? null : resumePath };
-}
-
-type DocClaim = FactClaim & { doc: 'resume' | 'cover_letter' };
-
 /** The fit map plus the fact check: where each claim comes from, and what needs the user. */
 function factSection(resumePath: string | null, supported: DocClaim[], needsYou: DocClaim[]): string {
   const cell = (t: string) => t.replace(/\|/g, '/').replace(/\s+/g, ' ').slice(0, 160);
@@ -63,7 +46,7 @@ function factSection(resumePath: string | null, supported: DocClaim[], needsYou:
 }
 
 export const applyTailor = defineHandler('apply.tailor', {
-  run(input, h) {
+  async run(input, h) {
     const role = getRole(h.db, input.role_id);
     if (role.status !== 'draft-ready' && role.status !== 'active' && role.status !== 'on-deck')
       throw new OpError('forbidden_transition', `${role.id}: cannot tailor a role in ${role.status}`);
@@ -73,8 +56,8 @@ export const applyTailor = defineHandler('apply.tailor', {
     // Fact check (#38): numbers, years, dates, degrees and role headings must be in the sources; a title
     // or employer named in prose that they lack goes to the user (needs-you).
     const { texts, resumePath } = factSources(h);
-    const context = [role.title, company.name, readBody(h, role.md_path), readBody(h, company.md_path)].filter(Boolean).join('\n');
-    const tag = (doc: DocClaim['doc'], cs: FactClaim[]): DocClaim[] => cs.map((c) => ({ ...c, doc }));
+    const context = roleContext(h, role, company);
+    const tag = (doc: 'resume' | 'cover_letter', cs: FactClaim[]): DocClaim[] => cs.map((c) => ({ ...c, doc }));
     const r = checkFacts(input.resume_md, texts);
     const c = checkFacts(input.cover_letter_md, texts, { context, numbersFromContext: true, headings: false });
     const unsupported = [...tag('resume', r.unsupported), ...tag('cover_letter', c.unsupported)];
@@ -110,49 +93,19 @@ export const applyTailor = defineHandler('apply.tailor', {
       fit_map: files.fit_map[0],
     };
     const application = upsertApplication(h, role.id, { package_paths_json, stage: laterStage(app.stage, 'connect') });
-    const needs_you = needsYou.map(({ doc, kind, claim, line }) => ({ doc, kind, claim, line }));
+    // #54: each needs-you claim is a decision in Needs you (keep / remove / edit).
+    const needs_you = (await queueFactChecks(h, role.id, ['resume', 'cover_letter'], needsYou, texts)).map((c) => ({
+      ...c,
+      doc: c.doc as 'resume' | 'cover_letter',
+    }));
     h.emit('application_tailored', 'role', role.id, {
       application_id: application.id,
       retailor: role.status === 'draft-ready',
       facts_checked: supported.length + unsupported.length,
-      ...(needs_you.length ? { needs_you } : {}),
+      ...(needs_you.length ? { needs_you: needs_you.map(({ doc, kind, claim, line }) => ({ doc, kind, claim, line })) } : {}),
     });
     if (role.status !== 'draft-ready') moveRole(h, role, 'draft-ready', { via: 'tailor' });
     return { application, fact_check: { checked: supported.length + unsupported.length, needs_you } };
-  },
-});
-
-// ------------------------------------------------------------------ apply.fill
-
-export const applyFill = defineHandler('apply.fill', {
-  run(input, h) {
-    const role = getRole(h.db, input.role_id);
-    if (role.status !== 'draft-ready') throw new OpError('conflict', `${role.id}: fill needs a draft-ready role (is ${role.status})`);
-    const app = upsertApplication(h, role.id, {});
-    const path = vaultPath.application(role.id, 'answers');
-    const flagged = input.answers.filter((a) => a.needs_human).length;
-    const body = [
-      '# Application answers',
-      '',
-      input.portal_url ? `Portal: ${input.portal_url}` : 'Portal: not recorded',
-      flagged ? `Needs you: ${flagged}` : '',
-      ...input.answers.flatMap((a, i) => [
-        '',
-        `## ${i + 1}. ${a.question}`,
-        '',
-        a.answer.trim(),
-        ...(a.needs_human ? ['', '> **Needs you**'] : []),
-      ]),
-    ]
-      .filter((l, i, all) => !(l === '' && all[i - 1] === ''))
-      .join('\n');
-    h.vault.write(path, renderMarkdown({ id: `${app.id}-answers`, type: 'application_answers' }, body));
-    const application = upsertApplication(h, role.id, {
-      package_paths_json: { ...app.package_paths_json, answers: path },
-      stage: laterStage(app.stage, 'submit'),
-      ...(input.portal_url ? { portal_url: input.portal_url } : {}),
-    });
-    return { application };
   },
 });
 

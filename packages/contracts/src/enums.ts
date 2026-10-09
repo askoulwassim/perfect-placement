@@ -270,6 +270,8 @@ export const DECISION_KINDS = [
   'people.classify',
   'outreach.to_gmail',
   'apply.submit',
+  /** Added (#54): an unsupported claim in a tailored document or a fill answer: keep, remove or edit. */
+  'apply.fact_check',
   'other',
 ] as const;
 export const DecisionKind = z.enum(DECISION_KINDS);

@@ -3,7 +3,7 @@ import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
 import type { TileData } from '../components/roles';
 import { bandColor } from '../components/theme';
-import { altsOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
+import { altsOf, DOC_NAME, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { ago, humanize } from './format';
 import { bestPath, initials, type Person } from './people';
 import { COMPONENT_NAME, chipsOf } from './profile';
@@ -87,6 +87,34 @@ export function docLines(md: string | null | undefined): DocLine[] {
   return out;
 }
 
+/**
+ * The answers file (#42) as doc lines: groups (Needs you, Written, Standard, Portal fills) as headings,
+ * each question as a key, a needs-you reason as a muted line, portal fills as chips.
+ */
+export function answerLines(md: string | null | undefined): DocLine[] {
+  if (!md) return docLines(md);
+  const out: DocLine[] = [];
+  let fills: string[] | null = null;
+  for (const raw of md.split('\n')) {
+    const line = raw.trim();
+    if (!line || /^# /.test(line)) continue;
+    const g = /^## (.*)$/.exec(line);
+    if (g) {
+      if (fills?.length) out.push({ t: 'c', chips: fills });
+      fills = g[1] === 'Portal fills' ? [] : null;
+      out.push({ t: 'h', text: g[1] as string });
+      continue;
+    }
+    const q = /^### (.*)$/.exec(line);
+    if (q) out.push({ t: 'k', text: q[1] as string });
+    else if (fills && /^[-*]\s/.test(line)) fills.push(line.replace(/^[-*]\s+/, ''));
+    else if (line.startsWith('>')) out.push({ t: 's', text: line.replace(/^>\s*/, '') });
+    else out.push({ t: 't', text: line.replace(/^_(.*)_$/, '$1') });
+  }
+  if (fills?.length) out.push({ t: 'c', chips: fills });
+  return out;
+}
+
 // ------------------------------------------------------------ decisions
 
 export interface DecisionCtx {
@@ -111,6 +139,29 @@ export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
     p: d.p,
     alts: altsOf(d).map((v) => ({ value: v, label: valueLabel(d.kind, v) })),
   };
+  const fc = factCheckOf(d);
+  if (fc) {
+    // #54: the claim, the document line it is on, the closest source line; keep / remove / edit.
+    const fact = {
+      ...base,
+      question: `Keep "${fc.claim}"?`,
+      alts: base.alts.filter((a) => a.value !== 'other'),
+      edit: fc.line,
+      evidence: [
+        { k: DOC_NAME[fc.doc], d: fc.line },
+        { k: 'Source', d: fc.source ?? 'none found' },
+      ],
+    };
+    if (ctx.role)
+      return {
+        ...fact,
+        letter: ctx.role.company.name.slice(0, 1),
+        fresh: freshOf(ctx.role.role, ctx.now),
+        objTitle: ctx.role.role.title,
+        objSub: `${ctx.role.company.name} · ${DOC_NAME[fc.doc]}`,
+      };
+    return { ...fact, objTitle: d.subject_id, objSub: DOC_NAME[fc.doc] };
+  }
   if (ctx.role) {
     const r = ctx.role.role;
     const ev =

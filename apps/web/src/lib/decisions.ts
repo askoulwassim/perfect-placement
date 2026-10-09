@@ -14,6 +14,7 @@ export const SHORT_Q: Record<DecisionKind, string> = {
   'people.classify': 'Who is this?',
   'outreach.to_gmail': 'Create the Gmail draft?',
   'apply.submit': 'Submit this application?',
+  'apply.fact_check': 'Keep this claim?',
   other: 'Your call?',
 };
 
@@ -54,3 +55,19 @@ export function altsOf(d: Pick<Decision, 'question_json' | 'answer_json'>): Arra
   else if (q.type === 'score') for (let i = q.min ?? 1; i <= (q.max ?? 5); i++) all.push(i);
   return all.filter((v) => v !== pick);
 }
+
+/** An `apply.fact_check` question (#54): the claim, where it is, and the closest source line. */
+export interface FactCheckQ {
+  claim: string;
+  doc: 'resume' | 'cover_letter' | 'answers';
+  line: string;
+  source: string | null;
+}
+export const factCheckOf = (d: Pick<Decision, 'kind' | 'question_json'>): FactCheckQ | null => {
+  if (d.kind !== 'apply.fact_check') return null;
+  const q = d.question_json as Partial<FactCheckQ>;
+  return typeof q.claim === 'string' && typeof q.line === 'string'
+    ? { claim: q.claim, doc: q.doc ?? 'resume', line: q.line, source: q.source ?? null }
+    : null;
+};
+export const DOC_NAME: Record<FactCheckQ['doc'], string> = { resume: 'Resume', cover_letter: 'Cover letter', answers: 'Answers' };

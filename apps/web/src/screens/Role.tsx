@@ -12,7 +12,7 @@ import { bestPath, initials } from '../lib/people';
 import { criteriaOf, freshOf, sourcesOf } from '../lib/role';
 import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
-import { type DocLine, docLines, tile } from '../lib/view';
+import { answerLines, type DocLine, docLines, tile } from '../lib/view';
 import { go } from '../router';
 
 const TABS = [
@@ -147,7 +147,8 @@ export function RoleScreen({ roleId }: { roleId: string }) {
       })}
     </div>
   );
-  const lines = docLines(paths[tabId] ? doc.data?.markdown : null);
+  const md = paths[tabId] ? doc.data?.markdown : null;
+  const lines = tabId === 'answers' ? answerLines(md) : docLines(md);
   const bestPill = (m: boolean) =>
     best && (
       <BestPathPill

@@ -174,6 +174,98 @@ describe('click paths', () => {
     );
   });
 
+  it('Needs you: a fact-check claim shows the claim, document and source; Edit rewrites the line (#54)', async () => {
+    const cover = 'Hi team,\n\nBefore that I worked at Globex on analytics.\n\nThanks.';
+    const { container } = await boot('#/needs-you', (l) =>
+      l.as('agent', 'apply.tailor', {
+        role_id: R.datadogActive,
+        resume_md: '# Resume\n\nFacts only.',
+        cover_letter_md: cover,
+        fit_map_md: '# Fit map',
+      }),
+    );
+    const want = 'Keep "Globex"?';
+    for (let i = 0; i < 8 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    const card = $(container, '.decision');
+    expect(card.textContent).toContain('Cover letter');
+    fireEvent.click(within(card).getByText('Cover letter'));
+    expect(card.textContent).toContain('Before that I worked at Globex on analytics.');
+    fireEvent.keyDown(window, { key: 'c' });
+    const alts = await waitFor(() => $(container, '.decision__alts'));
+    expect(
+      within(alts)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Keep', 'Save']);
+    const input = $<HTMLInputElement>(alts, '.decision__edit input');
+    fireEvent.change(input, { target: { value: 'Before that I built analytics products.' } });
+    const save = within(alts).getByText('Save');
+    expect(save.getAttribute('data-op')).toBe('decisions.resolve');
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'decisions.resolve').at(-1)?.body).toMatchObject({
+        action: 'change',
+        value: 'Before that I built analytics products.',
+      }),
+    );
+    const doc = await live?.as('human', 'vault.read', { path: `applications/${R.datadogActive}/cover_letter.md` });
+    expect(doc?.status === 'ok' && (doc.output as { markdown: string }).markdown).toContain('Before that I built analytics products.');
+    assertButtons(container);
+  });
+
+  it('You -> Terms: Application defaults save once with one op (#42)', async () => {
+    const { container } = await boot('#/you/terms');
+    const box = await waitFor(() => $(container, '.app-defaults'));
+    const save = within(box).getByText('Save') as HTMLButtonElement;
+    expect(save.getAttribute('data-op')).toBe('profile.set_defaults');
+    expect(save.disabled).toBe(true);
+    fireEvent.change($<HTMLInputElement>(box, 'input[name="sponsorship"]'), { target: { value: 'no' } });
+    fireEvent.change($<HTMLInputElement>(box, 'input[name="authorized_countries"]'), { target: { value: 'United States, Canada' } });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'profile.set_defaults').at(-1)?.body).toMatchObject({
+        defaults: { sponsorship: 'no', authorized_countries: ['United States', 'Canada'] },
+      }),
+    );
+    await waitFor(async () => {
+      const p = await live?.as('human', 'profile.get', {});
+      const comps =
+        p?.status === 'ok' ? (p.output as { components: { key: string; data_json: Record<string, unknown> }[] }).components : [];
+      expect(comps.find((c) => c.key === 'terms')?.data_json.application_defaults).toEqual({
+        sponsorship: 'no',
+        authorized_countries: ['United States', 'Canada'],
+      });
+    });
+    assertButtons(container);
+  });
+
+  it('Role -> Answers tab groups Needs you, Written, Standard and Portal fills (#42)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, (l) =>
+      l.as('agent', 'apply.fill', {
+        role_id: R.linearDraft,
+        answers: [
+          { question: 'Email', kind: 'autofill', field: 'email' },
+          { question: 'Sponsorship?', kind: 'standard', field: 'sponsorship' },
+          { question: 'Gender', kind: 'standard', field: 'eeo' },
+          { question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' },
+        ],
+      }),
+    );
+    const tab = await waitFor(() => within(container).getByText('Answers'));
+    fireEvent.click(tab);
+    await waitFor(() => expect(container.textContent).toContain('Portal fills'));
+    const text = container.textContent ?? '';
+    expect(text.indexOf('Needs you')).toBeLessThan(text.indexOf('Written'));
+    expect(text.indexOf('Written')).toBeLessThan(text.indexOf('Standard'));
+    expect(text).toContain('no saved answer for visa sponsorship');
+    expect(text).toContain('Prefer not to say');
+  });
+
   it('Role -> Connect -> People -> warm hiring -> Create Gmail draft -> Role with Connect done', async () => {
     const { container } = await boot(`#/role/${R.linearDraft}`);
     await waitFor(() => expect(primary(container).textContent).toBe('Connect'));

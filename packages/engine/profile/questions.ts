@@ -70,6 +70,22 @@ const set =
   };
 const known = (k: ProfileComponentKey, f: string) => (d: Draft) => has(d, k, f);
 
+/** Application defaults (#42) live in Terms `application_defaults`. */
+const defaultsOf = (d: Draft) => {
+  const t = comp(d, 'terms');
+  t.application_defaults ??= {};
+  return t.application_defaults as Record<string, unknown>;
+};
+const knownDefault = (f: string) => (d: Draft) => {
+  const v = (d.terms?.application_defaults as Record<string, unknown> | undefined)?.[f];
+  return v != null && v !== '' && !(Array.isArray(v) && v.length === 0);
+};
+const setDefault =
+  (f: string, conv: (v: AnswerValue) => unknown = asStr) =>
+  (d: Draft, v: AnswerValue) => {
+    defaultsOf(d)[f] = conv(v);
+  };
+
 const voiceSamplesOf = (d: Draft): string[] =>
   Array.isArray(d.voice?.samples) ? (d.voice.samples as unknown[]).filter((x): x is string => typeof x === 'string') : [];
 
@@ -244,6 +260,67 @@ export const QUESTION_BANK: QuestionDef[] = [
     options: ['low', 'medium', 'high'],
     known: known('terms', 'equity'),
     apply: set('terms', 'equity'),
+  },
+  // Application defaults (#42): standard portal answers, saved once (Terms `application_defaults`).
+  // Questions are full sentences: these are answered on the user's behalf in every application.
+  {
+    id: 'defaults.sponsorship',
+    component: 'terms',
+    label: 'Will you now or in the future need visa sponsorship to work?',
+    answer_type: 'chips',
+    options: ['no', 'yes'],
+    known: knownDefault('sponsorship'),
+    apply: setDefault('sponsorship'),
+  },
+  {
+    id: 'defaults.authorized_countries',
+    component: 'terms',
+    label: 'Which countries can you work in without sponsorship?',
+    answer_type: 'text',
+    dictated: false,
+    known: knownDefault('authorized_countries'),
+    apply: setDefault('authorized_countries', asList),
+  },
+  {
+    id: 'defaults.relocation',
+    component: 'terms',
+    label: 'Are you open to relocating for the right role?',
+    answer_type: 'chips',
+    options: ['no', 'yes', 'depends on the role'],
+    known: (d) => knownDefault('relocation')(d) || has(d, 'work_mode', 'relocation'),
+    apply: setDefault('relocation'),
+  },
+  {
+    id: 'defaults.notice_period',
+    component: 'terms',
+    label: 'How much notice do you need before you can start?',
+    answer_type: 'chips',
+    options: ['none', '2 weeks', '1 month', '2 months', '3 months'],
+    known: knownDefault('notice_period'),
+    apply: setDefault('notice_period'),
+  },
+  {
+    id: 'defaults.in_office',
+    component: 'terms',
+    label: 'How many days a week can you work from an office?',
+    answer_type: 'chips',
+    options: ['0', '1-2', '3', '4-5'],
+    known: knownDefault('in_office'),
+    // Remote only answers it already.
+    when: (d) => {
+      const modes = (d.work_mode?.modes as string[] | undefined) ?? [];
+      return !(modes.length === 1 && modes[0] === 'remote');
+    },
+    apply: setDefault('in_office'),
+  },
+  {
+    id: 'defaults.eeo',
+    component: 'terms',
+    label: 'How should we answer optional demographic (EEO) questions?',
+    answer_type: 'chips',
+    options: ['prefer not to say', 'ask me each time'],
+    known: knownDefault('eeo'),
+    apply: setDefault('eeo', (v) => (asStr(v) === 'prefer not to say' ? 'Prefer not to say' : asStr(v))),
   },
   // Company
   {

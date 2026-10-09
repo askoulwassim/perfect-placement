@@ -283,7 +283,11 @@ export function checkFacts(doc: string, sources: string | readonly string[], opt
       }
     }
     for (const m of stripMd(line).matchAll(EMPLOYER_RE)) {
-      const claim = (m[1] ?? '').replace(/\s+(?:&|of)$/, '').trim();
+      // Sentence punctuation is not part of the name ("at Globex.").
+      const claim = (m[1] ?? '')
+        .replace(/\s+(?:&|of)$/, '')
+        .replace(/[.']+$/, '')
+        .trim();
       if (claim.length < 2 || NOT_EMPLOYERS.has(claim.toLowerCase())) continue;
       if (MONTHS.some((x) => claim.toLowerCase().startsWith(x)) && claim.length <= 9) continue;
       const ok = hasWord(src.text, claim) || (!!ctx && hasWord(ctx.text, claim));
@@ -305,4 +309,33 @@ export function inSource(text: string, phrase: string): boolean {
 /** One line per claim: `"26 years" (years)`. */
 export function describeClaims(claims: readonly FactClaim[]): string {
   return claims.map((c) => `"${c.claim}" (${c.kind})`).join(', ');
+}
+
+const WORDS_STOP = new Set('a an the and or of to in on at for with by from as is was were be been my our i we it this that'.split(' '));
+const wordsOf = (s: string) =>
+  new Set(
+    normFact(s)
+      .split(/[^a-z0-9%$]+/)
+      .filter((w) => w.length > 1 && !WORDS_STOP.has(w)),
+  );
+
+/**
+ * The source line closest to a claim (#54): most shared words with the claim's line (the claim's own
+ * words count double). Null when nothing shares a word. Shown next to an unsupported claim so the user
+ * can see what the sources do say.
+ */
+export function nearestSource(claim: string, line: string, sources: string | readonly string[]): string | null {
+  const want = wordsOf(line);
+  const key = wordsOf(claim);
+  let best: { raw: string; score: number } | null = null;
+  for (const t of typeof sources === 'string' ? [sources] : sources)
+    for (const raw of t.split(/\r?\n/)) {
+      const r = raw.trim();
+      if (!r) continue;
+      const have = wordsOf(r);
+      let score = 0;
+      for (const w of have) score += key.has(w) ? 2 : want.has(w) ? 1 : 0;
+      if (score > 0 && (!best || score > best.score)) best = { raw: r, score };
+    }
+  return best?.raw ?? null;
 }

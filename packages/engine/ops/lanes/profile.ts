@@ -19,6 +19,7 @@ import {
   profileHistory,
   profileProposeDiff,
   profileRejectDiff,
+  profileSetDefaults,
   undoDiff,
 } from '../../profile/profile-ops.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
@@ -98,6 +99,9 @@ export const LANE_E_HANDLERS = {
     run: (i, h) => routed(async () => (await profileApplyDiff(profileDeps(h), i, h.ctx)).output),
   }),
   'profile.reject_diff': defineHandler('profile.reject_diff', { run: (i, h) => profileRejectDiff(profileDeps(h), i, h.ctx).output }),
+  'profile.set_defaults': defineHandler('profile.set_defaults', {
+    run: (i, h) => routed(() => profileSetDefaults(profileDeps(h), i, h.ctx)),
+  }),
   'profile.undo_diff': defineHandler('profile.undo_diff', { run: (i, h) => undoDiff(profileDeps(h), i.diff_id, h.ctx) }),
   'profile.learn': defineHandler('profile.learn', {
     async run(i, h) {

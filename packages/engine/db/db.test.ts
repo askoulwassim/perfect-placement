@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RUN_STATUSES } from '@perfect-placement/contracts';
+import { DECISION_KINDS, RUN_STATUSES } from '@perfect-placement/contracts';
 import { FIXTURE_SEED_SQL } from '@perfect-placement/fixtures';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -186,6 +186,38 @@ describe('migration 004 (run status queued, #21)', () => {
     old.exec('ROLLBACK TO s; RELEASE s');
     expect(old.pragma('foreign_key_check')).toEqual([]);
     expect(old.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 4 });
+    old.close();
+  });
+});
+
+describe('migration 005 (decision kind apply.fact_check, #54)', () => {
+  it('accepts every contract decision kind, keeps every decision, its indexes and the apply.submit check', () => {
+    const old = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004']) old.exec(migration(v));
+    old.exec(readFileSync(FIXTURE_SEED_SQL, 'utf8'));
+    const before = old.prepare('SELECT * FROM decision ORDER BY id').all();
+    expect(before.length).toBeGreaterThan(0);
+    const indexes = () =>
+      (
+        old
+          .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decision' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+          .all() as { name: string }[]
+      ).map((r) => r.name);
+    const idx004 = indexes();
+    const ins = old.prepare(
+      `INSERT INTO decision (id, ts, kind, subject_type, subject_id, question_json, backend, answer_json, p, impact, policy_outcome, status) VALUES (?,'x',?,'role','r','{}','rule','{}',0.5,'medium',?,'pending')`,
+    );
+    expect(() => ins.run('tmp_fc', 'apply.fact_check', 'human')).toThrow(/CHECK/);
+    old.exec(migration('005'));
+    expect(old.prepare('SELECT * FROM decision ORDER BY id').all()).toEqual(before);
+    expect(indexes()).toEqual(idx004);
+    old.exec('SAVEPOINT s');
+    for (const k of DECISION_KINDS) ins.run(`tmp_${k}`, k, 'human');
+    expect(() => ins.run('tmp_bad', 'nope', 'human')).toThrow(/CHECK/);
+    expect(() => ins.run('tmp_submit', 'apply.submit', 'auto')).toThrow(/CHECK/);
+    old.exec('ROLLBACK TO s; RELEASE s');
+    expect(old.pragma('foreign_key_check')).toEqual([]);
+    expect(old.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 5 });
     old.close();
   });
 });

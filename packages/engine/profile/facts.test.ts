@@ -1,7 +1,7 @@
 import { deflateRawSync } from 'node:zlib';
 import { cleanDictation, numberWordsToDigits } from '@perfect-placement/contracts';
 import { describe, expect, it } from 'vitest';
-import { checkFacts, storySourceText } from './facts.js';
+import { checkFacts, nearestSource, storySourceText } from './facts.js';
 import { nextQuestion, QUESTION_BANK, YEARS_LEAVE_OUT } from './questions.js';
 import { parseResumeHeuristic, statedYears, yearsFromDates } from './resume.js';
 import { extractResumeText, resumeKind } from './resume-text.js';
@@ -142,5 +142,64 @@ describe('resume text extraction (#38)', () => {
     expect(resumeKind('noext', synthPdf(['x']))).toBe('pdf');
     await expect(extractResumeText('r.png', Buffer.from([1, 2, 3]))).rejects.toThrow(/unsupported/);
     await expect(extractResumeText('r.docx', Buffer.from('not a zip'))).rejects.toThrow(/DOCX/);
+  });
+});
+
+describe('Application defaults questions (#42)', () => {
+  const q = (id: string) => QUESTION_BANK.find((x) => x.id === id);
+
+  it('are full-sentence questions saved in Terms application_defaults', () => {
+    const ids = QUESTION_BANK.filter((x) => x.id.startsWith('defaults.')).map((x) => x.id);
+    expect(ids).toEqual([
+      'defaults.sponsorship',
+      'defaults.authorized_countries',
+      'defaults.relocation',
+      'defaults.notice_period',
+      'defaults.in_office',
+      'defaults.eeo',
+    ]);
+    for (const id of ids) expect(q(id)?.label).toMatch(/^[A-Z].+\?$/);
+    const d: Record<string, Record<string, unknown>> = {};
+    q('defaults.sponsorship')?.apply(d, 'no');
+    q('defaults.authorized_countries')?.apply(d, 'United States, Canada');
+    q('defaults.eeo')?.apply(d, 'prefer not to say');
+    expect(d.terms?.application_defaults).toEqual({
+      sponsorship: 'no',
+      authorized_countries: ['United States', 'Canada'],
+      eeo: 'Prefer not to say',
+    });
+    expect(q('defaults.sponsorship')?.known(d)).toBe(true);
+    expect(q('defaults.notice_period')?.known(d)).toBe(false);
+  });
+
+  it('office days are asked only when the work mode is not remote only; a saved relocation is not asked again', () => {
+    const answered = QUESTION_BANK.filter((x) => !x.id.startsWith('defaults.')).map((x) => x.id);
+    const remote = { work_mode: { modes: ['remote'] } };
+    const asked = (d: Record<string, Record<string, unknown>>) => {
+      const seen: string[] = [];
+      for (let next = nextQuestion(d, answered); next; next = nextQuestion(d, [...answered, ...seen])) seen.push(next.id);
+      return seen;
+    };
+    expect(asked(remote)).not.toContain('defaults.in_office');
+    expect(asked({ work_mode: { modes: ['hybrid'], relocation: 'no' } })).toEqual([
+      'defaults.sponsorship',
+      'defaults.authorized_countries',
+      'defaults.notice_period',
+      'defaults.in_office',
+      'defaults.eeo',
+    ]);
+  });
+});
+
+describe('nearestSource (#54)', () => {
+  it('finds the source line sharing the most words with the claim; null when none share one', () => {
+    expect(nearestSource('Globex', 'At Globex I cut warehouse spend with usage-based pricing.', SYNTH_RESUME)).toBe(
+      '- **Cost:** Cut warehouse spend 30% with usage-based pricing.',
+    );
+    expect(nearestSource('Zorblax', 'Zorblax quux.', SYNTH_RESUME)).toBeNull();
+  });
+
+  it('an employer at the end of a sentence is checked without its period', () => {
+    expect(claims(checkFacts('I maintained a library at Globex.', SYNTH_RESUME).unsupported)).toEqual(['employer:Globex']);
   });
 });

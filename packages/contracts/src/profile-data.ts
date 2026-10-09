@@ -53,6 +53,53 @@ export const StoryItem = z.looseObject({
   confirm: Text.optional(),
 });
 
+/**
+ * Added (#42): Application defaults, the saved answers to the standard portal questions (Terms
+ * `application_defaults`). Set once in onboarding or You, reused by `apply.fill` on every application.
+ * Never scored: changing only these does not rescore.
+ */
+export const EEO_DEFAULT = 'Prefer not to say';
+export const ApplicationDefaults = z.looseObject({
+  /** "Will you now or in the future require visa sponsorship?" (`no` | `yes`). */
+  sponsorship: Text.optional(),
+  /** Countries where the user may work without sponsorship. */
+  authorized_countries: TextList.optional(),
+  /** Open to relocating (`no` | `yes` | `depends on the role`). */
+  relocation: Text.optional(),
+  /** Notice before starting ("2 weeks"); start-date questions are answered from it. */
+  notice_period: Text.optional(),
+  /** Office days a week ("0", "1-2", "3", "4-5"); unset = from Work mode. */
+  in_office: Text.optional(),
+  /** Comp expectation as written in portals; unset = from the Terms target. */
+  comp_expectation: Text.optional(),
+  /** Demographic (EEO) questions; unset = EEO_DEFAULT. */
+  eeo: Text.optional(),
+  /** Any other saved standard answer, by field name. */
+  answers: z.record(z.string(), Text).optional(),
+});
+export type ApplicationDefaults = z.infer<typeof ApplicationDefaults>;
+
+/**
+ * Added (#42): how `apply.fill` treats a portal question.
+ *  - autofill: identity fields and uploads; the portal fills them from the profile, never an answer.
+ *  - standard: answered from the saved Application defaults (plus Terms and Work mode).
+ *  - written: drafted from Story, CONTEXT (JD, dossier) and Voice, fact-checked.
+ */
+export const FILL_KINDS = ['autofill', 'standard', 'written'] as const;
+export const AUTOFILL_FIELDS = ['name', 'email', 'phone', 'linkedin', 'github', 'website', 'resume', 'cover_letter', 'other'] as const;
+export const STANDARD_FIELDS = [
+  'sponsorship',
+  'work_authorization',
+  'relocation',
+  'start_date',
+  'notice_period',
+  'comp_expectation',
+  'in_office',
+  'location',
+  'eeo',
+  'other',
+] as const;
+
 /** Voice writing samples kept by onboarding (outreach voice). */
 export const VOICE_SAMPLES_MAX = 5;
 export const VOICE_SAMPLE_MAX_CHARS = 1500;
@@ -117,6 +164,8 @@ export const COMPONENT_DATA_SCHEMAS = {
     comp_penalty_below: z.number().nonnegative().optional(),
     currency: Text.optional(),
     equity: Text.optional(),
+    /** Added (#42): saved answers to standard application questions. */
+    application_defaults: ApplicationDefaults.optional(),
   }),
   company: z.looseObject({
     ...common,

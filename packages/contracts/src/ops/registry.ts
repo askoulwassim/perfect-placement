@@ -33,6 +33,7 @@ import {
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
+import { ApplicationDefaults, FILL_KINDS } from '../profile-data.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
 import { Ack, defineOp, Page } from './define.js';
 
@@ -107,6 +108,21 @@ export const profileRejectDiff = defineOp({
   output: Ack,
   impact: 'low',
   emits: ['profile_diff_rejected'],
+  owner: 'E',
+});
+
+/**
+ * Added (#42): save Application defaults (Terms `application_defaults`) from You. A human edit applies at
+ * once as profile v+1 (a Terms diff, never rescored); from an agent it queues for the human. A field set to
+ * an empty string or empty list is cleared.
+ */
+export const profileSetDefaults = defineOp({
+  name: 'profile.set_defaults',
+  description: 'Save the standard application answers (sponsorship, work authorization, relocation, notice, office days, comp, EEO).',
+  input: z.object({ defaults: ApplicationDefaults }),
+  output: z.object({ version: ProfileVersion.nullable(), defaults: ApplicationDefaults }),
+  impact: 'low',
+  emits: ['profile_diff_proposed', 'profile_diff_applied'],
   owner: 'E',
 });
 
@@ -557,6 +573,17 @@ export const companiesDossierWrite = defineOp({
 
 // ------------------------------------------------------------------- apply (B)
 
+/** Added (#54): the documents a fact check covers. */
+const FactDoc = z.enum(['resume', 'cover_letter', 'answers']);
+/** An unsupported claim for the user; `decision_id` = its `apply.fact_check` decision in Needs you. */
+const FactNeedsYou = z.object({
+  doc: FactDoc,
+  kind: z.string(),
+  claim: z.string(),
+  line: z.string(),
+  decision_id: Id.optional(),
+});
+
 export const applyTailor = defineOp({
   name: 'apply.tailor',
   description: 'Write the tailored package and move the role to draft-ready.',
@@ -577,7 +604,7 @@ export const applyTailor = defineOp({
     fact_check: z
       .object({
         checked: z.number().int().min(0),
-        needs_you: z.array(z.object({ doc: z.enum(['resume', 'cover_letter']), kind: z.string(), claim: z.string(), line: z.string() })),
+        needs_you: z.array(FactNeedsYou.extend({ doc: z.enum(['resume', 'cover_letter']) })),
       })
       .default({ checked: 0, needs_you: [] }),
   }),
@@ -586,15 +613,83 @@ export const applyTailor = defineOp({
   owner: 'B',
 });
 
+/** A portal question as the fill skill classified it (#42). */
+const FillQuestion = z
+  .object({
+    question: z.string().min(1),
+    /** autofill: identity fields and uploads; standard: saved Application defaults; written: drafted. Default written. */
+    kind: z.enum(FILL_KINDS).default('written'),
+    /** autofill / standard: which field (STANDARD_FIELDS / AUTOFILL_FIELDS); `other` = by question. */
+    field: z.string().optional(),
+    /** standard `work_authorization` / `relocation`: the country the question asks about. */
+    country: z.string().optional(),
+    /** written: the drafted answer. standard: only used when nothing is saved (shown as a suggestion). */
+    answer: z.string().default(''),
+    /** The drafter's confidence in a written answer; below the policy's second-opinion threshold it needs you. */
+    confidence: Probability.optional(),
+    /** The drafter's own flag: a legal or personal question with no saved default. Needs `reason`. */
+    needs_human: z.boolean().default(false),
+    reason: z.string().optional(),
+  })
+  .refine((a) => !a.needs_human || !!a.reason?.trim(), { message: 'needs_human needs a one-line reason', path: ['reason'] });
+
+const FilledAnswer = z.object({
+  question: z.string(),
+  kind: z.enum(FILL_KINDS),
+  field: z.string().optional(),
+  answer: z.string(),
+  needs_human: z.boolean(),
+  /** One line: why it needs you ("no saved answer for relocation to Canada"). */
+  reason: z.string().optional(),
+});
+
 export const applyFill = defineOp({
   name: 'apply.fill',
-  description: 'Write answers to the real portal questions.',
+  description:
+    'Write answers to the real portal questions: identity and upload fields listed as portal fills, standard questions from the saved Application defaults, written answers fact-checked; only what needs the user is flagged, each with a reason.',
   input: z.object({
     role_id: Id,
     portal_url: z.string().url().optional(),
-    answers: z.array(z.object({ question: z.string(), answer: z.string(), needs_human: z.boolean().default(false) })),
+    answers: z.array(FillQuestion),
   }),
-  output: z.object({ application: Application }),
+  output: z.object({
+    application: Application,
+    /** Added (#42): every question as filed, needs-you first. */
+    answers: z.array(FilledAnswer).default([]),
+    counts: z
+      .object({
+        needs_you: z.number().int().min(0),
+        written: z.number().int().min(0),
+        standard: z.number().int().min(0),
+        autofill: z.number().int().min(0),
+      })
+      .default({ needs_you: 0, written: 0, standard: 0, autofill: 0 }),
+    /** Added (#42, #54): unsupported claims in written answers, each queued as an `apply.fact_check` decision. */
+    fact_check: z
+      .object({ checked: z.number().int().min(0), needs_you: z.array(FactNeedsYou.extend({ doc: z.literal('answers') })) })
+      .default({ checked: 0, needs_you: [] }),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added (#54): apply the user's call on an unsupported claim (`apply.fact_check` decision action):
+ * `keep` leaves the document, `remove` drops the line that states it, any other text replaces that line.
+ */
+export const applyResolveClaim = defineOp({
+  name: 'apply.resolve_claim',
+  description: 'Keep, remove or rewrite the line of a tailored document or answer that states an unsupported claim.',
+  input: z.object({
+    role_id: Id,
+    doc: FactDoc,
+    /** The document line the claim is on (as the fact check reported it). */
+    line: z.string().min(1),
+    /** `keep`, `remove`, or the replacement text for the line. */
+    value: z.string().min(1),
+  }),
+  output: z.object({ changed: z.boolean(), path: VaultPath.nullable() }),
   impact: 'low',
   emits: [],
   owner: 'B',
@@ -1059,6 +1154,7 @@ export const OPS = {
   'profile.apply_diff': profileApplyDiff,
   'profile.reject_diff': profileRejectDiff,
   'profile.undo_diff': profileUndoDiff,
+  'profile.set_defaults': profileSetDefaults,
   'profile.learn': profileLearn,
   'onboard.start': onboardStart,
   'onboard.state': onboardState,
@@ -1081,6 +1177,7 @@ export const OPS = {
   'companies.dossier.write': companiesDossierWrite,
   'apply.tailor': applyTailor,
   'apply.fill': applyFill,
+  'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
   'people.find': peopleFind,
   'people.link': peopleLink,

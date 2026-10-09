@@ -23,6 +23,8 @@ export interface DecisionView {
   p: number;
   evidence: ReadonlyArray<{ k: string; d: string }>;
   alts: ReadonlyArray<{ label: string; value: string | boolean | number }>;
+  /** Free-text change (#54 fact check: rewrite the line); the text is the changed value. */
+  edit?: string;
 }
 
 function ObjectMark({ v, size }: { v: DecisionView; size: number }) {
@@ -118,6 +120,7 @@ export function DecisionCard({
       {o.label}
     </Btn>
   ));
+  const editor = v.edit !== undefined && <EditField key={v.edit} initial={v.edit} mobile={mobile} onSave={(t) => onPick(t)} />;
   const before = (v.before ?? []).map((b) => (
     <span
       key={b}
@@ -187,6 +190,7 @@ export function DecisionCard({
               style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.line}` }}
             >
               {alts}
+              {editor}
             </div>
           )}
         </article>
@@ -257,6 +261,7 @@ export function DecisionCard({
         >
           <div style={{ ...eyebrow(C.gold), width: 72 }}>Change</div>
           {alts}
+          {editor}
         </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 30, gap: 12, flexWrap: 'wrap' }}>
@@ -279,5 +284,48 @@ export function DecisionCard({
         )}
       </div>
     </article>
+  );
+}
+
+/** Rewrite the text (one line) and save it as the changed value. */
+function EditField({ initial, mobile, onSave }: { initial: string; mobile?: boolean; onSave: (text: string) => void }) {
+  const [text, setText] = useState(initial);
+  const changed = text.trim() !== '' && text.trim() !== initial.trim();
+  return (
+    <div className="decision__edit" style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '1 1 100%', marginTop: 4 }}>
+      <input
+        aria-label="Edit"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          height: mobile ? 44 : 36,
+          background: C['bg-2'],
+          border: `1px solid ${C['line-2']}`,
+          borderRadius: 8,
+          color: C.fg,
+          padding: '0 12px',
+          fontSize: 13,
+        }}
+      />
+      <Btn
+        op="decisions.resolve"
+        disabled={!changed}
+        onClick={() => onSave(text.trim())}
+        style={{
+          border: `1px solid ${X.gold50}`,
+          background: 'transparent',
+          color: C.fg,
+          borderRadius: 999,
+          padding: mobile ? '0 14px' : '8px 14px',
+          height: mobile ? 44 : undefined,
+          fontSize: 13,
+        }}
+        hover={{ background: X.gold12 }}
+      >
+        Save
+      </Btn>
+    </div>
   );
 }

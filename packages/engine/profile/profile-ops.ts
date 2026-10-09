@@ -146,6 +146,9 @@ export function profileProposeDiff(
 
 // ------------------------------------------------------------------ apply
 
+/** Component keys no score reads: a diff that only changes these never rescores (#42). */
+const UNSCORED_KEYS = new Set(['application_defaults', 'notes', 'open_questions', 'dictated']);
+
 /** Effective impact: never lower than what the component kind implies (guards a tampered row). */
 export function diffImpact(diff: ProfileDiff): Impact {
   return maxImpact(diff.impact, impactForComponent(diff.component_key));
@@ -317,8 +320,9 @@ export async function applyApproved(
     },
     now,
   );
-  // Asset changes (story, voice, network) do not change scores.
-  const scope = comp.kind === 'asset' ? [] : rescoreScope(deps.repos);
+  // Asset changes (story, voice, network) and unscored keys (Application defaults) do not change scores.
+  const unscored = diffChangedKeys(diff).every((k) => UNSCORED_KEYS.has(k));
+  const scope = comp.kind === 'asset' || unscored ? [] : rescoreScope(deps.repos);
   const rescored = deps.rescore ? await deps.rescore(scope, next.id) : scope;
   return { output: { version: next, rescored_role_ids: rescored }, eventIds: [evId] };
 }
@@ -390,4 +394,43 @@ export async function undoDiff(deps: ProfileDeps, diffId: string, ctx: OpContext
   });
   updateDiff(deps.repos, diff.id, { status: 'undone' });
   return { version: next };
+}
+
+// ------------------------------------------------------------------ application defaults (#42)
+
+const emptyValue = (v: unknown) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+
+/**
+ * Save Application defaults (Terms `application_defaults`): merge the given fields (an empty string or
+ * list clears one), then propose and apply one Terms diff. A human applies at once; any other actor goes
+ * through the resolver like every Terms diff (RequiresHuman). Never rescored (UNSCORED_KEYS).
+ */
+export async function profileSetDefaults(
+  deps: ProfileDeps,
+  input: OpInput<'profile.set_defaults'>,
+  ctx: OpContext,
+): Promise<OpOutput<'profile.set_defaults'>> {
+  const version = requireCurrent(deps);
+  const comp = getComponent(deps.repos, version.id, 'terms');
+  if (!comp) throw new OpError('not_found', `component terms missing on ${version.id}`);
+  const current = (comp.data_json.application_defaults as Record<string, unknown> | undefined) ?? undefined;
+  const merged: Record<string, unknown> = clone(current ?? {});
+  for (const [k, v] of Object.entries(input.defaults)) {
+    if (emptyValue(v)) delete merged[k];
+    else if (k === 'answers' && v && typeof v === 'object') {
+      const answers = { ...((merged.answers as Record<string, string> | undefined) ?? {}) };
+      for (const [q, a] of Object.entries(v as Record<string, string>)) {
+        if (emptyValue(a)) delete answers[q];
+        else answers[q] = a.trim();
+      }
+      if (Object.keys(answers).length) merged.answers = answers;
+      else delete merged.answers;
+    } else merged[k] = typeof v === 'string' ? v.trim() : Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : v;
+  }
+  if (deepEqual(merged, current ?? {}) || ctx.dryRun) return { version: null, defaults: merged };
+  const before = current ? { application_defaults: current } : {};
+  const after = Object.keys(merged).length ? { application_defaults: merged } : {};
+  const { output } = profileProposeDiff(deps, { component: 'terms', before, after, evidence: ['Application defaults'] }, ctx);
+  const applied = await profileApplyDiff(deps, { diff_id: output.diff.id }, ctx);
+  return { version: applied.output.version, defaults: merged };
 }

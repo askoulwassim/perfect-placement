@@ -90,6 +90,7 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `profile.get`, `profile.history` | low | read |
 | `profile.propose_diff` | low | creates a pending diff |
 | `profile.apply_diff` | per diff: weights medium, filters/dealbreakers high | |
+| `profile.set_defaults` | low | Application defaults (Terms `application_defaults`): a human edit applies as v+1, never rescored (#42) |
 | `onboard.ingest_resume`, `onboard.answer`, `onboard.calibrate`, `onboard.confirm` | low | |
 | `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32) |
 | `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, as roles.add candidates (#28) |
@@ -99,8 +100,9 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `roles.check_freshness` | medium (if closing) | |
 | `roles.get`, `roles.list`, `pipeline.summary` | low | read |
 | `companies.dossier.write` | low | |
-| `apply.tailor` | low | writes package, moves to draft-ready |
-| `apply.fill` | low | answers file |
+| `apply.tailor` | low | writes package, moves to draft-ready; unsupported prose claims queue `apply.fact_check` decisions (#54) |
+| `apply.fill` | low | answers file: portal fills, standard answers from Application defaults, fact-checked written answers; needs-you only with a reason (#42) |
+| `apply.resolve_claim` | low | keep / remove / rewrite the line of an unsupported claim (the `apply.fact_check` action, #54) |
 | `apply.mark_submitted` | high | human only |
 | `people.find` | low | runs LinkedIn adapter (rate-limited) |
 | `people.link`, `people.classify` | low | |

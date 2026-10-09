@@ -5,7 +5,7 @@ import { Btn } from '../components/Btn';
 import { Constellation, DiffBlock, KIND_HEX, KIND_LABEL, type NodeData, ProfileNode, VersionTimeline } from '../components/profile';
 import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { COMPONENT_NAME, chipText } from '../lib/profile';
+import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText } from '../lib/profile';
 import { timeline } from '../lib/view';
 import { go } from '../router';
 
@@ -73,6 +73,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
               ))}
             </div>
             {source && <ResumeSource path={source} />}
+            {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
             <VersionTimeline compact versions={tl} />
           </div>
@@ -180,6 +181,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                 ))}
               </div>
               {source && <ResumeSource path={source} />}
+              {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
                 <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr 26px', gap: 12, alignItems: 'center' }}>
@@ -257,6 +259,66 @@ function ResumeSource({ path }: { path: string }) {
           {doc.data?.markdown ?? ''}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Application defaults (#42): the standard portal answers Fill reuses; one Save. */
+function Defaults({ data, mobile }: { data: unknown; mobile?: boolean }) {
+  const act = useAct();
+  const { showToast } = useApp();
+  const saved = defaultsText((data ?? undefined) as Record<string, unknown> | undefined);
+  const [text, setText] = useState(saved);
+  const dirty = DEFAULT_FIELDS.some(([f]) => text[f].trim() !== saved[f].trim());
+  const save = async () => {
+    const o = await act('profile.set_defaults', { defaults: defaultsInput(text) });
+    if (o.status === 'ok') showToast('Defaults saved');
+  };
+  return (
+    <div className="app-defaults" style={{ marginTop: 22 }}>
+      <div style={{ ...eyebrow(), marginBottom: 12 }}>Application defaults</div>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '96px 1fr' : '110px 1fr', gap: '8px 12px', alignItems: 'center' }}>
+        {DEFAULT_FIELDS.map(([f, label, hint]) => (
+          <label key={f} style={{ display: 'contents' }}>
+            <span style={mono(11, C.muted)}>{label}</span>
+            <input
+              name={f}
+              value={text[f]}
+              placeholder={hint}
+              onChange={(e) => setText((t) => ({ ...t, [f as DefaultField]: e.target.value }))}
+              style={{
+                minWidth: 0,
+                height: 32,
+                background: C['bg-2'],
+                border: `1px solid ${C['line-2']}`,
+                borderRadius: 8,
+                color: C.fg,
+                padding: '0 10px',
+                fontSize: 13,
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <Btn
+        op="profile.set_defaults"
+        disabled={!dirty}
+        onClick={() => void save()}
+        style={{
+          marginTop: 12,
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: dirty ? C.fg : C.dim,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Save
+      </Btn>
     </div>
   );
 }
