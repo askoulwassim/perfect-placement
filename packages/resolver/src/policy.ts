@@ -72,6 +72,8 @@ export const KIND_IMPACT_FLOOR: Partial<Record<DecisionKind, Impact>> = {
   'roles.archive': 'medium',
   'freshness.closed': 'medium',
   'inbox.classify': 'medium',
+  'apply.fact_check': 'medium',
+  'people.email': 'medium',
 };
 
 export function maxImpact(a: Impact, b: Impact): Impact {

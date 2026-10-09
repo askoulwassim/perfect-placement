@@ -22,8 +22,9 @@ Lane H "done when": on one real picked role, correct tiers and four drafts in Gm
    Stored per person: name, headline, profile URL, degree, via mutual. Nothing else.
 4. `people.classify` for each contact. Wassim resolves any Needs-you picks.
 5. Wassim confirms the tiers are right (the "correct tiers" check).
-6. For the best contact in each of warm_hiring, warm_other, bridge, cold_hiring (where one exists): skill writes Hook / Proof / Ask from Story + Voice, `outreach.draft`, Wassim reads the vault file.
-7. Gmail draft step for each (SKILL.md "Gmail draft step", or **Create Gmail draft** in the UI). Four Gmail drafts. Wassim opens Gmail, checks To (bridge = the mutual), edits if needed, sends himself or deletes.
+6. **Emails** (#37) for each contact to draft (bridge: the mutual): the agent searches Gmail read-only and public pages, then `people.find_email { contact_id, role_id, hints }`. Wassim resolves any `Use <address>?` card in Needs you (pick, type another, or skip: no To).
+7. For the best contact in each of warm_hiring, warm_other, bridge, cold_hiring (where one exists): skill writes Hook / Proof / Ask from Story + Voice, `outreach.draft`, Wassim reads the vault file.
+8. Gmail draft step for each (SKILL.md "Gmail draft step", or **Create Gmail draft** in the UI). Four Gmail drafts. Wassim opens Gmail, checks To (bridge = the mutual; empty when the address is unconfirmed), edits if needed, sends himself or deletes.
 
 ## Stop conditions
 

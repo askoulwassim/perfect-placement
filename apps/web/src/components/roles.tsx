@@ -1,5 +1,5 @@
 import type { ArchiveReason, RoleStatus } from '@perfect-placement/contracts';
-import type { DragEvent, ReactNode } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import { Btn, useHover } from './Btn';
 import { ReasonChip, STATUS_HEX, STATUS_LABEL } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph, type WhoKind } from './glyphs';
@@ -13,6 +13,14 @@ export interface TileData {
   co: string;
   fit: number | null;
   band: string;
+  /** The job posting (#34): Cmd/Ctrl-click a tile, card or dot opens it in a new tab. */
+  url?: string | null;
+}
+
+/** Plain click opens the Role screen; Cmd/Ctrl-click opens the posting when there is one. */
+function openTile(e: MouseEvent, r: TileData, onOpen?: () => void) {
+  if ((e.metaKey || e.ctrlKey) && r.url) window.open(r.url, '_blank', 'noopener');
+  else onOpen?.();
 }
 
 // ------------------------------------------------------------ RoleCard (top picks)
@@ -24,7 +32,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
         op={null}
         className="role-card"
         data-role={r.id}
-        onClick={onOpen}
+        onClick={(e) => openTile(e, r, onOpen)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -53,7 +61,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
       op={null}
       className="role-card"
       data-role={r.id}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -109,7 +117,7 @@ export function RiverTile({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         position: 'relative',
         display: 'flex',
@@ -191,7 +199,7 @@ export function RiverDot({
       aria-label={`${r.co} ${r.title}`}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         width: 14,
         height: 14,
@@ -222,6 +230,7 @@ export function RiverColumn({
   dotChildren,
   onDrop,
   onDragOver,
+  action,
 }: {
   status: RoleStatus;
   count: number;
@@ -232,6 +241,8 @@ export function RiverColumn({
   dotChildren?: ReactNode;
   onDrop?: (e: DragEvent) => void;
   onDragOver?: (e: DragEvent) => void;
+  /** A column action under the header (Inbox: Score all). */
+  action?: ReactNode;
 }) {
   const color = STATUS_HEX[status];
   const allowed = state === 'drop-allowed';
@@ -257,7 +268,8 @@ export function RiverColumn({
         <div style={{ ...eyebrow(color, 10.5), whiteSpace: 'nowrap' }}>{STATUS_LABEL[status]}</div>
         <div style={{ ...display(26, 800, '-0.03em'), ...tab, lineHeight: 1 }}>{count}</div>
       </div>
-      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: 16 }} />
+      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: action ? 10 : 16 }} />
+      {action}
       {!dots && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>}
       {dots && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12, alignItems: 'center' }}>{dotChildren}</div>}
     </section>

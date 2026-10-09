@@ -10,4 +10,5 @@ export { createEngine, type Engine, type EngineServices, type OpenEngineOptions,
 export * as people from './people/index.js';
 export * as profile from './profile/index.js';
 export * as scoring from './scoring/index.js';
+export * as scout from './scout/index.js';
 export * as status from './status/index.js';

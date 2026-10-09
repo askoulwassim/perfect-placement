@@ -66,12 +66,30 @@ button:focus-visible,
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-/* First-visit cue (wave1-decisions #27). */
+/* Getting started step cue (#24). */
 @keyframes ppCue {
   from {
     opacity: 0;
   }
   to {
     opacity: 1;
+  }
+}
+/* Run indicator (#21): a slow pulse while a run is queued or running. */
+@keyframes ppPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.run-pulse {
+  animation: ppPulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-pulse {
+    animation: none;
   }
 }

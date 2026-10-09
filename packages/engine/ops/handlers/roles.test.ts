@@ -37,9 +37,17 @@ describe('roles.add', () => {
       ctxAt(),
     );
     const out = okOut(o);
-    expect(out).toEqual({ added: ['acme-robotics_principal-pm-data'], duplicates: [], possible_duplicates: [] });
+    expect(out).toEqual({
+      added: ['acme-robotics_principal-pm-data'],
+      duplicates: [],
+      possible_duplicates: [],
+      skipped: [],
+      resolved: [],
+      by_source: { scout: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0, skipped_cap: 0 } },
+    });
     const role = e.db.prepare('SELECT * FROM role WHERE id = ?').get('acme-robotics_principal-pm-data') as Record<string, unknown>;
-    expect(role).toMatchObject({ status: 'inbox', ats_job_id: '9900001', remote_ok: 1, company_id: 'acme-robotics' });
+    // No network in tests: the intake check cannot prove anything, so the role is kept as `unsure`.
+    expect(role).toMatchObject({ status: 'inbox', ats_job_id: '9900001', remote_ok: 1, company_id: 'acme-robotics', freshness: 'unsure' });
     expect(e.db.prepare(`SELECT * FROM company WHERE id = 'acme-robotics'`).get()).toMatchObject({
       name: 'Acme Robotics, Inc.',
       domain: 'acme.dev',

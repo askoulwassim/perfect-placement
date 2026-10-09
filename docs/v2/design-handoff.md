@@ -30,7 +30,7 @@ Brief components not in the handoff as separate names: **Constellation** (the Yo
 | Role | Next stage: Research / Tailor / Connect / Fill / Open portal |
 | People | Draft for <best path> |
 | Outreach draft | Create Gmail draft |
-| You | Review N diff, then Accept diff; Recalibrate when none pending |
+| You | Review N diff, then Accept diff; Recalibrate when none pending (while diffs are pending Recalibrate is a secondary action, #66) |
 | Onboarding | Next x3, then Start |
 | Ask (overlay) | Contextual (Check all, Open People) |
 | Settings | Save |

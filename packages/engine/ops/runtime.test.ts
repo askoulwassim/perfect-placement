@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OP_NAMES, OPS } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
@@ -143,13 +143,20 @@ describe('runtime: nesting, backends, policy gate', () => {
     expect(count(`SELECT count(*) n FROM role WHERE id = ? AND status = 'archived'`, roleId)).toBe(1);
   });
 
-  it('system.backends lists rule, Kev (down in tests) and the agent session; Jev only when enabled', async () => {
+  it('system.backends lists rule, Kev (not installed in tests) and the agent session; Jev only when enabled', async () => {
     const out = okOut(await e.runOp('system.backends', {}, ctxAt('human')));
     expect(out.items).toEqual([
       { name: 'rule', mode: 'local', status: 'ok', latencyMs: 0 },
-      { name: 'kev', mode: 'local', status: 'down', latencyMs: null },
+      { name: 'kev', mode: 'local', status: 'not_installed', latencyMs: null },
       { name: 'agent', mode: 'session', status: 'ok', latencyMs: 0 },
     ]);
+  });
+
+  it('system.backends: an installed Kev that does not answer is down (#40)', async () => {
+    mkdirSync(join(e.home, 'kev'), { recursive: true });
+    writeFileSync(join(e.home, 'kev', 'installed.json'), '{}');
+    const out = okOut(await e.runOp('system.backends', {}, ctxAt('human')));
+    expect(out.items.find((i) => i.name === 'kev')?.status).toBe('down');
   });
 
   it('system.doctor runs lane A checks over the open db', async () => {

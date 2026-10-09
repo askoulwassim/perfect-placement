@@ -57,7 +57,19 @@ describe('runs', () => {
 
 describe('config', () => {
   it('get reads config.json over defaults', async () => {
-    expect(okOut(await e.runOp('config.get', {}, ctxAt()))).toEqual(DEFAULT_CONFIG);
+    // The fixture vault is an established search: its Getting started path is finished (#24).
+    expect(okOut(await e.runOp('config.get', {}, ctxAt()))).toEqual({
+      ...DEFAULT_CONFIG,
+      ui: { guide: { policy: true, review: true, done: true } },
+    });
+  });
+
+  it('guide flags deep-merge; the retired cues_seen is dropped (#24, #43)', async () => {
+    const out = okOut(await e.runOp('config.update', { patch: { ui: { guide: { done: false }, cues_seen: ['now'] } } }, ctxAt('human')));
+    expect(out.ui).toEqual({ guide: { policy: true, review: true, done: false } });
+    expect(JSON.parse(readFileSync(join(e.home, 'config.json'), 'utf8')).ui).toEqual({
+      guide: { policy: true, review: true, done: false },
+    });
   });
 
   it('update deep-merges, validates and writes; agents are queued', async () => {

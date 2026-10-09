@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { OpContext, OpOutcome } from '@perfect-placement/contracts';
+import { askChatFrame, type OpContext, type OpOutcome } from '@perfect-placement/contracts';
 import { ops } from '@perfect-placement/engine';
 import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp';
 
@@ -11,6 +11,8 @@ import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp
  *   POST /api/ops/:name   runOp(name, <JSON body = op input>, { actor: 'human' }) -> OpOutcome JSON
  *   GET  /api/ops         op list
  *   GET  /api/health
+ *   POST /api/ask         Ask (#39): one agent turn (config.runner + pp MCP), streamed as SSE AskChatEvents;
+ *                         threads kept in the vault's ask_thread table (#69), so `thread_id` survives a restart
  *   POST /mcp             MCP Streamable HTTP (actor agent), same engine
  *   GET  /*               apps/web/dist with SPA fallback
  * The web dev server (Vite) runs on 5178 and calls this API cross-origin (loopback origins only).
@@ -34,6 +36,10 @@ export interface UpOptions {
   toolNames?: ToolNameStyle;
   /** Extra handlers by path prefix. */
   mounts?: Mount[];
+  /** Launches Ask turns (#39). Default: spawns `config.runner`. Tests inject a fake; never a real agent. */
+  askLauncher?: ops.AskLauncher;
+  /** The pp MCP server an Ask turn gets. Default: `defaultMcpServer(home)`. */
+  askMcp?: ops.McpServerSpec;
 }
 
 export interface Running {
@@ -122,12 +128,47 @@ function serveStatic(dir: string, pathname: string, req: IncomingMessage, res: S
   return true;
 }
 
+/** Stream one Ask turn as Server-Sent Events; the runner is killed if the client goes away. */
+async function streamAsk(
+  engine: ops.Engine,
+  body: unknown,
+  res: ServerResponse,
+  o: { threads: ops.AskThreads; launcher: ops.AskLauncher; mcp: ops.McpServerSpec | undefined },
+): Promise<void> {
+  const abort = new AbortController();
+  res.once('close', () => {
+    if (!res.writableFinished) abort.abort();
+  });
+  res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' });
+  res.flushHeaders();
+  const turn = ops.runAsk(body, {
+    home: engine.home,
+    runner: ops.readConfig(engine.home).runner,
+    mcp: o.mcp ?? ops.defaultMcpServer(engine.home),
+    launcher: o.launcher,
+    threads: o.threads,
+    signal: abort.signal,
+  });
+  try {
+    for await (const ev of turn) {
+      if (abort.signal.aborted) break;
+      res.write(askChatFrame(ev));
+    }
+  } catch (e) {
+    if (!abort.signal.aborted) res.write(askChatFrame({ type: 'error', code: 'runner_failed', message: (e as Error).message }));
+  }
+  res.end();
+}
+
 export function up(opts: UpOptions): Promise<Running> {
   const { engine } = opts;
   const host = opts.host ?? '127.0.0.1';
   if (!LOOPBACK_HOSTS.has(host)) return Promise.reject(new Error(`pp up binds to loopback only, not ${host}`));
   const webDir = opts.webDir === undefined ? defaultWebDir() : opts.webDir;
   const mounts = [...(opts.mounts ?? [])];
+  // Ask threads persist in the vault (#69): a restart resumes them by id; idle ones are pruned.
+  const askThreads = new ops.AskThreads({ store: ops.dbAskThreadStore(engine.db) });
+  const askLauncher = opts.askLauncher ?? ops.createAskSpawner();
   if (opts.mcp !== false) {
     const handle = createMcpHttpHandler({ runOp: engine.runOp, ...(opts.toolNames ? { toolNames: opts.toolNames } : {}) });
     mounts.push({ prefix: '/mcp', handle });
@@ -152,6 +193,19 @@ export function up(opts: UpOptions): Promise<Running> {
         if (url.pathname === m.prefix || url.pathname.startsWith(`${m.prefix}/`)) return void (await m.handle(req, res));
 
       if (url.pathname === '/api/health') return json(res, 200, { ok: true, home: engine.home });
+      if (url.pathname === '/api/ask') {
+        if (req.method !== 'POST') {
+          res.setHeader('allow', 'POST');
+          return fail(res, 405, 'method_not_allowed', 'POST /api/ask');
+        }
+        let body: unknown;
+        try {
+          body = JSON.parse((await readBody(req, 64 * 1024)) || '{}');
+        } catch (e) {
+          return fail(res, 400, 'invalid_input', `body is not valid JSON: ${(e as Error).message}`);
+        }
+        return void (await streamAsk(engine, body, res, { threads: askThreads, launcher: askLauncher, mcp: opts.askMcp }));
+      }
       if (url.pathname === '/api/ops') {
         if (req.method !== 'GET') return fail(res, 405, 'method_not_allowed', 'GET /api/ops');
         return json(
@@ -216,19 +270,24 @@ export function up(opts: UpOptions): Promise<Running> {
   });
 }
 
-/** `pp up --kev`: report whether Kev answers (never starts it). */
-export async function checkKev(engine: ops.Engine): Promise<{ ok: boolean; line: string }> {
+/**
+ * `pp up --kev`: report whether Kev answers (never starts it). "not installed" when `installed: false`, or (without
+ * `installed`) when `system.backends` reports `not_installed`; else "unreachable".
+ */
+export async function checkKev(engine: ops.Engine, opts: { installed?: boolean } = {}): Promise<{ ok: boolean; line: string }> {
   const o = await engine.runOp('system.backends', {}, { actor: 'human', now: () => new Date() });
   if (o.status !== 'ok') return { ok: false, line: `kev: unknown (${o.status === 'error' ? o.message : o.status})` };
   const items = (o.output as { items: Array<{ name: string; status: string; latencyMs: number | null }> }).items;
   const kev = items.find((i) => i.name === 'kev');
   const baseUrl = ops.readConfig(engine.home).backends.kev?.baseUrl ?? '';
   if (!kev) return { ok: false, line: 'kev: not configured' };
-  const ok = kev.status !== 'down';
+  const ok = kev.status !== 'down' && kev.status !== 'not_installed';
   return {
     ok,
     line: ok
       ? `kev: ${kev.status} at ${baseUrl}${kev.latencyMs === null ? '' : ` (${kev.latencyMs} ms)`}`
-      : `kev: unreachable at ${baseUrl} (start Kev yourself; decisions fall back to the agent or Needs you)`,
+      : opts.installed === false || (opts.installed === undefined && kev.status === 'not_installed')
+        ? 'kev: not installed (run pp kev install); decisions fall back to the agent or Needs you'
+        : `kev: unreachable at ${baseUrl} (start Kev yourself; decisions fall back to the agent or Needs you)`,
   };
 }

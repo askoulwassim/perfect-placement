@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 22
       - name: shellcheck
-        run: shellcheck -s sh install.sh scripts/fresh-install-smoke.sh
+        run: shellcheck -s sh install.sh uninstall.sh scripts/fresh-install-smoke.sh
       - name: install.sh --check
         run: ./install.sh --check
       - name: install.sh (corepack pnpm, launchers in ~/.local/bin)
@@ -35,3 +35,12 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           PP_HOME="$RUNNER_TEMP/pp-vault" PP=pp scripts/fresh-install-smoke.sh
+      - name: uninstall.sh (plan, setup reset, purge with backup, rerun)
+        run: |
+          export PP_HOME="$RUNNER_TEMP/pp-vault"
+          ./uninstall.sh --dry-run --purge
+          ./uninstall.sh --yes
+          test -f "$PP_HOME/pp.db" && test ! -e "$HOME/.local/bin/pp"
+          ./uninstall.sh --purge --yes
+          test ! -e "$PP_HOME" && tar -tzf "$HOME"/perfect-placement-backups/vault-*.tar.gz | grep -q 'pp-vault/pp.db'
+          ./uninstall.sh --purge --yes | grep -q 'nothing to remove'

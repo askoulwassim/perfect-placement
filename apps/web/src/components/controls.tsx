@@ -393,21 +393,32 @@ export function ToneChips({
   );
 }
 
-export function Toast({ text }: { text: string | null }) {
+/** Toast: the outcome of a write or a run. `tone` error = coral (a failed run), with an optional action (Log). */
+export function Toast({
+  text,
+  tone = 'ok',
+  action,
+}: {
+  text: string | null;
+  tone?: 'ok' | 'error';
+  action?: { label: string; onClick: () => void };
+}) {
   if (!text) return null;
+  const err = tone === 'error';
   return (
     <div
       role="status"
       className="toast"
+      data-tone={tone}
       style={{
         position: 'fixed',
         top: 20,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 90,
-        background: C['emerald-deep'],
+        background: err ? C.panel : C['emerald-deep'],
         color: C.fg,
-        border: `1px solid ${C['emerald-2']}`,
+        border: `1px solid ${err ? C.coral : C['emerald-2']}`,
         borderRadius: 999,
         padding: '9px 18px',
         fontSize: 14,
@@ -415,11 +426,21 @@ export function Toast({ text }: { text: string | null }) {
         display: 'flex',
         alignItems: 'center',
         gap: 10,
+        maxWidth: 'calc(100vw - 32px)',
         animation: 'ppIn .25s ease',
       }}
     >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: C.emerald }} />
-      {text}
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: err ? C.coral : C.emerald, flex: 'none' }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text}</span>
+      {action && (
+        <Btn
+          op={null}
+          onClick={action.onClick}
+          style={{ background: 'none', border: 0, padding: 0, color: err ? C.coral : C.emerald, fontSize: 14, fontWeight: 600 }}
+        >
+          {action.label}
+        </Btn>
+      )}
     </div>
   );
 }

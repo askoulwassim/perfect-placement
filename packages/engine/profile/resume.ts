@@ -1,10 +1,13 @@
 /*
  * Resume -> Story + Craft drafts.
  *
- * Judgment belongs to a model: when an LLM is injected (`ProfileLlm.parseResume`) it is used.
- * This heuristic parser is the deterministic fallback (and what tests use). It never invents:
- * every value it returns is copied from the text.
+ * Judgment belongs to a model: the headless `onboard` run extracts the facts verbatim (onboard.extract),
+ * or an injected `ProfileLlm.parseResume`. This heuristic parser is only the instant preview shown
+ * while that runs (and what tests use). It never invents and never infers a number: every value is
+ * copied from the text. Years of experience only when the resume states it (`years_basis: 'stated'`),
+ * or from the role dates (`'from dates'`), which the interview asks the user to confirm (#38).
  */
+import { numberWordsToDigits } from '@perfect-placement/contracts';
 
 export interface ResumeDraft {
   story: Record<string, unknown>;
@@ -139,10 +142,16 @@ export function parseResumeHeuristic(text: string, now: Date = new Date()): Resu
   const education = listOf(/education/i);
   if (education) story.education = education;
 
-  const years = [...text.matchAll(/\b(19[89]\d|20\d{2})\b/g)].map((m) => Number(m[1])).filter((y) => y <= now.getUTCFullYear());
-  const roleYears = roles.flatMap((r) => [...(r.dates ?? '').matchAll(/\b(19[89]\d|20\d{2})\b/g)].map((m) => Number(m[1])));
-  const earliest = Math.min(...(roleYears.length ? roleYears : years));
-  if (Number.isFinite(earliest)) story.years = now.getUTCFullYear() - earliest;
+  const stated = statedYears(text);
+  const fromDates = stated === null ? yearsFromDates(roles, now) : null;
+  if (stated !== null) {
+    story.years = stated;
+    story.years_basis = 'stated';
+  } else if (fromDates !== null) {
+    story.years = fromDates;
+    story.years_basis = 'from dates';
+  }
+  story.extracted_by = 'preview';
 
   const titles = [headline ?? '', ...roles.map((r) => r.title)].filter(Boolean);
   const functions = [...new Set(titles.flatMap((t) => FUNCTION_PATTERNS.filter(([re]) => re.test(t)).map(([, f]) => f)))];
@@ -155,4 +164,35 @@ export function parseResumeHeuristic(text: string, now: Date = new Date()): Resu
   else if (level) craft.mode = 'ic';
 
   return { story, craft };
+}
+
+/**
+ * Years of experience the resume states ("10+ years of experience", "Ten years across ..."), or null.
+ * Only a number directly followed by "years" counts; nothing is computed.
+ */
+export function statedYears(text: string): number | null {
+  const m = /\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)\s+(?:of|in|across|leading|building|shipping|working|as|experience)\b/i.exec(
+    numberWordsToDigits(text),
+  );
+  return m ? Number(m[1]) : null;
+}
+
+const YEAR = /\b(19[5-9]\d|20\d{2})\b/g;
+const PRESENT = /\b(present|current|now|today)\b/i;
+
+/**
+ * Years spanned by the explicit role dates: first start year to the last end year (or now for "Present").
+ * Null when no role has a date. A derivation, so the interview asks the user to confirm it.
+ */
+export function yearsFromDates(roles: ReadonlyArray<{ dates?: string }>, now: Date = new Date()): number | null {
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const r of roles) {
+    const ys = [...(r.dates ?? '').matchAll(YEAR)].map((m) => Number(m[1]));
+    if (!ys.length) continue;
+    starts.push(Math.min(...ys));
+    ends.push(PRESENT.test(r.dates ?? '') ? now.getUTCFullYear() : Math.max(...ys));
+  }
+  if (!starts.length) return null;
+  return Math.max(0, Math.max(...ends) - Math.min(...starts));
 }

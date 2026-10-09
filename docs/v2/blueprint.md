@@ -82,7 +82,7 @@ event -> resolver asks per component "does this change it?" (Noulli x 11) -> for
 - **Company affinity** is a separate modifier, capped at +/-5 points.
 - **No dealbreaker bypass** for dream companies.
 - **Per-company cap**: top 3 per company stay `active`; the rest go to `held` (promoted automatically when a slot frees).
-- **Source mix**: watchlist career pages at most a third of scout queries; watchlist comes from the Company component.
+- **Source mix**: watchlist career pages at most a third of scout queries and of the roles a run adds (`ceil(share x target)`), at most `scout.max_per_company` per company per run; open-market search always runs for the rest (#67). Watchlist comes from the Company component.
 - Weights come from the profile version; every score records the rubric/profile version.
 - Criteria (unchanged ids): C1 proximity to decisions, C2 0->1 scope, C3 external-facing, C4 data fundamentals, C5 domain excitement, C6 comp and equity, C7 team and leaders, C8 growth ceiling, C9 role shape. Green >= 75, yellow >= 55 (from v1 rubric.json; becomes profile-driven).
 

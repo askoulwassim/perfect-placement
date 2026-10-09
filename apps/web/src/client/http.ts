@@ -1,4 +1,11 @@
-import { OP_ERROR_CODES, type OpName, type OpOutcome } from '@perfect-placement/contracts';
+import {
+  type AskChatEvent,
+  type AskChatRequest,
+  OP_ERROR_CODES,
+  type OpName,
+  type OpOutcome,
+  parseAskChatFrames,
+} from '@perfect-placement/contracts';
 import type { In, OpClient, Out } from './types';
 
 /** Same origin as the UI when `pp up` serves it. `VITE_PP_API` overrides (README). */
@@ -15,7 +22,7 @@ const isOutcome = (v: unknown): v is OpOutcome<unknown> => {
 /**
  * Live client: `POST {base}/ops/{name}` with the op input as the JSON body; the reply is an
  * `OpOutcome` whatever the HTTP status (`pp up` maps codes to 202 / 4xx / 5xx). Anything that is
- * not an outcome (network down, HTML 404, bad JSON) becomes `backend_unavailable`.
+ * not an outcome (network down, HTML 404, bad JSON) becomes `backend_unavailable`. `ask` streams Ask turns (#39).
  */
 export function createHttpClient(base: string = DEFAULT_API_BASE, fetchImpl: typeof fetch = (...a) => fetch(...a)): OpClient {
   const root = base.replace(/\/+$/, '');
@@ -39,6 +46,43 @@ export function createHttpClient(base: string = DEFAULT_API_BASE, fetchImpl: typ
         return down(`${name}: HTTP ${res.status}`);
       }
       return isOutcome(body) ? (body as OpOutcome<Out<N>>) : down(`${name}: HTTP ${res.status}`);
+    },
+    /** `POST {base}/ask`, read as Server-Sent Events. Network or HTTP failures become an `unavailable` error event. */
+    async *ask(req: AskChatRequest, signal?: AbortSignal): AsyncGenerator<AskChatEvent> {
+      const down = (message: string): AskChatEvent => ({ type: 'error', code: 'unavailable', message });
+      let res: Response;
+      try {
+        res = await fetchImpl(`${root}/ask`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+          body: JSON.stringify(req),
+          ...(signal ? { signal } : {}),
+        });
+      } catch (e) {
+        if (!signal?.aborted) yield down(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      if (!res.ok || !res.body || !(res.headers.get('content-type') ?? '').startsWith('text/event-stream')) {
+        yield down(`Ask: HTTP ${res.status}`);
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const { events, rest } = parseAskChatFrames(buf);
+          buf = rest;
+          yield* events;
+        }
+      } catch (e) {
+        if (!signal?.aborted) yield down(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      if (buf.trim()) yield* parseAskChatFrames(`${buf}\n\n`).events;
     },
   };
 }

@@ -1,0 +1,110 @@
+[
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "commitment": "Regular Full Time (Salary)",
+      "department": "Customer Success",
+      "location": "Atlanta, Georgia",
+      "team": "Customer Success Team",
+      "allLocations": ["Atlanta, Georgia"]
+    },
+    "createdAt": 1788199939703,
+    "descriptionPlain": "Customer Success Manager at Lever Demo. Synthetic shortened description.\n",
+    "description": "<div>Customer Success Manager at Lever Demo. Synthetic shortened description.</div>",
+    "id": "ad208490-4052-4f91-a57e-433f2d1e484b",
+    "lists": [
+      {
+        "text": "Requirements:",
+        "content": "<li>Synthetic requirement.</li>"
+      }
+    ],
+    "salaryRange": {
+      "min": 85000,
+      "max": 175000,
+      "currency": "USD",
+      "interval": "per-year-salary"
+    },
+    "text": "Customer Success Manager",
+    "country": "US",
+    "workplaceType": "hybrid",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/ad208490-4052-4f91-a57e-433f2d1e484b",
+    "applyUrl": "https://jobs.lever.co/leverdemo/ad208490-4052-4f91-a57e-433f2d1e484b/apply"
+  },
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "location": "Irvine, CA",
+      "team": "Product",
+      "allLocations": ["Irvine, CA"]
+    },
+    "createdAt": 1484684995367,
+    "descriptionPlain": "Senior Software Developer, Platform at Lever Demo. Synthetic shortened description.\n",
+    "description": "<div>Senior Software Developer, Platform at Lever Demo. Synthetic shortened description.</div>",
+    "id": "82fbbecc-5535-466b-a84b-7957cf49e443",
+    "lists": [
+      {
+        "text": "Requirements:",
+        "content": "<li>Synthetic requirement.</li>"
+      }
+    ],
+    "text": "Senior Software Developer, Platform",
+    "country": "US",
+    "workplaceType": "remote",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/82fbbecc-5535-466b-a84b-7957cf49e443",
+    "applyUrl": "https://jobs.lever.co/leverdemo/82fbbecc-5535-466b-a84b-7957cf49e443/apply"
+  },
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "commitment": "Regular Full Time (Salary)",
+      "department": "Executive",
+      "location": "London, UK",
+      "team": "Executive",
+      "allLocations": ["London, UK"]
+    },
+    "createdAt": 1718633877107,
+    "descriptionPlain": "Director of Diversity, Equity, and Inclusion at Lever Demo. Synthetic shortened description.\n",
+    "description": "<div>Director of Diversity, Equity, and Inclusion at Lever Demo. Synthetic shortened description.</div>",
+    "id": "1dbf02a6-d434-4e47-8d66-3aba2c17bed1",
+    "lists": [
+      {
+        "text": "Requirements:",
+        "content": "<li>Synthetic requirement.</li>"
+      }
+    ],
+    "text": "Director of Diversity, Equity, and Inclusion",
+    "country": "GB",
+    "workplaceType": "onsite",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/1dbf02a6-d434-4e47-8d66-3aba2c17bed1",
+    "applyUrl": "https://jobs.lever.co/leverdemo/1dbf02a6-d434-4e47-8d66-3aba2c17bed1/apply"
+  },
+  {
+    "additional": "",
+    "additionalPlain": "",
+    "categories": {
+      "commitment": "Remote",
+      "department": "Sales",
+      "location": "New York, New York",
+      "team": "Sales Engineering",
+      "allLocations": ["New York, New York"]
+    },
+    "createdAt": 1764105683926,
+    "descriptionPlain": "Sales Engineer at Lever Demo. Synthetic shortened description.\n",
+    "description": "<div>Sales Engineer at Lever Demo. Synthetic shortened description.</div>",
+    "id": "7e10ea46-98be-4bd1-a3ca-57d153b25c61",
+    "lists": [
+      {
+        "text": "Requirements:",
+        "content": "<li>Synthetic requirement.</li>"
+      }
+    ],
+    "text": "Sales Engineer",
+    "country": "US",
+    "workplaceType": "remote",
+    "hostedUrl": "https://jobs.lever.co/leverdemo/7e10ea46-98be-4bd1-a3ca-57d153b25c61",
+    "applyUrl": "https://jobs.lever.co/leverdemo/7e10ea46-98be-4bd1-a3ca-57d153b25c61/apply"
+  }
+]

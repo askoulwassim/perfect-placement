@@ -32,6 +32,7 @@ import {
   thresholdsFor,
   tokens,
 } from './index.js';
+import { nextFire, parseSchedule, prevFire, SCHEDULE_SKILL, scheduleForSkill, scheduleMissed } from './schedules.js';
 
 /** The ops table in docs/v2/contracts.md. Every one must be in the registry. */
 const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
@@ -44,6 +45,7 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'onboard.calibrate': 'low',
   'onboard.confirm': 'low',
   'roles.add': 'low',
+  'scout.watchlist_scan': 'low',
   'roles.score': 'low',
   'roles.move': 'medium',
   'roles.archive': 'medium',
@@ -81,6 +83,15 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'runs.finish': 'low',
   'vault.read': 'low',
   'system.backends': 'low',
+  // #38
+  'onboard.extract': 'low',
+  // #22
+  'onboard.propose_questions': 'low',
+  // #42, #54
+  'profile.set_defaults': 'low',
+  'apply.resolve_claim': 'low',
+  // #37
+  'people.find_email': 'low',
 };
 
 /** Wave 2 read ops. */
@@ -152,6 +163,16 @@ describe('ops registry', () => {
 
   it('new output fields default so older handlers still parse', () => {
     expect(OPS['roles.add'].output.parse({ added: [], duplicates: [] }).possible_duplicates).toEqual([]);
+    expect(OPS['roles.add'].output.parse({ added: [], duplicates: [] })).toMatchObject({ skipped: [], resolved: [], by_source: {} });
+    expect(OPS['scout.watchlist_scan'].readOnly).toBe(true);
+    // #28: an older config.json without the new scout fields still parses, with the defaults.
+    const { target_new_roles, max_queries, ...oldScout } = DEFAULT_CONFIG.scout;
+    expect(PolicyConfig.parse({ ...DEFAULT_CONFIG, scout: oldScout }).scout).toEqual({
+      watchlist_share_max: 0.34,
+      target_new_roles: 25,
+      max_queries: 30,
+    });
+    expect([target_new_roles, max_queries]).toEqual([25, 30]);
     expect(OPS['roles.check_freshness'].output.parse({ results: [] }).skipped).toEqual([]);
     expect(OPS['outreach.get'].input.safeParse({ outreach_id: 'or_1' }).success).toBe(true);
     expect(OPS['runs.start'].input.parse({ skill: 'connect', contact_id: 'ct_1' }).contact_id).toBe('ct_1');
@@ -163,6 +184,27 @@ describe('ops registry', () => {
     expect(OPS['outreach.to_gmail'].impact).toBe('medium');
     expect(OPS['runs.start'].input.parse({ skill: 'connect', outreach_id: 'or_1' }).outreach_id).toBe('or_1');
     expect(PRIMARY_ACTIONS['outreach-draft']).toEqual([{ label: 'Create Gmail draft', op: 'runs.start' }]);
+  });
+
+  it('run queue (#30): runs.dispatch is low impact; runs.start takes triggered_by; the pipeline is on by default', () => {
+    expect(OPS['runs.dispatch']).toMatchObject({ impact: 'low', emits: [] });
+    expect(OPS['runs.start'].input.parse({ skill: 'score', triggered_by: 'rn_1' }).triggered_by).toBe('rn_1');
+    expect(
+      OPS['runs.start'].output.safeParse({
+        run: {
+          id: 'rn_1',
+          op: 'scout',
+          started_at: '2026-10-08T00:00:00.000Z',
+          finished_at: null,
+          status: 'queued',
+          summary_json: {},
+          log_path: null,
+        },
+        deduped: true,
+      }).success,
+    ).toBe(true);
+    expect(DEFAULT_CONFIG.runs.max_concurrent).toBe(2);
+    expect(DEFAULT_CONFIG.pipeline).toEqual({ score_after_scout: true, research_after_score: true });
   });
 });
 
@@ -306,5 +348,42 @@ describe('tokens', () => {
     expect(tokens.layout.mobileBreakpoint).toBe(720);
     expect(tokens.tint.rail).toBe('rgba(9,26,45,0.6)');
     expect(tokens.shadow.ask).toBe('0 20px 60px rgba(0,0,0,0.45)');
+  });
+});
+
+describe('schedules (#29)', () => {
+  it('parses daily, weekdays, one day and day lists; off and junk are null', () => {
+    expect(parseSchedule('daily 07:30')).toEqual({ days: [0, 1, 2, 3, 4, 5, 6], hour: 7, minute: 30, daily: true });
+    expect(parseSchedule('weekdays 8:05')).toMatchObject({ days: [1, 2, 3, 4, 5], hour: 8, minute: 5, daily: false });
+    expect(parseSchedule('FRI 05:30')).toMatchObject({ days: [5], daily: false });
+    expect(parseSchedule('thu,mon 09:00')).toMatchObject({ days: [1, 4] });
+    for (const bad of ['off', 'daily', 'daily 25:00', 'friday 05:30', 'fri 5:3', '']) expect(parseSchedule(bad)).toBeNull();
+  });
+
+  it('next and previous local fire times; missed = fired since the last run started', () => {
+    const thu = new Date(2026, 9, 8, 12, 0); // Thursday, local
+    expect(nextFire('daily 07:30', thu)).toEqual(new Date(2026, 9, 9, 7, 30));
+    expect(nextFire('daily 18:00', thu)).toEqual(new Date(2026, 9, 8, 18, 0));
+    expect(nextFire('fri 05:30', thu)).toEqual(new Date(2026, 9, 9, 5, 30));
+    expect(nextFire('thu 12:00', thu)).toEqual(new Date(2026, 9, 15, 12, 0));
+    expect(nextFire('weekdays 08:00', new Date(2026, 9, 9, 9, 0))).toEqual(new Date(2026, 9, 12, 8, 0));
+    expect(nextFire('off', thu)).toBeNull();
+    expect(prevFire('fri 05:30', thu)).toEqual(new Date(2026, 9, 2, 5, 30));
+    expect(prevFire('daily 07:30', thu)).toEqual(new Date(2026, 9, 8, 7, 30));
+    const iso = (d: Date) => d.toISOString();
+    expect(scheduleMissed('daily 07:30', iso(new Date(2026, 9, 7, 7, 30)), thu)).toBe(true);
+    expect(scheduleMissed('daily 07:30', iso(new Date(2026, 9, 8, 7, 30, 4)), thu)).toBe(false);
+    expect(scheduleMissed('fri 05:30', iso(new Date(2026, 9, 2, 5, 31)), thu)).toBe(false);
+    expect(scheduleMissed('daily 07:30', null, thu)).toBe(false);
+    expect(scheduleMissed('off', iso(new Date(2020, 0, 1)), thu)).toBe(false);
+  });
+
+  it('scout_score enqueues scout; runs.start takes a schedule; schedules.status is a read', () => {
+    expect(SCHEDULE_SKILL).toEqual({ inbox: 'inbox', freshness: 'freshness', scout_score: 'scout' });
+    expect(scheduleForSkill('scout')).toBe('scout_score');
+    expect(scheduleForSkill('tailor')).toBeNull();
+    expect(OPS['runs.start'].input.parse({ skill: 'scout', schedule: 'scout_score' }).schedule).toBe('scout_score');
+    expect(OPS['runs.start'].input.safeParse({ skill: 'scout', schedule: 'weekly' }).success).toBe(false);
+    expect(OPS['schedules.status']).toMatchObject({ readOnly: true, impact: 'low', emits: [] });
   });
 });

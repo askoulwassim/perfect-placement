@@ -1,11 +1,20 @@
-import { type HardHumanSubject, isHardHuman, type PolicyConfig, PP_HOME_DEFAULT } from '@perfect-placement/contracts';
+import {
+  DAY_NAMES,
+  nextFire,
+  type PolicyConfig,
+  PP_HOME_DEFAULT,
+  parseSchedule,
+  type Run,
+  type ScheduleJobState,
+} from '@perfect-placement/contracts';
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
-import { Toggle } from '../components/controls';
-import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
+import { Btn } from '../components/Btn';
+import { BackendCard, HardExclusions, LOCKED_LABELS, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
-import { CUE_IDS } from '../lib/cues';
+import { go } from '../router';
+import { RunRow } from './Runs';
 
 type ScheduleKey = keyof PolicyConfig['schedules'];
 const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
@@ -13,52 +22,41 @@ const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
   ['freshness', 'Freshness'],
   ['scout_score', 'Scout + score'],
 ];
-/** Hard exclusions (wave1-decisions #24): shown locked as "you"; each is checked against the contract. */
-const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
-  ['Submit application', { kind: 'apply.submit' }],
-  ['Send email', { op: 'outreach.send' }],
-  ['Delete anything', { op: 'roles.delete' }],
-  ['Dealbreakers', { component: 'dealbreakers' }],
-  ['Comp floor', { component: 'terms', changedKeys: ['comp_floor'] }],
-];
-export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
 
-const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
+const two = (n: number) => String(n).padStart(2, '0');
+const dayName = (d: number) => cap(DAY_NAMES[d] as string);
 
-/** "daily 07:30" | "fri 05:30" -> "Fri 07:30" (next run, UTC). null when paused or unparseable. */
+/** Next run in local time (the OS job's clock), "Fri 07:30". null when off or unparseable. */
 export function nextRun(spec: string, now: Date): string | null {
-  const m = spec
-    .trim()
-    .toLowerCase()
-    .match(/^(daily|sun|mon|tue|wed|thu|fri|sat)\s+(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const [, when, hh, mm] = m;
-  const at = new Date(now);
-  at.setUTCHours(Number(hh), Number(mm), 0, 0);
-  if (when === 'daily') {
-    if (at <= now) at.setUTCDate(at.getUTCDate() + 1);
-  } else {
-    let add = (DAYS.indexOf(when as string) - at.getUTCDay() + 7) % 7;
-    if (add === 0 && at <= now) add = 7;
-    at.setUTCDate(at.getUTCDate() + add);
-  }
-  return `${cap(DAYS[at.getUTCDay()] as string)} ${(hh as string).padStart(2, '0')}:${mm}`;
+  const t = nextFire(spec, now);
+  return t ? `${dayName(t.getDay())} ${two(t.getHours())}:${two(t.getMinutes())}` : null;
 }
 
-/** "daily 07:30" -> "Daily 07:30"; "fri 05:30" -> "Weekly Fri 05:30". */
+/** "daily 07:30" -> "Daily 07:30"; "fri 05:30" -> "Weekly Fri 05:30"; "weekdays 08:00" -> "Weekdays 08:00". */
 export const cadence = (spec: string) => {
-  const [w, t] = spec.split(/\s+/);
-  if (!w || !t) return spec;
-  return w === 'daily' ? `Daily ${t}` : `Weekly ${cap(w)} ${t}`;
+  const p = parseSchedule(spec);
+  const [w, t] = spec.trim().toLowerCase().split(/\s+/);
+  if (!p || !w || !t) return spec;
+  if (p.daily) return `Daily ${t}`;
+  if (w === 'weekdays') return `Weekdays ${t}`;
+  if (p.days.length === 1) return `Weekly ${dayName(p.days[0] as number)} ${t}`;
+  return `${p.days.map(dayName).join(', ')} ${t}`;
 };
 
+/** The last scheduled run's result for its row. */
+export const lastResult = (r: Run | null | undefined): string =>
+  !r ? 'Never' : r.status === 'ok' ? 'Done' : r.status === 'error' ? 'Failed' : cap(r.status);
+
+/** OS job states that mean the schedule will not fire on its own (#29). */
+const NO_JOB: ReadonlySet<ScheduleJobState> = new Set(['missing', 'stale']);
+
 export function Settings() {
-  const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues } = useApp();
-  // On while any cue is still to come; flipping it on shows every cue again, off retires them all.
-  const cuesOn = !CUE_IDS.every((id) => cuesSeen?.includes(id));
+  const { config, thresholds, setThresholds, now, showToast, runs } = useApp();
   const act = useAct();
   const backends = useOp('system.backends', {});
+  // Last scheduled run + OS job per schedule (#29); refetched after every write (Save syncs the jobs).
+  const status = useOp('schedules.status', {});
   const [schedules, setSchedules] = useState(config.schedules);
   const [saved, setSaved] = useState<Record<ScheduleKey, string>>(config.schedules);
   useEffect(() => {
@@ -102,33 +100,38 @@ export function Settings() {
           {SCHEDULES.map(([key, name]) => {
             const on = schedules[key] !== 'off';
             const spec = on ? schedules[key] : saved[key];
+            const st = status.data?.items.find((s) => s.key === key);
+            const noJob = on && config.schedules[key] !== 'off' && st !== undefined && NO_JOB.has(st.job);
             return (
               <ScheduleRow
                 key={key}
                 name={name}
                 cadence={cadence(spec)}
-                next={nextRun(spec, t) ?? '—'}
+                next={noJob ? 'No job' : (nextRun(spec, t) ?? '—')}
+                last={lastResult(st?.last_run)}
+                lastStatus={st?.last_run?.status ?? 'never'}
+                job={st?.job ?? 'unknown'}
                 on={on}
                 onToggle={(v) => setSchedules({ ...schedules, [key]: v ? saved[key] : 'off' })}
               />
             );
           })}
         </div>
-        <div>
-          <div style={{ ...eyebrow(), marginBottom: 6 }}>Cues</div>
-          <div
-            className="cues-row"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              height: 60,
-              borderBottom: `1px solid ${C.line}`,
-            }}
-          >
-            <span style={{ fontSize: 15, fontWeight: 600 }}>Show cues</span>
-            <Toggle on={cuesOn} label="Show cues" op="config.update" onChange={(v) => void setCues(v ? [] : CUE_IDS)} />
+        <div className="settings-runs">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={eyebrow()}>Runs</span>
+            <Btn
+              op={null}
+              onClick={() => go({ screen: 'runs' })}
+              style={{ background: 'none', border: 0, padding: 0, color: C.emerald, fontSize: 13, fontWeight: 600 }}
+            >
+              All runs
+            </Btn>
           </div>
+          {runs.slice(0, 5).map((r) => (
+            <RunRow key={r.id} run={r} now={t} onOpen={() => go({ screen: 'runs', runId: r.id })} />
+          ))}
+          {!runs.length && <div style={{ color: C.muted, padding: '12px 4px' }}>No runs</div>}
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 14 }}>Data home</div>

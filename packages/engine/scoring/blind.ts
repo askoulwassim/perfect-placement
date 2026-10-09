@@ -1,6 +1,7 @@
 import {
   type AskFn,
   type AskRequest,
+  type Backend,
   BLIND_CRITERIA,
   CRITERIA,
   CRITERION_LABELS,
@@ -149,12 +150,22 @@ export function criterionRequests(role: RoleForJudging, brand: BrandInput, profi
   ];
 }
 
+/** Where one criterion's value came from: the decision row that holds it. */
+export interface CriterionSource {
+  backend: Backend;
+  p: number;
+  decision_id: string;
+  latency_ms: number;
+}
+
 export interface JudgedCriteria {
   criteria: Record<Criterion, number>;
   p: Record<Criterion, number>;
   /** Criteria whose policy outcome was `human`: the skill must not call roles.score until they are resolved. */
   needs_human: Criterion[];
   decision_ids: string[];
+  /** Per criterion: backend, p, decision row and latency (scores keep it in `facts_json.criteria_source`). */
+  sources: Record<Criterion, CriterionSource>;
 }
 
 /** Ask the resolver for C1..C9 (blind where required). Mechanics only; the backends supply judgment. */
@@ -163,6 +174,7 @@ export async function judgeCriteria(ask: AskFn, role: RoleForJudging, brand: Bra
   const results = await Promise.all(reqs.map((r) => ask(r)));
   const criteria = {} as Record<Criterion, number>;
   const p = {} as Record<Criterion, number>;
+  const sources = {} as Record<Criterion, CriterionSource>;
   const needs_human: Criterion[] = [];
   const decision_ids: string[] = [];
   for (const res of results) {
@@ -172,9 +184,10 @@ export async function judgeCriteria(ask: AskFn, role: RoleForJudging, brand: Bra
       const v = Math.round(Number(a.value));
       criteria[c] = Math.max(1, Math.min(5, Number.isFinite(v) ? v : 1));
       p[c] = a.p;
+      sources[c] = { backend: res.backend, p: a.p, decision_id: res.decisionIds[i] ?? '', latency_ms: Math.round(res.latencyMs) };
       if (res.outcomes[i] === 'human') needs_human.push(c);
     });
   }
   for (const c of CRITERIA) if (criteria[c] === undefined) throw new Error(`resolver returned no answer for ${c}`);
-  return { criteria, p, needs_human, decision_ids };
+  return { criteria, p, needs_human, decision_ids, sources };
 }

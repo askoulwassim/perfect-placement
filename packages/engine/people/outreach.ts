@@ -9,6 +9,7 @@ import {
   outreachToGmail,
   vaultPath,
 } from '@perfect-placement/contracts';
+import { draftRecipient } from './email.js';
 import {
   advanceConnectToFill,
   emitEvent,
@@ -170,7 +171,8 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
  * Gmail tool (Claude Code: the Gmail connector); the engine records it and never calls a client.
  * Without it the engine's own Gmail client (absent by default) creates the draft.
  * Idempotent: an outreach already in Gmail returns its existing draft id.
- * Recipient: the contact, or the mutual for bridge drafts. No email on file = draft with no To.
+ * Recipient: the contact, or the mutual for bridge drafts. To is set only when the address is confirmed
+ * or at the `people.email` policy threshold (#37); otherwise the draft has no To and `to_reason` says why.
  */
 export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, ctx, deps) => {
   const parsed = outreachToGmail.input.safeParse(raw);
@@ -179,7 +181,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const o = getOutreach(db, parsed.data.outreach_id);
   if (!o) return err('not_found', `outreach ${parsed.data.outreach_id}`);
   if (o.gmail_draft_id && o.status !== 'drafted')
-    return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id }, eventIds: [] };
+    return { status: 'ok', output: { outreach: o, gmail_draft_id: o.gmail_draft_id, to: null, to_reason: null }, eventIds: [] };
   if (!o.md_path) return err('not_found', `outreach ${o.id} has no vault draft`);
   const md = readVault(deps, o.md_path);
   if (!md) return err('not_found', `vault draft ${o.md_path}`);
@@ -192,7 +194,9 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
     return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
 
   const given = parsed.data.gmail_draft_id;
-  if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: given ?? 'dry-run' }, eventIds: [] };
+  const to = draftRecipient(deps, recipient);
+  const toOut = { to: to.email, to_reason: to.reason };
+  if (ctx.dryRun) return { status: 'ok', output: { outreach: o, gmail_draft_id: given ?? 'dry-run', ...toOut }, eventIds: [] };
 
   let draftId: string;
   if (given) draftId = given;
@@ -203,7 +207,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
         'the engine has no Gmail client: start a Gmail-capable agent run (runs.start { skill: "connect", outreach_id }), which creates the draft with its own Gmail tool and records it here with gmail_draft_id',
       );
     try {
-      draftId = (await deps.gmail.createDraft({ to: recipient.email, subject: text.subject, body })).draftId;
+      draftId = (await deps.gmail.createDraft({ to: to.email, subject: text.subject, body })).draftId;
     } catch (e) {
       return err('backend_unavailable', `gmail: ${(e as Error).message}`);
     }
@@ -211,7 +215,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const next: Outreach = { ...o, gmail_draft_id: draftId, status: 'in_gmail' };
   upsertOutreach(db, next, true);
   advanceConnectToFill(db, o.role_id);
-  return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId }, eventIds: [] };
+  return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId, ...toOut }, eventIds: [] };
 };
 
 /**

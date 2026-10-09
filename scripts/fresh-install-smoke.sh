@@ -45,7 +45,7 @@ op() { # name json
 }
 
 echo "smoke: PP_HOME=$PP_HOME"
-$PP setup --yes --no-kev --no-mcp
+$PP setup --yes --no-kev --no-mcp --no-schedules
 [ -f "$PP_HOME/pp.db" ] || fail "no pp.db after setup"
 
 start

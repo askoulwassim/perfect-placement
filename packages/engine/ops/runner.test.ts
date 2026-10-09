@@ -11,6 +11,7 @@ import {
   deniedTools,
   deniedToolsError,
   GMAIL_DRAFT_TOOL,
+  GMAIL_READ_TOOLS,
   gmailDraftPrompt,
   gmailStepSection,
   MCP_SERVER_NAME,
@@ -19,6 +20,7 @@ import {
   SKILL_TOOLS,
   skillAllowedTools,
   skillPrompt,
+  stableNodePath,
 } from './runner.js';
 
 /* runs.start launches the configured headless runner (fake launcher: nothing spawns in tests or CI). */
@@ -33,8 +35,11 @@ describe('runner command lines', () => {
     expect(s.command).toBe('claude');
     expect(s.args.slice(0, 2)).toEqual(['-p', 'P']);
     const cfg = JSON.parse(s.args[s.args.indexOf('--mcp-config') + 1] as string);
+    // #50: the MCP server gets the run id, so the ops it runs are linked to the run.
     expect(cfg).toEqual({
-      mcpServers: { [MCP_SERVER_NAME]: { command: 'node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home' } } },
+      mcpServers: {
+        [MCP_SERVER_NAME]: { command: 'node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home', PP_RUN_ID: 'rn_1' } },
+      },
     });
     expect(s.args).toEqual(
       expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__pp,WebSearch,WebFetch', '--permission-prompts', 'none']),
@@ -51,9 +56,15 @@ describe('runner command lines', () => {
       mcp,
     });
     expect(connect.args).toEqual(expect.arrayContaining(['--chrome', '--model', 'opus']));
-    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed.
-    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe('mcp__pp');
+    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed; #37: Gmail search + read
+    // (the connector loads, so no strict MCP config), every Gmail write but drafts denied, drafts not allowed.
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe(['mcp__pp', ...GMAIL_READ_TOOLS].join(','));
     expect(connect.args).not.toContain('--tools');
+    expect(connect.args).not.toContain('--strict-mcp-config');
+    const denied = connect.args[connect.args.indexOf('--disallowedTools') + 1] as string;
+    for (const t of ['send_message', 'reply', 'forward', 'delete_draft', 'trash_thread'])
+      expect(denied).toContain(`mcp__claude_ai_Gmail__${t}`);
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).not.toContain('create_draft');
   });
 
   it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
@@ -65,6 +76,7 @@ describe('runner command lines', () => {
         'mcp_servers.pp.command="node"',
         'mcp_servers.pp.args=["/x/mcp/dist/bin.js"]',
         'mcp_servers.pp.env.PP_HOME="/tmp/pp-home"',
+        'mcp_servers.pp.env.PP_RUN_ID="rn_1"',
         'approval_policy="never"',
         'web_search="live"',
       ]),
@@ -77,7 +89,7 @@ describe('runner command lines', () => {
     expect(s.args).toEqual(['-p', 'P', '--output-format', 'text', '--trust', '--approve-mcps', '--force']);
     expect(s.cwd).toBeNull();
     expect(s.files[0]?.path).toBe('.cursor/mcp.json');
-    expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp.command).toBe('node');
+    expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp).toMatchObject({ command: 'node', env: { PP_RUN_ID: 'rn_1' } });
     expect(s.files[1]?.path).toBe('.cursor/cli.json');
     expect(JSON.parse(s.files[1]?.content as string).permissions).toEqual({
       allow: ['Mcp(pp:*)', 'WebFetch(*)'],
@@ -92,6 +104,25 @@ describe('runner command lines', () => {
     expect(p).toContain('# Research');
     expect(p).toContain('runs.finish');
     expect(defaultMcpServer('/h').env).toEqual({ PP_HOME: '/h' });
+  });
+
+  it('the runner MCP server uses a stable node path, never a versioned Homebrew one (#33)', () => {
+    const cellar = '/opt/homebrew/Cellar/node@22/22.23.3_1/bin/node';
+    const opt = '/opt/homebrew/opt/node@22/bin/node';
+    const node = stableNodePath({}, cellar, (p) => p === opt);
+    expect(node).toBe(opt);
+    expect(stableNodePath({ PP_NODE: '/l/node' }, cellar, () => true)).toBe('/l/node');
+    expect(stableNodePath({ PP_NODE: '/gone' }, cellar, (p) => p === opt)).toBe(opt);
+    const s = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'scout',
+      home: '/h',
+      mcp: defaultMcpServer('/h', node),
+    });
+    expect(s.args.join(' ')).not.toContain('/Cellar/');
+    expect(defaultMcpServer('/h').command).toBe(stableNodePath());
   });
 });
 
@@ -108,7 +139,8 @@ describe('per-skill tools (#20)', () => {
     expect(Object.keys(SKILL_TOOLS).sort()).toEqual([...SKILLS].sort());
     for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
     for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
-    for (const s of [...PP_ONLY, 'connect' as const]) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+    for (const s of PP_ONLY) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+    expect(skillAllowedTools('connect')).toEqual(['mcp__pp', ...GMAIL_READ_TOOLS]);
   });
 
   it('claude: each skill pre-approves exactly its tools, narrows built-ins to them, denies the rest (dontAsk)', () => {
@@ -177,7 +209,7 @@ describe('skill assets in the prompt (#20)', () => {
       for (const f of files) {
         const text = readFileSync(join(DEFAULT_SKILLS_DIR, skill, f), 'utf8');
         for (const line of text.split('\n').filter((l) => /vault[._]read/.test(l)))
-          expect(line, `${skill}/${f}`).toMatch(/never look for|never in the vault|not in the vault/i);
+          expect(line, `${skill}/${f}`).toMatch(/never look for|never in the vault|not in the vault|kept resume/i);
       }
       const companions = files.filter((f) => f !== 'SKILL.md' && f !== 'RUNBOOK.md');
       expect(companions, skill).toEqual([...(SKILL_ASSETS[skill as Skill] ?? [])]);
@@ -243,7 +275,9 @@ describe('runs.start', () => {
   it('commits the run, then launches the configured runner once', async () => {
     e = openFixtureEngine({ config: { runner: { command: 'codex' } } });
     const run = okOut(await e.runOp('runs.start', { skill: 'tailor', role_id: 'linear_product-lead-insights' }, ctxAt('human'))).run;
-    expect(run.status).toBe('running');
+    // Queued in the transaction, launched by the dispatcher after commit (#30).
+    expect(run.status).toBe('queued');
+    expect(okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human'))).run.status).toBe('running');
     expect(e.launcher.specs).toHaveLength(1);
     expect(e.launcher.specs[0]).toMatchObject({ command: 'codex', runId: run.id });
     expect(e.launcher.specs[0]?.args.at(-1)).toContain('linear_product-lead-insights');
@@ -302,6 +336,9 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     // The skill's own Gmail draft step is appended; nothing else of the connect skill (no people.find).
     expect(p).toContain('## Gmail draft step');
     expect(p).not.toContain('people.find');
+    // #37: To comes from outreach.get's `to`, never the unconfirmed guess.
+    expect(p).toContain('`to.email`');
+    expect(p).toContain('never use `to.guess`');
     expect(gmailStepSection('# x\n\n## Gmail draft step\n\nA\n\n## Never\n\nB')).toBe('## Gmail draft step\n\nA');
   });
 

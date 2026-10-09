@@ -42,6 +42,8 @@ const FS_ALLOWED = [
   'packages/engine/db/vault.ts',
   'packages/engine/ops/vault.ts',
   'packages/engine/ops/runner.ts',
+  // Ask turns (#39): Cursor's .cursor/ config in a temp dir, as the runner does. Never the vault.
+  'packages/engine/ops/ask.ts',
   // Report CLIs: write reports to --out outside the repo, never the vault.
   'packages/engine/freshness/cli.ts',
   'packages/resolver/src/eval/cli.ts',
@@ -49,6 +51,8 @@ const FS_ALLOWED = [
   'packages/contracts/scripts/',
   // pp setup / pp kev: agent client configs (outside the vault, backed up first) and Kev runtime
   // files under $PP_HOME/kev/ (clone, pid, log). Never vault data: config goes through config.update.
+  // pp uninstall: the reverse (pp entries, launchers, schedule jobs); --purge deletes the whole vault
+  // after a verified backup, a machine-level action outside ops by design.
   'packages/cli/src/system/',
 ];
 const LANES = [

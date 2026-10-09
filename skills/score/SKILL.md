@@ -1,6 +1,6 @@
 ---
 name: score
-description: Judge C1..C9 and facts for inbox roles (blind for C1, C2, C3, C4, C9), then call roles.score. The engine does totals, bands, dealbreakers, affinity, the per-company cap and status moves.
+description: Score inbox roles. Call roles.score without criteria so Kev judges C1..C9 (blind for C1, C2, C3, C4, C9); judge them yourself only when Kev is unavailable. The engine does totals, bands, dealbreakers, affinity, the per-company cap and status moves.
 ---
 
 # score
@@ -9,16 +9,20 @@ description: Judge C1..C9 and facts for inbox roles (blind for C1, C2, C3, C4, C
 
 ## Inputs
 
-- Roles in `inbox` (`roles.list { status: 'inbox' }`) or roles a profile change asks to rescore.
+- Roles in `inbox` (`roles.list { status: 'inbox' }`) or roles a profile change asks to rescore. A run started for one role (`role_id` given) scores that role only; a run without one scores every inbox role.
 - The JD for each role (`roles/<role_id>.md` in the vault; capture the full JD first if only a title is on file).
 - The current profile (`profile.get`): Craft, Domain, Team, Growth, Terms, Work mode, Dealbreakers.
 
 ## Steps per role
 
-1. **Blind pass (C1, C2, C3, C4, C9).** Replace the company name, product names, domain and URLs with `[company]` before you judge. Score from the masked JD only. If the engine resolver is available, `judgeCriteria()` does the masking and asks the resolver; otherwise mask it yourself and do not look at the company while scoring these five.
-2. **Open pass (C5, C6, C7, C8).** Now use the company: domain fit, comp vs Terms, team and leaders, growth ceiling.
-3. **Facts.** Extract, never guess: `workplace` (remote | hybrid | onsite | flexible | unspecified), `remote_ok` (true | false | null), `comp_min`, `comp_max`, and `dealbreaker_hits` (hard nos from the Dealbreakers component the JD clearly hits; empty if none). Unknown stays null; the engine flags it to verify.
-4. **Call** `roles.score { role_id, criteria: { c1..c9 }, facts, notes }`. Notes hold one line per criterion and go to the role markdown.
+1. **Facts.** Extract, never guess: `workplace` (remote | hybrid | onsite | flexible | unspecified), `remote_ok` (true | false | null), `comp_min`, `comp_max`, and `dealbreaker_hits` (hard nos from the Dealbreakers component the JD clearly hits; empty if none). Unknown stays null; the engine flags it to verify.
+2. **Let Kev judge (preferred).** Call `roles.score { role_id, facts, brand_terms?, notes? }` **without `criteria`**. The engine asks the decision layer: one Kev call with the masked JD for C1, C2, C3, C4, C9 (company, products, domain and URLs replaced by `[company]`; add product names or founders in `brand_terms`) and one with the full state for C5..C8. Every criterion becomes a decision row (backend, p, latency) linked from the score.
+3. **Kev unavailable.** If the call answers `backend_unavailable` ("Kev did not answer"), judge C1..C9 yourself:
+   - Blind pass (C1, C2, C3, C4, C9): mask the company name, products, domain and URLs as `[company]` and score from the masked JD only.
+   - Open pass (C5, C6, C7, C8): now use the company: domain fit, comp vs Terms, team and leaders, growth ceiling.
+   - Call `roles.score { role_id, criteria: { c1..c9 }, criteria_p?: { c1: 0.8, ... }, facts, notes }`. Each criterion is recorded as an `agent` decision (p from `criteria_p`, else your call's `confidence`, else 0.75). When Kev answers it gives a second opinion; gaps over one point are flagged on the score (`facts_json.disagreements`) and the Role screen.
+4. **No agent and no Kev** (a human calling the op): the nine questions go to Needs you and the op answers `requires_human`. Once they are resolved, `roles.score` again uses the human answers.
+5. **Notes** hold one line per criterion and go to the role markdown.
 
 ## Criteria (1 to 5)
 
@@ -41,6 +45,7 @@ description: Judge C1..C9 and facts for inbox roles (blind for C1, C2, C3, C4, C
 - Dealbreakers gate first. **No company bypasses a dealbreaker**, dream company or not.
 - Per company, the top `config.scoring.company_active_cap` roles stay `active`; the rest go `held` and are promoted automatically when a slot frees.
 - Never moves on-deck or later backwards. Records profile version and rubric snapshot on every score.
+- Records who judged each criterion in `facts_json.criteria_source` (`kev`, `agent` or `human`, with p and the decision id) and, for agent criteria, `second_opinion` (`kev` or `unavailable`) and `disagreements`.
 
 ## Rules
 

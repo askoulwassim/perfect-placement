@@ -1,24 +1,36 @@
-import { PROFILE_COMPONENT_KEYS, PROFILE_COMPONENT_KIND, type ProfileComponentKey } from '@perfect-placement/contracts';
+import { type OpOutput, PROFILE_COMPONENT_KEYS, PROFILE_COMPONENT_KIND, type ProfileComponentKey } from '@perfect-placement/contracts';
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
 import { Constellation, DiffBlock, KIND_HEX, KIND_LABEL, type NodeData, ProfileNode, VersionTimeline } from '../components/profile';
 import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { COMPONENT_NAME, chipText } from '../lib/profile';
+import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText } from '../lib/profile';
 import { timeline } from '../lib/view';
-import { go } from '../router';
+import { go, type YouFlow } from '../router';
+import { Onboarding } from './Onboarding';
 
-export function You({ component }: { component?: ProfileComponentKey } = {}) {
+/**
+ * The one profile place (#25). No profile yet: You is setup (resume, interview, calibrate, confirm).
+ * With one: the constellation, where Re-interview and Recalibrate run the same steps in place.
+ */
+export function You({ component, flow }: { component?: ProfileComponentKey; flow?: YouFlow } = {}) {
+  const profile = useOp('profile.get', {});
+  if (profile.error === 'not_found') return <Onboarding flow="setup" />;
+  if (flow) return <Onboarding flow={flow} />;
+  if (!profile.data && !profile.error) return null;
+  return <Profile component={component} profile={profile.data} />;
+}
+
+function Profile({ component, profile }: { component?: ProfileComponentKey; profile: OpOutput<'profile.get'> | undefined }) {
   const { mobile } = useLayout();
   const { showToast } = useApp();
   const act = useAct();
-  const profile = useOp('profile.get', {});
   const history = useOp('profile.history', {});
   const [selected, setSelected] = useState<ProfileComponentKey | null>(component ?? null);
 
-  const comps = profile.data?.components ?? [];
-  const diffs = [...(profile.data?.pending_diffs ?? [])].sort(
+  const comps = profile?.components ?? [];
+  const diffs = [...(profile?.pending_diffs ?? [])].sort(
     (a, b) => PROFILE_COMPONENT_KEYS.indexOf(a.component_key) - PROFILE_COMPONENT_KEYS.indexOf(b.component_key),
   );
   const nodes: NodeData[] = PROFILE_COMPONENT_KEYS.map((key) => ({
@@ -33,6 +45,17 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
   const versions = history.data?.versions ?? [];
   const tl = timeline(versions);
 
+  /** Recalibrate and Re-interview start an onboarding session, then run its steps here. */
+  const recalibrate = async () => {
+    const o = await act('onboard.start', { calibrate: true });
+    if (o.status === 'ok') go({ screen: 'you', flow: 'calibrate' });
+  };
+  const reinterview = selected
+    ? async () => {
+        const o = await act('onboard.start', { components: [selected] });
+        if (o.status === 'ok') go({ screen: 'you', flow: 'interview' });
+      }
+    : undefined;
   const accept = async (id: string) => {
     const o = await act('profile.apply_diff', { diff_id: id });
     if (o.status === 'ok') showToast('Diff accepted');
@@ -41,13 +64,15 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
     ? { label: 'Accept diff', op: 'profile.apply_diff' as const, onClick: () => void accept(selDiff.id) }
     : diffs.length > 0
       ? { label: `Review ${diffs.length} diff`, op: null, onClick: () => setSelected(diffs[0]?.component_key ?? null) }
-      : { label: 'Recalibrate', op: null, onClick: () => go({ screen: 'onboarding', calibrate: true }) };
+      : { label: 'Recalibrate', op: 'onboard.start' as const, onClick: () => void recalibrate() };
 
   const dj = selDiff?.diff_json as { before?: Record<string, unknown>; after?: Record<string, unknown> } | undefined;
   const before = chipText(dj?.before ?? {});
   const after = chipText(dj?.after ?? {});
   const reject = selDiff ? () => void act('profile.reject_diff', { diff_id: selDiff.id }) : undefined;
   const chips = sel ? chipText(sel.data_json) : [];
+  // The kept source resume (#38), linked from Story.
+  const source = selected === 'story' && typeof sel?.data_json.source_path === 'string' ? sel.data_json.source_path : null;
   const weight = sel?.weight != null ? Math.round(sel.weight * 100) : null;
   const pick = (k: string) => setSelected(k === selected ? null : (k as ProfileComponentKey));
   const header = { eyebrow: `Profile · v${versions.length || 1}`, title: 'You' };
@@ -60,6 +85,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
             <ProfileNode key={n.key} n={n} size={60} selected={selected === n.key} onClick={() => pick(n.key)} />
           ))}
         </div>
+        {diffs.length > 0 && <RecalibrateSecondary onClick={() => void recalibrate()} />}
         {sel && selected && (
           <div style={{ marginTop: 22, background: C.panel, border: `1px solid ${C['line-2']}`, borderRadius: 12, padding: 18 }}>
             <div style={display(24, 800, 'normal')}>{COMPONENT_NAME[selected]}</div>
@@ -70,6 +96,9 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                 </span>
               ))}
             </div>
+            {reinterview && <Reinterview onClick={reinterview} />}
+            {source && <ResumeSource path={source} />}
+            {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
             <VersionTimeline compact versions={tl} />
           </div>
@@ -135,6 +164,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                       </Btn>
                     ))}
                   </div>
+                  <RecalibrateSecondary onClick={() => void recalibrate()} />
                 </>
               )}
             </>
@@ -176,6 +206,9 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                   </span>
                 ))}
               </div>
+              {reinterview && <Reinterview onClick={reinterview} />}
+              {source && <ResumeSource path={source} />}
+              {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
                 <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr 26px', gap: 12, alignItems: 'center' }}>
@@ -205,5 +238,153 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You). */
+function ProfileAction({ className, label, onClick }: { className: string; label: string; onClick: () => void }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Btn
+        op="onboard.start"
+        className={className}
+        onClick={onClick}
+        style={{
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: C.fg,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        {label}
+      </Btn>
+    </div>
+  );
+}
+
+/** Re-interview the selected component (`onboard.start { components }`); the questions run in You. */
+const Reinterview = ({ onClick }: { onClick: () => void }) => (
+  <ProfileAction className="reinterview" label="Re-interview" onClick={onClick} />
+);
+
+/**
+ * Recalibrate while diffs are pending (#66): the primary stays "Review N diff" (one primary per screen),
+ * so Recalibrate (`onboard.start { calibrate }`) is a secondary action until they are resolved.
+ */
+const RecalibrateSecondary = ({ onClick }: { onClick: () => void }) => (
+  <ProfileAction className="recalibrate" label="Recalibrate" onClick={onClick} />
+);
+
+/** The kept source resume: one button opens its extracted text. */
+function ResumeSource({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  const doc = useOp('vault.read', open ? { path } : null);
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Btn
+        op="vault.read"
+        className="resume-source"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        style={{
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: open ? C['panel-2'] : 'transparent',
+          color: C.fg,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Resume
+      </Btn>
+      {open && (
+        <div
+          className="resume-source__text"
+          style={{
+            marginTop: 12,
+            maxHeight: 360,
+            overflow: 'auto',
+            background: C['bg-2'],
+            border: `1px solid ${C.line}`,
+            borderRadius: 10,
+            padding: 14,
+            ...mono(12, C.muted),
+            lineHeight: 1.55,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {doc.data?.markdown ?? ''}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Application defaults (#42): the standard portal answers Fill reuses; one Save. */
+function Defaults({ data, mobile }: { data: unknown; mobile?: boolean }) {
+  const act = useAct();
+  const { showToast } = useApp();
+  const saved = defaultsText((data ?? undefined) as Record<string, unknown> | undefined);
+  const [text, setText] = useState(saved);
+  const dirty = DEFAULT_FIELDS.some(([f]) => text[f].trim() !== saved[f].trim());
+  const save = async () => {
+    const o = await act('profile.set_defaults', { defaults: defaultsInput(text) });
+    if (o.status === 'ok') showToast('Defaults saved');
+  };
+  return (
+    <div className="app-defaults" style={{ marginTop: 22 }}>
+      <div style={{ ...eyebrow(), marginBottom: 12 }}>Application defaults</div>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '96px 1fr' : '110px 1fr', gap: '8px 12px', alignItems: 'center' }}>
+        {DEFAULT_FIELDS.map(([f, label, hint]) => (
+          <label key={f} style={{ display: 'contents' }}>
+            <span style={mono(11, C.muted)}>{label}</span>
+            <input
+              name={f}
+              value={text[f]}
+              placeholder={hint}
+              onChange={(e) => setText((t) => ({ ...t, [f as DefaultField]: e.target.value }))}
+              style={{
+                minWidth: 0,
+                height: 32,
+                background: C['bg-2'],
+                border: `1px solid ${C['line-2']}`,
+                borderRadius: 8,
+                color: C.fg,
+                padding: '0 10px',
+                fontSize: 13,
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <Btn
+        op="profile.set_defaults"
+        disabled={!dirty}
+        onClick={() => void save()}
+        style={{
+          marginTop: 12,
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: dirty ? C.fg : C.dim,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Save
+      </Btn>
+    </div>
   );
 }

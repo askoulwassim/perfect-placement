@@ -1,5 +1,7 @@
 import { type ContactTier, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
 import { classifyContact, linkContact } from '../../people/classify.js';
+import { defaultMx } from '../../people/dns.js';
+import { draftRecipient, findEmail } from '../../people/email.js';
 import { findPeople } from '../../people/find.js';
 import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
 import { composeBody } from '../../people/style.js';
@@ -27,6 +29,8 @@ export function peopleDeps(h: HandlerContext): PeopleDeps {
     ...(h.services.gmail ? { gmail: h.services.gmail } : {}),
     ...(h.services.gmailContacts ? { gmailContacts: h.services.gmailContacts } : {}),
     ...(h.services.outreachWriter ? { writer: h.services.outreachWriter } : {}),
+    mx: h.services.mx ?? defaultMx,
+    ...(h.services.emailProvider ? { emailProvider: h.services.emailProvider } : {}),
   };
 }
 
@@ -48,6 +52,7 @@ export const LANE_H_HANDLERS = {
   'people.find': defineHandler('people.find', { run: async (i, h) => unwrap(await findPeople(i, h.ctx, peopleDeps(h))) }),
   'people.link': defineHandler('people.link', { run: async (i, h) => unwrap(await linkContact(i, h.ctx, peopleDeps(h))) }),
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
+  'people.find_email': defineHandler('people.find_email', { run: async (i, h) => unwrap(await findEmail(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
   'outreach.to_gmail': defineHandler('outreach.to_gmail', {
     decisionKind: 'outreach.to_gmail',
@@ -73,7 +78,19 @@ export const LANE_H_HANDLERS = {
       const d = md ? resolveDraft(peopleDeps(h), outreach, md) : null;
       const signoff = d && !('error' in d) ? (d.text.signoff ?? '') : (s.signoff ?? '');
       const body = d && !('error' in d) ? d.body : composeBody({ hook, proof, ask, signoff }, { recipientName: contact.name });
-      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants };
+      // #37: the To the Gmail step uses (the contact, or the mutual for bridge drafts), or why there is none.
+      const rc = d && !('error' in d) ? d.recipient : contact;
+      const r = draftRecipient(peopleDeps(h), rc);
+      const to = {
+        contact_id: rc.id,
+        name: rc.name,
+        email: r.email,
+        email_source: rc.email_source,
+        email_confidence: rc.email_confidence,
+        guess: r.guess,
+        reason: r.reason,
+      };
+      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants, to };
     },
   }),
   'outreach.list': defineHandler('outreach.list', {

@@ -9,9 +9,13 @@ import {
   cursorConfigPath,
   detectClients,
   mcpSpec,
+  nodePathChecks,
+  nodePathProblem,
   registerClaudeCode,
   registerCodex,
+  registeredNodes,
   registerJsonClient,
+  renderCodexBlock,
   upsertCodexToml,
 } from './clients.js';
 import { stableNodePath } from './deps.js';
@@ -172,5 +176,53 @@ describe('stableNodePath', () => {
     expect(stableNodePath({ PP_NODE: '/x/node' }, '/usr/bin/node', has)).toBe('/x/node');
     expect(stableNodePath({}, '/opt/homebrew/Cellar/node@22/22.23.3_1/bin/node', has)).toBe('/opt/homebrew/opt/node@22/bin/node');
     expect(stableNodePath({}, '/usr/local/bin/node', has)).toBe('/usr/local/bin/node');
+  });
+});
+
+describe('node paths in agent configs (#33)', () => {
+  const cellar = '/opt/homebrew/Cellar/node@22/22.23.3_1/bin/node';
+  const opt = '/opt/homebrew/opt/node@22/bin/node';
+
+  it('setup writes the stable opt path, never a Cellar one', () => {
+    const d = fakeDeps(home, { nodePath: stableNodePath({}, cellar, (p) => p === opt) });
+    const spec = mcpSpec('/v', d.nodePath, '/x/bin.js');
+    registerJsonClient('cursor', cursorConfigPath(d), spec, d);
+    registerCodex(codexConfigPath(d), spec, d);
+    expect(readFileSync(cursorConfigPath(d), 'utf8')).not.toContain('/Cellar/');
+    expect(readFileSync(codexConfigPath(d), 'utf8')).not.toContain('/Cellar/');
+    expect(claudeAddArgs(spec).join(' ')).not.toContain('/Cellar/');
+  });
+
+  it('reads the registered node from every client config', () => {
+    const d = fakeDeps(home);
+    const spec = mcpSpec('/v', '/n/node', '/x/bin.js');
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { pp: { command: '/c/node' } } }));
+    mkdirSync(join(home, '.codex'));
+    writeFileSync(codexConfigPath(d), `[other]\ncommand = "/no"\n\n${renderCodexBlock(spec)}\n`);
+    registerJsonClient('cursor', cursorConfigPath(d), spec, d);
+    expect(registeredNodes(d).map((r) => [r.client, r.command])).toEqual([
+      ['claude-code', '/c/node'],
+      ['codex', '/n/node'],
+      ['cursor', '/n/node'],
+    ]);
+  });
+
+  it('flags a missing node and a versioned Homebrew node', () => {
+    expect(nodePathProblem('/gone/node', () => false)).toMatch(/no longer exists/);
+    expect(nodePathProblem(cellar, () => true)).toMatch(/versioned Homebrew/);
+    expect(nodePathProblem(opt, () => true)).toBeNull();
+  });
+
+  it('doctor checks: green on stable paths, failing with the fix after a node upgrade', () => {
+    const d = fakeDeps(home, { env: { PP_NODE: opt } });
+    registerJsonClient('cursor', cursorConfigPath(d), mcpSpec('/v', cellar, '/x/bin.js'), d);
+    const before = nodePathChecks('/v', d, (p) => p === opt || p === cellar);
+    expect(before.find((c) => c.name === 'runner_node')).toEqual({ name: 'runner_node', ok: true, detail: opt });
+    expect(before.find((c) => c.name === 'mcp_node')?.ok).toBe(false);
+    // brew upgrade: the Cellar folder is gone
+    const after = nodePathChecks('/v', d, (p) => p === opt);
+    expect(after.find((c) => c.name === 'mcp_node')?.detail).toMatch(/no longer exists; rerun pp setup/);
+    registerJsonClient('cursor', cursorConfigPath(d), mcpSpec('/v', opt, '/x/bin.js'), d);
+    expect(nodePathChecks('/v', d, (p) => p === opt).every((c) => c.ok)).toBe(true);
   });
 });

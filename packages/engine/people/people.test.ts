@@ -453,6 +453,7 @@ describe('end to end on a picked role (dry run)', () => {
       'outreach.to_gmail',
       'people.classify',
       'people.find',
+      'people.find_email',
       'people.link',
     ]);
   });

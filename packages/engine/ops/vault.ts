@@ -32,7 +32,7 @@ export function stripFrontmatter(md: string): string {
   return (m ? md.slice(m[0].length) : md).replace(/^\n+/, '');
 }
 
-type Pending = { kind: 'write' | 'append'; path: string; content: string };
+type Pending = { kind: 'write' | 'append'; path: string; content: string } | { kind: 'bytes'; path: string; content: Uint8Array };
 
 /**
  * Vault writes staged during an op and flushed only after the db transaction commits,
@@ -57,6 +57,12 @@ export class VaultTx {
     this.pending.push({ kind: 'write', path: rel, content });
   }
 
+  /** A binary file (a kept resume upload, #38). Staged like `write`. */
+  writeBytes(rel: string, content: Uint8Array): void {
+    this.abs(rel);
+    this.pending.push({ kind: 'bytes', path: rel, content });
+  }
+
   append(rel: string, content: string): void {
     this.abs(rel);
     this.pending.push({ kind: 'append', path: rel, content });
@@ -72,9 +78,22 @@ export class VaultTx {
     }
     for (const p of this.pending) {
       if (p.path !== rel) continue;
-      base = p.kind === 'write' ? p.content : (base ?? '') + p.content;
+      if (p.kind === 'bytes') base = Buffer.from(p.content).toString('utf8');
+      else base = p.kind === 'write' ? p.content : (base ?? '') + p.content;
     }
     return base;
+  }
+
+  /** A binary file: staged bytes first (own, then the parents'), else the disk. */
+  readBytes(rel: string): Uint8Array | null {
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i];
+      if (p?.path !== rel) continue;
+      return p.kind === 'bytes' ? p.content : Buffer.from(this.read(rel) ?? '', 'utf8');
+    }
+    if (this.parent) return this.parent.readBytes(rel);
+    const abs = this.abs(rel);
+    return existsSync(abs) ? readFileSync(abs) : null;
   }
 
   exists(rel: string): boolean {
@@ -97,7 +116,8 @@ export class VaultTx {
       else {
         // write-then-rename so a crash never leaves a half file
         const tmp = `${abs}.tmp-${process.pid}`;
-        writeFileSync(tmp, p.content, 'utf8');
+        if (p.kind === 'bytes') writeFileSync(tmp, p.content);
+        else writeFileSync(tmp, p.content, 'utf8');
         renameSync(tmp, abs);
       }
     }

@@ -14,6 +14,8 @@ export const SHORT_Q: Record<DecisionKind, string> = {
   'people.classify': 'Who is this?',
   'outreach.to_gmail': 'Create the Gmail draft?',
   'apply.submit': 'Submit this application?',
+  'apply.fact_check': 'Keep this claim?',
+  'people.email': 'Use this email?',
   other: 'Your call?',
 };
 
@@ -36,6 +38,8 @@ const BOOL_LABELS: Partial<Record<DecisionKind, [string, string]>> = {
 };
 
 export function valueLabel(kind: DecisionKind, v: unknown): string {
+  // #37: addresses show as written.
+  if (kind === 'people.email' && typeof v === 'string' && v !== 'other') return v;
   if (typeof v === 'boolean') {
     const [y, n] = BOOL_LABELS[kind] ?? ['Yes', 'No'];
     return v ? y : n;
@@ -54,3 +58,35 @@ export function altsOf(d: Pick<Decision, 'question_json' | 'answer_json'>): Arra
   else if (q.type === 'score') for (let i = q.min ?? 1; i <= (q.max ?? 5); i++) all.push(i);
   return all.filter((v) => v !== pick);
 }
+
+/** An `apply.fact_check` question (#54): the claim, where it is, and the closest source line. */
+export interface FactCheckQ {
+  claim: string;
+  doc: 'resume' | 'cover_letter' | 'answers';
+  line: string;
+  source: string | null;
+}
+export const factCheckOf = (d: Pick<Decision, 'kind' | 'question_json'>): FactCheckQ | null => {
+  if (d.kind !== 'apply.fact_check') return null;
+  const q = d.question_json as Partial<FactCheckQ>;
+  return typeof q.claim === 'string' && typeof q.line === 'string'
+    ? { claim: q.claim, doc: q.doc ?? 'resume', line: q.line, source: q.source ?? null }
+    : null;
+};
+export const DOC_NAME: Record<FactCheckQ['doc'], string> = { resume: 'Resume', cover_letter: 'Cover letter', answers: 'Answers' };
+
+/** A `people.email` question (#37): whose address, the domain, its MX check and the learned format. */
+export interface EmailQ {
+  name: string;
+  domain: string;
+  mx: boolean | null;
+  pattern: string | null;
+  examples: number;
+}
+export const emailOf = (d: Pick<Decision, 'kind' | 'question_json'>): EmailQ | null => {
+  if (d.kind !== 'people.email') return null;
+  const q = d.question_json as Partial<EmailQ>;
+  return typeof q.domain === 'string'
+    ? { name: q.name ?? '', domain: q.domain, mx: q.mx ?? null, pattern: q.pattern ?? null, examples: q.examples ?? 0 }
+    : null;
+};

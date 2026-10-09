@@ -14,6 +14,31 @@ import { resolveHome } from './vault.js';
 
 export const OWNER_LANE = 'B' as const;
 
+export {
+  ASK_CARD_SIGNATURES,
+  ASK_REPLAY_TURNS,
+  ASK_WEB_TOOLS,
+  type AskDeps,
+  type AskLauncher,
+  type AskProcess,
+  type AskSpec,
+  AskStreamParser,
+  type AskThread,
+  type AskThreadStore,
+  AskThreads,
+  type AskTurn,
+  askAgentPrompt,
+  askAllowedTools,
+  askMessage,
+  buildAskSpec,
+  classifyAskFailure,
+  createAskSpawner,
+  dbAskThreadStore,
+  findRun,
+  opOfTool,
+  replayPrompt,
+  runAsk,
+} from './ask.js';
 export { createDecisionStore } from './decision-store.js';
 export * from './dedupe.js';
 export { notFound, OpError } from './errors.js';
@@ -24,9 +49,20 @@ export { newId, roleIdFor, slugify, ulid } from './ids.js';
 export { backendStatus } from './lanes/decisions.js';
 export { rebalance, scoringStore } from './lanes/scoring.js';
 export { changedKeys, hardHumanHint } from './policy.js';
+export {
+  activeDuplicate,
+  isQueueRun,
+  type PipelineStart,
+  pipelineStarts,
+  queueRuns,
+  type RunScope,
+  sameScope,
+  scopeOf,
+} from './queue.js';
 export { ALL_HANDLERS } from './registry.js';
 export {
   buildRunnerSpec,
+  CELLAR_NODE,
   createSpawnLauncher,
   cursorPermissions,
   DEFAULT_SKILLS_DIR,
@@ -35,14 +71,18 @@ export {
   deniedToolsError,
   MCP_SERVER_NAME,
   type McpServerSpec,
+  pidAlive,
   type RunnerExit,
   type RunnerLauncher,
   type RunnerSpec,
   resolveRepoRoot,
+  runnerAlive,
+  runnerDir,
   SKILL_ASSETS,
   SKILL_TOOLS,
   skillAllowedTools,
   skillPrompt,
+  stableNodePath,
   type WebTool,
 } from './runner.js';
 export {
@@ -62,7 +102,9 @@ export {
   type RunLogEntry,
   requiresHuman,
 } from './runtime.js';
-export type { EngineServices } from './services.js';
+export { catchUpSchedules, lastScheduledRun } from './schedules.js';
+export type { EngineServices, ScheduleJobs } from './services.js';
+export { INTERRUPTED, interruptStaleRuns, type StaleRunOptions } from './stale-runs.js';
 export { deepMerge, readConfig, renderMarkdown, resolveHome, stripFrontmatter, VaultTx } from './vault.js';
 
 export interface OpenEngineOptions {

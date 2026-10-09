@@ -10,6 +10,7 @@ Contacts, contact_link, tier classification via resolver, outreach drafts (Hook 
 | --- | --- |
 | `index.ts` | Public surface + `handlers` map (op name -> handler); the engine registers them in `ops/lanes/people.ts`. |
 | `find.ts` | `people.find`: picked roles only; LinkedIn (capped) + Gmail contacts + skill hints; upsert contacts, provisional links, `contact_found`, run row (carries the daily LinkedIn budget). |
+| `email.ts` | `people.find_email` (#37): known address first (hints from Gmail, LinkedIn, public pages; JD; dossier), else the company's learned address format, MX check (injected `mx`, never SMTP), ranked candidates; the top pick is a `people.email` decision; `draftRecipient` decides a Gmail draft's To. `dns.ts`: the default MX lookup. |
 | `classify.ts` | `people.classify` (resolver Choice, kind `people.classify`, low impact; `role` input = a human's pick via the decision action `role: "$value"`) and `people.link` (tier must equal degree x hiring team). |
 | `outreach.ts` | `outreach.draft` (vault md + row + `outreach_drafted`), `outreach.to_gmail` (Gmail draft only, idempotent), `outreach.send` (always `unimplemented`), `composeAndDraft` writer pipeline. |
 | `templates.ts` | Per-tier templates; LLM writer prompt with CONTEXT (contact headline, role JD, dossier highlights; facts about them) apart from STORY (the only facts about the user) and VOICE (style, notes, every writing sample as a tone exemplar); deterministic natural-shape fallback. |
@@ -19,6 +20,6 @@ Contacts, contact_link, tier classification via resolver, outreach drafts (Hook 
 
 ## Handler contract
 
-`handler(input, ctx: OpContext, deps: PeopleDeps) -> OpOutcome<OpOutput<name>>`. `PeopleDeps` is built per op call by the engine: `{ repos, vault, emit, ask, record, config, linkedin?, gmail?, gmailContacts?, writer? }` (adapters from `EngineServices`). Handlers honor `ctx.dryRun` (and `people.find`'s `dry_run`). `outreach.to_gmail` is medium impact: an agent goes through the grid with `ctx.confidence`. `outreach.send` has no handler (unimplemented by contract).
+`handler(input, ctx: OpContext, deps: PeopleDeps) -> OpOutcome<OpOutput<name>>`. `PeopleDeps` is built per op call by the engine: `{ repos, vault, emit, ask, record, config, linkedin?, gmail?, gmailContacts?, writer?, mx?, emailProvider? }` (adapters from `EngineServices`). Handlers honor `ctx.dryRun` (and `people.find`'s `dry_run`). `outreach.to_gmail` is medium impact: an agent goes through the grid with `ctx.confidence`. `outreach.send` has no handler (unimplemented by contract).
 
 Production adapters: the engine has no LinkedIn driver or Gmail client by default (decisions #4, #5 put both in the agent session: Claude in Chrome and the Gmail connector). Without them `people.find` uses the skill's hints and Gmail contacts only. `outreach.to_gmail` records a draft the calling agent already created with its own Gmail tool (`gmail_draft_id`, Gmail via agent); without that id and with no client it answers `backend_unavailable`. Live run with Wassim: `skills/connect/RUNBOOK.md`.

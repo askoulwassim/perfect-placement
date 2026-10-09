@@ -58,6 +58,7 @@ export function renderComponentMd(key: ProfileComponentKey, id: string, data: Re
     }
     push('Skills', list(data.skills));
     push('Education', list(data.education));
+    if (typeof data.source_path === 'string') push('Source', `[Resume](${data.source_path})`);
   } else if (key === 'voice') {
     if (typeof data.positioning === 'string') push('Positioning', data.positioning);
     if (typeof data.style === 'string') push('Style', data.style);

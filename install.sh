@@ -2,7 +2,7 @@
 # Perfect Placement installer (macOS + Linux). Safe to rerun; never uses sudo.
 #
 #   ./install.sh                 check prerequisites, pnpm install + build, put `pp` and `pp-mcp` on PATH
-#   ./install.sh --check         only report what is missing (changes nothing)
+#   ./install.sh --check         only report what is missing (changes nothing; uv is optional, for Kev)
 #   ./install.sh --bin-dir DIR   where the `pp` / `pp-mcp` launchers go (default ~/.local/bin)
 #
 # The launchers are two-line sh scripts that exec this clone's build with the absolute node used
@@ -95,6 +95,13 @@ if [ "$OS" = Darwin ]; then
 else
   if command -v make >/dev/null 2>&1 && { command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1; }; then ok "C/C++ toolchain"
   else note "no C/C++ toolchain: fine if better-sqlite3 has a prebuilt binary; otherwise apt install build-essential python3"; fi
+fi
+
+# --- uv (optional: only Kev, the local decision model, needs it) --------------
+if command -v uv >/dev/null 2>&1; then ok "uv $(uv --version 2>/dev/null | sed 's/^uv //') (for Kev)"; else
+  if [ "$OS" = Darwin ] && command -v brew >/dev/null 2>&1; then uvfix="brew install uv"
+  else uvfix="curl -LsSf https://astral.sh/uv/install.sh | sh"; fi
+  note "uv not found: optional, needed only for Kev (pp setup offers to install it). install: $uvfix"
 fi
 
 # --- bin dir ---------------------------------------------------------------------

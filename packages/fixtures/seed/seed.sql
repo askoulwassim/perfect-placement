@@ -192,12 +192,12 @@ INSERT INTO application (id, role_id, stage, applied_at, portal_url, package_pat
 INSERT INTO application (id, role_id, stage, applied_at, portal_url, package_paths_json) VALUES ('ap_0009', 'retool_head-of-data-product', 'done', '2026-08-29T09:00:00.000Z', NULL, '{"resume":"applications/retool_head-of-data-product/resume.md","cover_letter":"applications/retool_head-of-data-product/cover_letter.md","fit_map":"applications/retool_head-of-data-product/fit_map.md","answers":"applications/retool_head-of-data-product/answers.md"}');
 
 -- contact (6)
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0001', 'Maya R.', 'Head of Product, Insights', 'https://www.linkedin.com/in/fixture-maya-r', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0002', 'Dev P.', 'Engineering Manager', 'https://www.linkedin.com/in/fixture-dev-p', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0003', 'Lina K.', 'Product Designer', 'https://www.linkedin.com/in/fixture-lina-k', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0004', 'Omar S.', 'Technical Recruiter', 'https://www.linkedin.com/in/fixture-omar-s', 'omar.s@example.com', 'jd', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0005', 'Priya T.', 'Staff Engineer', 'https://www.linkedin.com/in/fixture-priya-t', NULL, 'linkedin', NULL);
-INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes) VALUES ('ct_0006', 'Jonah W.', 'VP Product', 'https://www.linkedin.com/in/fixture-jonah-w', NULL, 'company_site', NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0001', 'Maya R.', 'Head of Product, Insights', 'https://www.linkedin.com/in/fixture-maya-r', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0002', 'Dev P.', 'Engineering Manager', 'https://www.linkedin.com/in/fixture-dev-p', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0003', 'Lina K.', 'Product Designer', 'https://www.linkedin.com/in/fixture-lina-k', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0004', 'Omar S.', 'Technical Recruiter', 'https://www.linkedin.com/in/fixture-omar-s', 'omar.s@example.com', 'jd', NULL, 'public', 0.9);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0005', 'Priya T.', 'Staff Engineer', 'https://www.linkedin.com/in/fixture-priya-t', NULL, 'linkedin', NULL, NULL, NULL);
+INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0006', 'Jonah W.', 'VP Product', 'https://www.linkedin.com/in/fixture-jonah-w', NULL, 'company_site', NULL, NULL, NULL);
 
 -- contact_link (6)
 INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team) VALUES ('cl_0001', 'ct_0001', 'linear', 'linear_product-lead-insights', '1', 'warm_hiring', NULL, 1);
@@ -236,5 +236,8 @@ INSERT INTO run (id, op, started_at, finished_at, status, summary_json, log_path
 INSERT INTO run (id, op, started_at, finished_at, status, summary_json, log_path) VALUES ('rn_0003', 'inbox', '2026-10-08T07:00:00.000Z', NULL, 'running', '{}', NULL);
 
 -- onboard_session (1)
-INSERT INTO onboard_session (id, started_at, updated_at, step, scope_json, draft_json, sources_json, answered_json, calibration_json, version_id) VALUES ('ob_0001', '2026-10-07T20:00:00.000Z', '2026-10-07T21:00:00.000Z', 'calibrate', '["domain","growth"]', '{"domain":{"ranked":["AI tooling","data infrastructure","developer platforms"]},"growth":{"scope_ceiling":"VP product","trajectory":"up"}}', '{"domain":["profile","interview"],"growth":["profile","interview"]}', '["domain.ranked","growth.scope_ceiling"]', '{"sample_ids":["cal_01","cal_02","cal_03"],"choices":{"cal_01":"yes"}}', NULL);
+INSERT INTO onboard_session (id, started_at, updated_at, step, scope_json, draft_json, sources_json, answered_json, calibration_json, version_id, interview_json) VALUES ('ob_0001', '2026-10-07T20:00:00.000Z', '2026-10-07T21:00:00.000Z', 'calibrate', '["domain","growth"]', '{"domain":{"ranked":["AI tooling","data infrastructure","developer platforms"]},"growth":{"scope_ceiling":"VP product","trajectory":"up"}}', '{"domain":["profile","interview"],"growth":["profile","interview"]}', '["domain.ranked","growth.scope_ceiling"]', '{"sample_ids":["cal_01","cal_02","cal_03"],"choices":{"cal_01":"yes"}}', NULL, '{}');
+
+-- ask_thread (1)
+INSERT INTO ask_thread (id, created_at, updated_at, runner, session_id, turns_json) VALUES ('ask_01jz0000000000000000000001', '2026-10-07T18:00:00.000Z', '2026-10-07T18:00:00.000Z', 'claude', 'sess-fixture-0001', '[{"user":"Which active roles are going stale?","reply":"root = Reply([t])\nt = Text(\"Two active roles look stale\")"},{"user":"Score my inbox roles","reply":"root = Reply([t])\nt = Text(\"Score run started for your inbox\")"}]');
 COMMIT;

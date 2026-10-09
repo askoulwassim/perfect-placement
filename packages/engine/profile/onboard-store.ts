@@ -1,7 +1,7 @@
 import type { OnboardSession as OnboardSessionRow, ProfileComponentKey } from '@perfect-placement/contracts';
 import type { Repos } from '../db/repo.js';
 import type { CalibrationChoice } from './calibration.js';
-import type { Draft } from './questions.js';
+import { type Draft, emptyPlan, type InterviewPlan } from './questions.js';
 
 /*
  * Onboarding session storage: the `onboard_session` table (migration 002), through lane A's
@@ -24,6 +24,8 @@ export interface OnboardSession {
   answered: string[];
   calibration: { sample_ids: string[]; choices: Record<string, CalibrationChoice> };
   version_id: string | null;
+  /** The resume-adaptive interview plan (#22, migration 007). */
+  interview: InterviewPlan;
 }
 
 export interface OnboardStore {
@@ -42,6 +44,7 @@ const toRow = (s: OnboardSession): OnboardSessionRow => ({
   answered_json: s.answered,
   calibration_json: s.calibration as unknown as Record<string, unknown>,
   version_id: s.version_id,
+  interview_json: s.interview as unknown as Record<string, unknown>,
 });
 
 const fromRow = (r: OnboardSessionRow): OnboardSession => ({
@@ -55,6 +58,7 @@ const fromRow = (r: OnboardSessionRow): OnboardSession => ({
   answered: r.answered_json,
   calibration: { sample_ids: [], choices: {}, ...(r.calibration_json as Partial<OnboardSession['calibration']>) },
   version_id: r.version_id,
+  interview: { ...emptyPlan(), ...((r.interview_json ?? {}) as Partial<InterviewPlan>) },
 });
 
 export function createDbOnboardStore(R: Repos): OnboardStore {

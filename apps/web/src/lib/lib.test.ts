@@ -1,9 +1,24 @@
+import type { Run } from '@perfect-placement/contracts';
 import { contactLinks, contacts, decisions } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
-import { nextRun } from '../screens/Settings';
+import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
-import { bestPath, type Person } from './people';
+import { bestPath, emailTag, type Person } from './people';
+import { sourcesOf } from './role';
+import {
+  activeLabel,
+  duration,
+  isActive,
+  matches,
+  retryInput,
+  runCounts,
+  runOutcome,
+  runToast,
+  scoreInput,
+  scoreRunFor,
+  triggeredBy,
+} from './runs';
 import { stageOf } from './stage';
 
 describe('stageOf', () => {
@@ -21,6 +36,13 @@ describe('stageOf', () => {
     expect(stageOf({ status: 'draft-ready' }, { stage: 'submit' })).toBe(4);
     expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'drafted' })).toBe(2);
     expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'in_gmail' })).toBe(3);
+  });
+  it('treats Research as done when the company has a dossier (#61)', () => {
+    expect(stageOf({ status: 'on-deck' }, null, null, true)).toBe(1);
+    expect(stageOf({ status: 'on-deck' }, { stage: 'research' }, null, true)).toBe(1);
+    expect(stageOf({ status: 'on-deck' }, null, null, false)).toBe(0);
+    expect(stageOf({ status: 'draft-ready' }, { stage: 'fill' }, null, true)).toBe(3);
+    expect(stageOf({ status: 'archived' }, null, null, true)).toBe(-1);
   });
 });
 
@@ -72,5 +94,124 @@ describe('nextRun', () => {
     expect(nextRun('fri 05:30', now)).toBe('Fri 05:30');
     expect(nextRun('mon 05:30', now)).toBe('Mon 05:30');
     expect(nextRun('off', now)).toBeNull();
+    expect(nextRun('weekdays 08:00', new Date('2026-10-09T09:00:00.000Z'))).toBe('Mon 08:00');
+  });
+  it('labels the cadence and the last scheduled run (#29)', () => {
+    expect(cadence('daily 07:30')).toBe('Daily 07:30');
+    expect(cadence('fri 05:30')).toBe('Weekly Fri 05:30');
+    expect(cadence('weekdays 08:00')).toBe('Weekdays 08:00');
+    expect(cadence('mon,thu 08:00')).toBe('Mon, Thu 08:00');
+    expect(lastResult(null)).toBe('Never');
+    const r = { id: 'rn_1', op: 'inbox', started_at: '2026-10-08T07:30:00.000Z', finished_at: null, summary_json: {}, log_path: null };
+    expect(lastResult({ ...r, status: 'ok' })).toBe('Done');
+    expect(lastResult({ ...r, status: 'error' })).toBe('Failed');
+    expect(lastResult({ ...r, status: 'running' })).toBe('Running');
+  });
+});
+
+describe('runs (#21)', () => {
+  const run = (over: Partial<Run>): Run => ({
+    id: 'rn_1',
+    op: 'scout',
+    started_at: '2026-10-08T10:00:00.000Z',
+    finished_at: null,
+    status: 'running',
+    summary_json: { skill: 'scout', actor: 'human', runner: 'claude' },
+    log_path: null,
+    ...over,
+  });
+  it('labels in-flight runs by verb, queued as Queued', () => {
+    expect(activeLabel(run({}))).toBe('Scouting');
+    expect(activeLabel(run({ status: 'queued' }))).toBe('Queued');
+    expect(activeLabel(run({ op: 'tailor' }))).toBe('Tailoring');
+    expect(isActive('queued') && isActive('running') && !isActive('ok') && !isActive('error')).toBe(true);
+  });
+  it('toasts counts on success and the one-line reason on failure', () => {
+    const ok = run({ status: 'ok', summary_json: { skill: 'scout', runner: 'claude', queries_run: 4, added: 12 } });
+    expect(runToast(ok)).toEqual({ text: 'Scout done · 12 added · 4 queries run', tone: 'ok' });
+    expect(runToast(run({ status: 'ok', op: 'research' }))).toEqual({ text: 'Research done', tone: 'ok' });
+    // No counts reported: the run's own op tallies.
+    expect(runToast(run({ status: 'ok', summary_json: { skill: 'scout', 'roles.add': { added: 3, duplicates: 0 } } })).text).toBe(
+      'Scout done · 3 added',
+    );
+    const bad = run({ status: 'error', summary_json: { error: 'interrupted\nmore' } });
+    expect(runToast(bad)).toEqual({ text: 'Scout failed · interrupted', tone: 'error' });
+    expect(runOutcome(run({ status: 'error', summary_json: {} }))).toBe('no reason given');
+  });
+  it('matches a scope and rebuilds the start input for Retry', () => {
+    const r = run({ op: 'connect', summary_json: { skill: 'connect', role_id: 'a_b', contact_id: 'ct_1' } });
+    expect(matches(r, { skill: 'connect', role_id: 'a_b' })).toBe(true);
+    expect(matches(r, { skill: 'connect', role_id: 'a_b', contact_id: 'ct_2' })).toBe(false);
+    expect(matches(r, { skill: 'scout' })).toBe(false);
+    expect(retryInput(r)).toEqual({ skill: 'connect', role_id: 'a_b', contact_id: 'ct_1' });
+    expect(retryInput(run({ op: 'connect', summary_json: { outreach_id: 'or_1', role_id: 'a_b' } }))).toEqual({
+      skill: 'connect',
+      outreach_id: 'or_1',
+    });
+  });
+  it('score runs (#31): one input for all inbox or one role; an all-inbox run covers every role', () => {
+    expect(scoreInput()).toEqual({ skill: 'score' });
+    expect(scoreInput('a_b')).toEqual({ skill: 'score', role_id: 'a_b' });
+    const all = run({ id: 'rn_all', op: 'score', summary_json: { skill: 'score' } });
+    const one = run({ id: 'rn_one', op: 'score', summary_json: { skill: 'score', role_id: 'a_b' } });
+    expect(scoreRunFor([one])).toBeUndefined();
+    expect(scoreRunFor([one], 'a_b')?.id).toBe('rn_one');
+    expect(scoreRunFor([one], 'c_d')).toBeUndefined();
+    expect(scoreRunFor([all], 'c_d')?.id).toBe('rn_all');
+    expect(scoreRunFor([{ ...all, status: 'ok' }, run({})])).toBeUndefined();
+    expect(activeLabel(all)).toBe('Scoring');
+  });
+  it('pipeline (#30): research matches by company; the chain is named, not counted', () => {
+    const r = run({ op: 'research', summary_json: { skill: 'research', role_id: 'stripe_a', company_id: 'stripe' } });
+    expect(matches(r, { skill: 'research', role_id: 'stripe_b', company_id: 'stripe' })).toBe(true);
+    expect(matches(r, { skill: 'research', role_id: 'notion_a', company_id: 'notion' })).toBe(false);
+    expect(matches(r, { skill: 'research', role_id: 'stripe_b' })).toBe(false);
+    const chained = run({
+      op: 'score',
+      summary_json: { skill: 'score', triggered_by: 'rn_s', triggered_by_skill: 'scout', triggered: ['rn_r'], scored: 2 },
+    });
+    expect(triggeredBy(chained)).toEqual({ id: 'rn_s', label: 'Scout' });
+    expect(triggeredBy(run({}))).toBeNull();
+    expect(runCounts(chained)).toBe('2 scored');
+  });
+  it('shows duration', () => {
+    expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');
+    expect(duration(run({}), new Date('2026-10-08T11:05:00.000Z'))).toBe('1h 5m');
+  });
+});
+
+describe('sourcesOf (#40)', () => {
+  const base = { c1: 4, c2: 4, c3: 5, c4: 4, c5: 4, c6: 4, c7: 4, c8: 4, c9: 4 } as const;
+  it('reads the source and confidence per criterion and marks Kev splits', () => {
+    const criteria_source = Object.fromEntries(
+      ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'].map((c) => [c, { backend: c === 'c6' ? 'human' : 'agent', p: 0.75 }]),
+    );
+    const s = { ...base, facts_json: { criteria_source, disagreements: [{ criterion: 'c3', agent: 5, kev: 2 }] } };
+    const v = sourcesOf(s as never);
+    expect(v).toHaveLength(9);
+    expect(v[0]).toEqual({ id: 'C1', label: 'Agent', pct: 75, kev: null });
+    expect(v[2]).toMatchObject({ id: 'C3', kev: 2 });
+    expect(v[5]?.label).toBe('You');
+  });
+  it('is empty for scores from before #40', () => {
+    expect(sourcesOf({ ...base, facts_json: {} } as never)).toEqual([]);
+  });
+});
+
+describe('emailTag (#37)', () => {
+  it('shows the source in one word and the confidence below 100%', () => {
+    expect(emailTag({ email: null, email_source: null, email_confidence: null })).toBeNull();
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'pattern', email_confidence: 0.45 })).toEqual({
+      address: 'a.b@example.com',
+      tag: 'Guess 45%',
+      sure: false,
+    });
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'gmail', email_confidence: 1 })).toEqual({
+      address: 'a.b@example.com',
+      tag: 'Gmail',
+      sure: true,
+    });
+    expect(emailTag({ email: 'a.b@example.com', email_source: 'public', email_confidence: 0.9 })?.tag).toBe('Public 90%');
+    expect(valueLabel('people.email', 'a.b@example.com')).toBe('a.b@example.com');
   });
 });

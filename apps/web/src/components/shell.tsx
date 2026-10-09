@@ -1,4 +1,4 @@
-import { CONFIDENCE_BANDS, IMPACTS, POLICY_GRID } from '@perfect-placement/contracts';
+import { CONFIDENCE_BANDS, type HardHumanSubject, IMPACTS, isHardHuman, POLICY_GRID } from '@perfect-placement/contracts';
 import { type ReactNode, type RefObject, type KeyboardEvent as RKeyboardEvent, useEffect, useRef, useState } from 'react';
 import { Btn, useHover } from './Btn';
 import { Toggle } from './controls';
@@ -7,7 +7,7 @@ import { C, display, eyebrow, F, mono, tab, X } from './theme';
 
 // ------------------------------------------------------------ NavRail
 
-export type NavTarget = 'now' | 'needs-you' | 'river' | 'role' | 'people' | 'you' | 'onboarding' | 'settings' | 'ask';
+export type NavTarget = 'now' | 'needs-you' | 'river' | 'role' | 'people' | 'you' | 'settings' | 'ask';
 
 const RAIL: ReadonlyArray<[NavTarget, IconName, string]> = [
   ['now', 'now', 'Now'],
@@ -15,8 +15,8 @@ const RAIL: ReadonlyArray<[NavTarget, IconName, string]> = [
   ['river', 'river', 'River'],
   ['role', 'role', 'Role'],
   ['people', 'people', 'People'],
+  // Setup lives in You (#25): no separate rail entry.
   ['you', 'you', 'You'],
-  ['onboarding', 'onboard', 'Setup'],
   ['settings', 'settings', 'Settings'],
 ];
 
@@ -108,7 +108,120 @@ export const PPMark = ({ mb = 0 }: { mb?: number }) => (
   </div>
 );
 
-export function NavRail({ active, needsBadge, onNavigate }: { active: string; needsBadge: boolean; onNavigate: (t: NavTarget) => void }) {
+// ------------------------------------------------------------ RunIndicator (#21)
+
+export type RunIndicatorState = 'idle' | 'running' | 'error';
+
+/**
+ * Global run status: pulses while a run is queued or running (with the count), coral when the latest
+ * run failed. Opens Runs. `compact` = the mobile pill ("Scouting").
+ */
+export function RunIndicator({
+  state,
+  count,
+  label,
+  active,
+  onOpen,
+  compact,
+}: {
+  state: RunIndicatorState;
+  count: number;
+  /** "Scouting", "2 runs", "Scout failed", "Runs". */
+  label: string;
+  active?: boolean;
+  onOpen: () => void;
+  compact?: boolean;
+}) {
+  const c = state === 'running' ? C.emerald : state === 'error' ? C.coral : C.muted;
+  const dot = (
+    <span
+      className={state === 'running' ? 'run-pulse' : undefined}
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: state === 'idle' ? 'transparent' : c,
+        border: `1.5px solid ${c}`,
+        flex: 'none',
+      }}
+    />
+  );
+  if (compact)
+    return (
+      <Btn
+        op={null}
+        className="run-indicator"
+        data-nav="runs"
+        data-run-state={state}
+        aria-label="Runs"
+        onClick={onOpen}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 28,
+          padding: '0 12px',
+          borderRadius: 999,
+          border: `1px solid ${state === 'idle' ? C.line : c}`,
+          background: 'transparent',
+          color: state === 'idle' ? C.muted : C.fg,
+          fontSize: 12,
+          fontWeight: 600,
+        }}
+      >
+        {dot}
+        {label}
+      </Btn>
+    );
+  return (
+    <Btn
+      op={null}
+      className="run-indicator"
+      data-nav="runs"
+      data-run-state={state}
+      aria-label="Runs"
+      aria-current={active ? 'page' : undefined}
+      title={label}
+      onClick={onOpen}
+      style={{
+        width: 44,
+        height: 44,
+        borderRadius: 10,
+        border: 0,
+        background: active ? C['panel-2'] : 'transparent',
+        color: c,
+        display: 'grid',
+        placeItems: 'center',
+        position: 'relative',
+        padding: 0,
+      }}
+    >
+      <svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.6">
+        <circle cx="11" cy="11" r="8" className={state === 'running' ? 'run-pulse' : undefined} />
+        <path d="M11 6.5V11l3 2" strokeLinecap="round" />
+      </svg>
+      {state === 'running' && count > 1 && (
+        <span style={{ position: 'absolute', top: 4, right: 4, ...mono(10, C.emerald), fontWeight: 700 }}>{count}</span>
+      )}
+      {state === 'error' && (
+        <span style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: 2, background: C.coral }} />
+      )}
+    </Btn>
+  );
+}
+
+export function NavRail({
+  active,
+  needsBadge,
+  onNavigate,
+  runs,
+}: {
+  active: string;
+  needsBadge: boolean;
+  onNavigate: (t: NavTarget) => void;
+  /** The global run indicator, above Ask. */
+  runs?: ReactNode;
+}) {
   return (
     <nav
       aria-label="Main"
@@ -142,6 +255,7 @@ export function NavRail({ active, needsBadge, onNavigate }: { active: string; ne
         />
       ))}
       <div style={{ flex: 1 }} />
+      {runs}
       <Btn
         op={null}
         title="Ask (⌘K)"
@@ -454,11 +568,12 @@ export function BackendCard({
 }: {
   name: string;
   mode: string;
-  status: 'ok' | 'slow' | 'down';
+  status: 'ok' | 'slow' | 'down' | 'not_installed';
   latencyMs: number | null;
 }) {
-  const dot = status === 'ok' ? C.emerald : status === 'slow' ? C.gold : C.coral;
-  const ring = status === 'ok' ? X.em15 : status === 'slow' ? X.gold16 : X.coral14;
+  const missing = status === 'not_installed';
+  const dot = status === 'ok' ? C.emerald : status === 'slow' ? C.gold : missing ? C.muted : C.coral;
+  const ring = status === 'ok' ? X.em15 : status === 'slow' ? X.gold16 : missing ? 'transparent' : X.coral14;
   return (
     <div
       className="backend"
@@ -476,12 +591,16 @@ export function BackendCard({
       <span style={{ width: 12, height: 12, borderRadius: '50%', background: dot, boxShadow: `0 0 0 4px ${ring}` }} />
       <div style={{ flex: 1 }}>
         <div style={display(24, 700, 'normal')}>{name}</div>
-        <div style={{ ...mono(11, C.muted), letterSpacing: '.08em' }}>{mode.toUpperCase()}</div>
+        <div style={{ ...mono(11, C.muted), letterSpacing: '.08em' }}>{missing ? 'pp kev install' : mode.toUpperCase()}</div>
       </div>
-      <div style={{ ...display(30, 800, 'normal'), ...tab }}>
-        {latencyMs ?? '—'}
-        <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
-      </div>
+      {missing ? (
+        <div style={{ ...mono(12, C.muted), letterSpacing: '.06em' }}>Not installed</div>
+      ) : (
+        <div style={{ ...display(30, 800, 'normal'), ...tab }}>
+          {latencyMs ?? '—'}
+          <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -622,12 +741,31 @@ export function PolicyGrid({
   );
 }
 
-function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
+function PolicyRow({ imp, compact }: { imp: (typeof IMPACTS)[number]; compact?: boolean }) {
   const c = IMPACT_HEX[imp];
+  const h = compact ? 44 : 68;
   return (
     <>
-      <div style={{ height: 68, display: 'flex', alignItems: 'center', padding: '0 20px', borderTop: `1px solid ${C.line}` }}>
-        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>{imp}</span>
+      <div
+        style={{
+          height: h,
+          display: 'flex',
+          alignItems: 'center',
+          padding: compact ? '0 10px' : '0 20px',
+          borderTop: `1px solid ${C.line}`,
+        }}
+      >
+        <span
+          style={{
+            border: `1px solid ${c}`,
+            color: c,
+            borderRadius: 999,
+            padding: compact ? '3px 8px' : '4px 12px',
+            ...eyebrow(c, compact ? 10 : undefined),
+          }}
+        >
+          {imp}
+        </span>
       </div>
       {CONFIDENCE_BANDS.map((band) => {
         const k = whoOf(POLICY_GRID[imp][band]);
@@ -636,7 +774,7 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
             key={band}
             data-outcome={POLICY_GRID[imp][band]}
             style={{
-              height: 68,
+              height: h,
               display: 'grid',
               placeItems: 'center',
               borderTop: `1px solid ${C.line}`,
@@ -644,7 +782,7 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
               background: CELL_BG[k],
             }}
           >
-            <WhoDecidesGlyph kind={k} size={22} />
+            <WhoDecidesGlyph kind={k} size={compact ? 18 : 22} />
           </div>
         );
       })}
@@ -652,18 +790,77 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
   );
 }
 
+/** Hard exclusions (wave1-decisions #24): shown locked as "you"; each is checked against the contract. */
+const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
+  ['Submit application', { kind: 'apply.submit' }],
+  ['Send email', { op: 'outreach.send' }],
+  ['Delete anything', { op: 'roles.delete' }],
+  ['Dealbreakers', { component: 'dealbreakers' }],
+  ['Comp floor', { component: 'terms', changedKeys: ['comp_floor'] }],
+];
+export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
+
+/**
+ * The policy at a glance, read-only (#65): the grid cells at the current thresholds and the hard
+ * exclusions, compact for the phone, where there is no Settings screen. Opened from Getting started.
+ */
+export function PolicySummary({ thresholds }: { thresholds: { auto: number; second_opinion: number } }) {
+  const t0 = thresholds.second_opinion;
+  const t1 = thresholds.auto;
+  const head = [`≥ ${t1.toFixed(2)}`, `${t0.toFixed(2)}–${t1.toFixed(2)}`, `< ${t0.toFixed(2)}`];
+  return (
+    <section className="policy policy--summary" aria-label="Policy" style={{ marginTop: 6, marginBottom: 8 }}>
+      <div
+        className="policy__grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '78px repeat(3,minmax(0,1fr))',
+          background: C.panel,
+          border: `1px solid ${C.line}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ background: C['bg-2'], height: 32 }} />
+        {head.map((h) => (
+          <div
+            key={h}
+            className="policy__head"
+            style={{
+              background: C['bg-2'],
+              height: 32,
+              display: 'grid',
+              placeItems: 'center',
+              ...mono(10, C.muted),
+              borderLeft: `1px solid ${C.line}`,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
+          >
+            {h}
+          </div>
+        ))}
+        {IMPACTS.map((imp) => (
+          <PolicyRow key={imp} imp={imp} compact />
+        ))}
+      </div>
+      <HardExclusions items={LOCKED_LABELS} compact />
+    </section>
+  );
+}
+
 /**
  * Hard exclusions (wave1-decisions #24): always "you", whatever the grid says. Locked: not tunable.
  * Rendered under the PolicyGrid in the grid's own row style.
  */
-export function HardExclusions({ items }: { items: readonly string[] }) {
+export function HardExclusions({ items, compact }: { items: readonly string[]; compact?: boolean }) {
   const c = C.coral;
   return (
     <div
       className="policy__locked"
       style={{
         display: 'grid',
-        gridTemplateColumns: '150px minmax(0,1fr)',
+        gridTemplateColumns: compact ? '1fr' : '150px minmax(0,1fr)',
         background: C.panel,
         border: `1px solid ${C.line}`,
         borderRadius: 12,
@@ -671,17 +868,27 @@ export function HardExclusions({ items }: { items: readonly string[] }) {
         marginTop: 16,
       }}
     >
-      <div style={{ minHeight: 68, display: 'flex', alignItems: 'center', padding: '0 20px' }}>
-        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>always</span>
+      <div style={{ minHeight: compact ? 40 : 68, display: 'flex', alignItems: 'center', padding: compact ? '0 10px' : '0 20px' }}>
+        <span
+          style={{
+            border: `1px solid ${c}`,
+            color: c,
+            borderRadius: 999,
+            padding: compact ? '3px 8px' : '4px 12px',
+            ...eyebrow(c, compact ? 10 : undefined),
+          }}
+        >
+          always
+        </span>
       </div>
       <div
         style={{
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 8,
-          padding: '14px 20px',
-          borderLeft: `1px solid ${C.line}`,
+          gap: compact ? 6 : 8,
+          padding: compact ? '10px' : '14px 20px',
+          ...(compact ? { borderTop: `1px solid ${C.line}` } : { borderLeft: `1px solid ${C.line}` }),
           background: CELL_BG.you,
         }}
       >
@@ -697,8 +904,8 @@ export function HardExclusions({ items }: { items: readonly string[] }) {
               gap: 8,
               border: `1px solid ${C['line-2']}`,
               borderRadius: 999,
-              padding: '6px 12px 6px 10px',
-              fontSize: 13,
+              padding: compact ? '4px 10px 4px 8px' : '6px 12px 6px 10px',
+              fontSize: compact ? 12 : 13,
             }}
           >
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={C.muted} strokeWidth="1.4">
@@ -720,21 +927,31 @@ export function ScheduleRow({
   name,
   cadence,
   next,
+  last,
+  lastStatus,
+  job,
   on,
   onToggle,
 }: {
   name: string;
   cadence: string;
   next: string;
+  /** The last scheduled run's result ("Done", "Failed", "Never"). */
+  last: string;
+  lastStatus: string;
+  /** The OS job's state (#29). */
+  job: string;
   on: boolean;
   onToggle: (on: boolean) => void;
 }) {
   return (
     <div
       className="schedule"
+      data-last={lastStatus}
+      data-job={job}
       style={{
         display: 'grid',
-        gridTemplateColumns: 'minmax(0,1fr) 180px 110px 44px',
+        gridTemplateColumns: 'minmax(0,1fr) 180px 110px 80px 44px',
         gap: 16,
         alignItems: 'center',
         height: 60,
@@ -743,7 +960,12 @@ export function ScheduleRow({
     >
       <span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span>
       <span style={mono(12, C.muted)}>{cadence}</span>
-      <span style={mono(12, C.dim)}>{on ? next : 'off'}</span>
+      <span className="schedule__next" style={mono(12, C.dim)}>
+        {on ? next : 'off'}
+      </span>
+      <span className="schedule__last" style={mono(12, lastStatus === 'error' ? C.coral : C.dim)}>
+        {last}
+      </span>
       <Toggle on={on} label={name} onChange={onToggle} />
     </div>
   );
@@ -751,7 +973,18 @@ export function ScheduleRow({
 
 // ------------------------------------------------------------ MobileFrame
 
-export function MobileFrame({ children, primary, tabbar }: { children: ReactNode; primary?: ReactNode; tabbar: ReactNode }) {
+export function MobileFrame({
+  children,
+  primary,
+  tabbar,
+  top,
+}: {
+  children: ReactNode;
+  primary?: ReactNode;
+  tabbar: ReactNode;
+  /** Status bar area (the run pill). */
+  top?: ReactNode;
+}) {
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
       <div
@@ -769,7 +1002,9 @@ export function MobileFrame({ children, primary, tabbar }: { children: ReactNode
           flexDirection: 'column',
         }}
       >
-        <div style={{ height: 44, flex: 'none' }} />
+        <div style={{ height: 44, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 20px' }}>
+          {top}
+        </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 24px' }}>{children}</div>
         {primary && <div style={{ flex: 'none', padding: '10px 20px', borderTop: `1px solid ${C.line}`, background: C.bg }}>{primary}</div>}
         {tabbar}

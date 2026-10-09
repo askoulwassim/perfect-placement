@@ -1,4 +1,4 @@
-import type { Contact, ContactLink, ContactTier } from '@perfect-placement/contracts';
+import type { Contact, ContactLink, ContactTier, EmailSource } from '@perfect-placement/contracts';
 
 export interface Person {
   contact: Contact;
@@ -41,4 +41,25 @@ export function bestPath(people: readonly Person[]): { target: Person; path: str
   if (!target) return null;
   const via = target.link.via_contact_id ? people.find((p) => p.contact.id === target.link.via_contact_id) : undefined;
   return { target, path: ['You', ...(via ? [via.contact.name] : []), target.contact.name] };
+}
+
+/** Email source in one word (#37). */
+export const EMAIL_SOURCE_LABEL: Record<EmailSource, string> = {
+  gmail: 'Gmail',
+  linkedin: 'LinkedIn',
+  public: 'Public',
+  pattern: 'Guess',
+  provider: 'Finder',
+  manual: 'Manual',
+};
+
+/** "Guess 45%" / "Gmail" for a contact's email (#37); null when there is none. */
+export function emailTag(
+  c: Pick<Contact, 'email' | 'email_source' | 'email_confidence'>,
+): { address: string; tag: string; sure: boolean } | null {
+  if (!c.email) return null;
+  const p = c.email_confidence;
+  const sure = c.email_source === null || c.email_source === 'manual' || (p ?? 1) >= 0.9;
+  const label = c.email_source ? EMAIL_SOURCE_LABEL[c.email_source] : 'Known';
+  return { address: c.email, tag: p !== null && p < 1 ? `${label} ${Math.round(p * 100)}%` : label, sure };
 }

@@ -1,0 +1,238 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6205772004",
+      "internal_job_id": 5221790004,
+      "location": {
+        "name": "Remote - United States"
+      },
+      "id": 6205772004,
+      "updated_at": "2026-09-24T19:38:23-04:00",
+      "requisition_id": "1360",
+      "title": "Product Manager, Dashboard",
+      "company_name": "Vercel",
+      "first_published": "2026-09-24T19:38:23-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Product Manager, Dashboard at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4063260004,
+          "name": "Product",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091065004,
+          "name": "Office - San Francisco",
+          "location": "San Francisco, California, United States",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6209001004",
+      "internal_job_id": 5223186004,
+      "location": {
+        "name": "Hybrid - San Francisco"
+      },
+      "id": 6209001004,
+      "updated_at": "2026-09-28T18:08:11-04:00",
+      "requisition_id": "1362",
+      "title": "Product Manager, Compute",
+      "company_name": "Vercel",
+      "first_published": "2026-09-28T18:08:11-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Product Manager, Compute at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4063260004,
+          "name": "Product",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091065004,
+          "name": "Office - San Francisco",
+          "location": "San Francisco, California, United States",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6160974004",
+      "internal_job_id": 5204478004,
+      "location": {
+        "name": "Hybrid - San Francisco"
+      },
+      "id": 6160974004,
+      "updated_at": "2026-09-24T13:45:18-04:00",
+      "requisition_id": "1330",
+      "title": "Product Designer, Marketplace",
+      "company_name": "Vercel",
+      "first_published": "2026-08-27T13:26:41-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Product Designer, Marketplace at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4063261004,
+          "name": "Design",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091065004,
+          "name": "Office - San Francisco",
+          "location": "San Francisco, California, United States",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6188400004",
+      "internal_job_id": 5213092004,
+      "location": {
+        "name": "Remote - United States"
+      },
+      "id": 6188400004,
+      "updated_at": "2026-09-25T09:12:36-04:00",
+      "requisition_id": "1346",
+      "title": "Software Engineer - Data Platform",
+      "company_name": "Vercel",
+      "first_published": "2026-09-16T17:25:01-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Software Engineer - Data Platform at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4063259004,
+          "name": "Data",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091066004,
+          "name": "Office - New York City",
+          "location": "New York, New York, United States",
+          "child_ids": [],
+          "parent_id": null
+        },
+        {
+          "id": 4091065004,
+          "name": "Office - San Francisco",
+          "location": "San Francisco, California, United States",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/5995789004",
+      "internal_job_id": 5154787004,
+      "location": {
+        "name": "Remote - Australia"
+      },
+      "id": 5995789004,
+      "updated_at": "2026-09-24T13:32:57-04:00",
+      "requisition_id": "1236",
+      "title": "Senior Manager, Solutions Architect",
+      "company_name": "Vercel",
+      "first_published": "2026-05-21T14:14:15-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Senior Manager, Solutions Architect at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4147567004,
+          "name": "Solution Architects",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4035433004,
+          "name": "Remote - Australia ",
+          "location": "Canberra, Australian Capital Territory, Australia",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6136160004",
+      "internal_job_id": 5196261004,
+      "location": {
+        "name": "Hybrid - London"
+      },
+      "id": 6136160004,
+      "updated_at": "2026-09-24T13:34:54-04:00",
+      "requisition_id": "1311",
+      "title": "Account Executive, Commercial",
+      "company_name": "Vercel",
+      "first_published": "2026-08-06T12:50:10-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Account Executive, Commercial at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4085775004,
+          "name": "Account Executive",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091069004,
+          "name": "Office - London",
+          "location": "London, England, United Kingdom",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    },
+    {
+      "absolute_url": "https://job-boards.greenhouse.io/vercel/jobs/6181759004",
+      "internal_job_id": 5210939004,
+      "location": {
+        "name": "Hybrid - San Francisco"
+      },
+      "id": 6181759004,
+      "updated_at": "2026-10-08T13:53:32-04:00",
+      "requisition_id": "1338",
+      "title": "Software Engineering Intern - Summer '27",
+      "company_name": "Vercel",
+      "first_published": "2026-09-08T11:31:06-04:00",
+      "language": "en",
+      "content": "&lt;p&gt;Software Engineering Intern - Summer '27 at Vercel. Synthetic shortened description.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 4042495004,
+          "name": "Engineering",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ],
+      "offices": [
+        {
+          "id": 4091065004,
+          "name": "Office - San Francisco",
+          "location": "San Francisco, California, United States",
+          "child_ids": [],
+          "parent_id": null
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 7
+  }
+}

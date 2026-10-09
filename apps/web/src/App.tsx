@@ -4,20 +4,21 @@ import { ClientProvider, useApp, useOp } from './client/context';
 import type { OpClient } from './client/types';
 import { Cue } from './components/Cue';
 import { Toast } from './components/controls';
-import { AskPill, MobileFrame, NavRail, type NavTarget, TabBar } from './components/shell';
+import { AskPill, MobileFrame, NavRail, type NavTarget, RunIndicator, type RunIndicatorState, TabBar } from './components/shell';
 import { C, F } from './components/theme';
 import { LayoutCtx } from './layout';
-import { CUE_TARGET, CUES, cueFor, pendingCue } from './lib/cues';
+import { STEP_CUE, STEP_TARGET, scoredCount } from './lib/guide';
+import { activeLabel, isActive, runLabel } from './lib/runs';
 import { useMobile } from './lib/useMobile';
 import { go, href, type Route, replaceRoute, useRoute } from './router';
-import { Ask } from './screens/Ask';
+import { Ask, type AskSession, initialAsk, rememberAskThread } from './screens/Ask';
 import { NeedsYou } from './screens/NeedsYou';
 import { Now } from './screens/Now';
-import { Onboarding } from './screens/Onboarding';
 import { OutreachScreen } from './screens/Outreach';
 import { PeopleScreen } from './screens/People';
 import { River } from './screens/River';
 import { RoleScreen } from './screens/Role';
+import { Runs } from './screens/Runs';
 import { Settings } from './screens/Settings';
 import { You } from './screens/You';
 
@@ -29,7 +30,7 @@ export function App({ client, now, pollMs }: { client: OpClient; now?: () => Dat
   );
 }
 
-/** Screens that show the Onboarding redirect until a profile exists (Settings and the rest stay reachable). */
+/** Screens that show You (setup) until a profile exists (Settings and the rest stay reachable). */
 export const GATED_SCREENS: ReadonlyArray<Route['screen']> = ['now', 'needs-you', 'river'];
 
 /**
@@ -53,24 +54,27 @@ function useFresh(): { now: boolean | null; last: boolean | null } {
 }
 
 /**
- * What to render for a route: mobile has no Onboarding or Settings screen (they show Now), and on a
- * fresh vault the gated screens show Onboarding. `null` = wait (fresh-or-unknown, not answered yet).
+ * What to render for a route: mobile has no Settings screen (it shows Now), and on a fresh vault the
+ * gated screens show You, which is setup until a profile exists (#25). `null` = wait (fresh-or-unknown,
+ * not answered yet).
  */
 export function shownRoute(route: Route, opts: { mobile: boolean; fresh: boolean | null; lastFresh: boolean | null }): Route | null {
-  const r: Route = opts.mobile && (route.screen === 'onboarding' || route.screen === 'settings') ? { screen: 'now' } : route;
+  const r: Route = opts.mobile && route.screen === 'settings' ? { screen: 'now' } : route;
   if (!GATED_SCREENS.includes(r.screen) || opts.lastFresh === false) return r;
-  if (opts.fresh === true) return { screen: 'onboarding' };
+  if (opts.fresh === true) return { screen: 'you' };
   return opts.fresh === false ? r : null;
 }
 
 function Shell() {
   const route = useRoute();
   const mobile = useMobile();
-  const { toast, cuesSeen, markCue } = useApp();
+  const { toast, guide, markGuide, guideCue, setGuideCue, runs } = useApp();
   const fresh = useFresh();
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
   const [askOpen, setAskOpen] = useState(false);
+  const [askSession, setAskSession] = useState<AskSession>(initialAsk);
+  useEffect(() => rememberAskThread(askSession.threadId), [askSession.threadId]);
   const [lastRole, setLastRole] = useState<string | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
 
@@ -100,31 +104,68 @@ function Shell() {
     (t: NavTarget) => {
       if (t === 'ask') return setAskOpen(true);
       if (t === 'role' || t === 'people') return roleId && go({ screen: t, roleId });
-      if (t === 'onboarding') return go({ screen: 'onboarding' });
       go({ screen: t });
     },
     [roleId],
   );
 
-  // Fresh start: the first open (any route) and the gated screens land on Onboarding step 1.
+  // Fresh start: the first open (any route) and the gated screens land on You, which is setup step 1.
   const firstAnswer = useRef(true);
   useEffect(() => {
     if (fresh.now === null) return;
     const first = firstAnswer.current;
     firstAnswer.current = false;
-    if (fresh.now && route.screen !== 'onboarding' && (first || GATED_SCREENS.includes(route.screen)))
-      replaceRoute({ screen: 'onboarding' });
+    if (fresh.now && route.screen !== 'you' && (first || GATED_SCREENS.includes(route.screen))) replaceRoute({ screen: 'you' });
   }, [fresh.now, route]);
+
+  // Global run indicator (#21): in progress, or the latest run failed (until Runs is opened).
+  const activeRuns = runs.filter((r) => isActive(r.status));
+  const latest = runs[0];
+  const [seenFail, setSeenFail] = useState<string | null>(null);
+  useEffect(() => {
+    if (route.screen === 'runs' && latest) setSeenFail(latest.id);
+  }, [route.screen, latest]);
+  const runState: RunIndicatorState = activeRuns.length
+    ? 'running'
+    : latest?.status === 'error' && latest.id !== seenFail
+      ? 'error'
+      : 'idle';
+  const runText =
+    runState === 'running'
+      ? activeRuns.length === 1
+        ? activeLabel(activeRuns[0] as (typeof runs)[number])
+        : `${activeRuns.length} runs`
+      : runState === 'error' && latest
+        ? `${runLabel(latest)} failed`
+        : 'Runs';
+  const openRuns = () => go(runState === 'error' && latest ? { screen: 'runs', runId: latest.id } : { screen: 'runs' });
 
   const need = sum.data?.needs_you ?? 0;
   const railActive = route.screen === 'outreach-draft' ? 'people' : route.screen;
-  const onboarding = route.screen === 'onboarding';
   const shown = shownRoute(route, { mobile, fresh: fresh.now, lastFresh: fresh.last });
-  const ask = askOpen && <Ask roleId={roleId} onClose={() => setAskOpen(false)} />;
-  const cue = pendingCue(cueFor(shown?.screen ?? null, askOpen), cuesSeen);
-  const dismissCue = useCallback(() => {
-    if (cue) markCue(cue);
-  }, [cue, markCue]);
+  // You running the onboarding steps: setup (no profile yet), a re-interview or a recalibration (#25).
+  const flow = shown?.screen === 'you' && (!!shown.flow || fresh.last === true);
+  const ask = askOpen && (
+    <Ask roleId={roleId} screen={shown?.screen ?? null} session={askSession} onSession={setAskSession} onClose={() => setAskOpen(false)} />
+  );
+
+  // Getting started (#24): the steps not read from the pipeline are flags set on arrival, once.
+  const scored = sum.data ? scoredCount(sum.data.counts) > 0 : false;
+  const shownScreen = shown?.screen ?? null;
+  useEffect(() => {
+    if (!guide || guide.done) return;
+    if (shownScreen === 'settings' && !guide.policy) markGuide({ policy: true });
+    if ((shownScreen === 'river' || shownScreen === 'needs-you') && scored && !guide.review) markGuide({ review: true });
+  }, [shownScreen, guide, scored, markGuide]);
+  // A step's cue lives on the route the card opened; leaving it drops the cue.
+  const cueKey = useRef(routeKey);
+  useEffect(() => {
+    if (cueKey.current === routeKey) return;
+    cueKey.current = routeKey;
+    if (guideCue && guideCue.at !== routeKey) setGuideCue(null);
+  }, [routeKey, guideCue, setGuideCue]);
+  const cue = guideCue && guideCue.at === routeKey && shown?.screen === route.screen && !flow && !askOpen ? guideCue.step : null;
+  const dismissCue = useCallback(() => setGuideCue(null), [setGuideCue]);
 
   return (
     <LayoutCtx.Provider value={{ mobile, slot }}>
@@ -132,6 +173,9 @@ function Shell() {
         {mobile ? (
           <MobileFrame
             primary={<div ref={setSlot} />}
+            top={
+              runState !== 'idle' && <RunIndicator compact state={runState} count={activeRuns.length} label={runText} onOpen={openRuns} />
+            }
             tabbar={
               <TabBar
                 active={(t) =>
@@ -149,13 +193,28 @@ function Shell() {
           </MobileFrame>
         ) : (
           <div style={{ display: 'flex', minHeight: '100vh' }}>
-            {(!onboarding || fresh.last === true) && <NavRail active={railActive} needsBadge={need > 0} onNavigate={navigate} />}
+            {(!flow || fresh.last === true) && (
+              <NavRail
+                active={railActive}
+                needsBadge={need > 0}
+                onNavigate={navigate}
+                runs={
+                  <RunIndicator
+                    state={runState}
+                    count={activeRuns.length}
+                    label={runText}
+                    active={route.screen === 'runs'}
+                    onOpen={openRuns}
+                  />
+                }
+              />
+            )}
             <main style={{ flex: 1, minWidth: 0, padding: '32px 48px 140px', maxWidth: 1440 }}>{shown && <ScreenFor route={shown} />}</main>
           </div>
         )}
-        <Toast text={toast} />
-        {cue && <Cue key={cue} id={cue} label={CUES[cue]} target={CUE_TARGET[cue]} onDismiss={dismissCue} />}
-        {!askOpen && !mobile && !onboarding && <AskPill onOpen={() => setAskOpen(true)} />}
+        <Toast text={toast?.text ?? null} tone={toast?.tone} action={toast?.action} />
+        {cue && <Cue key={cue} id={cue} label={STEP_CUE[cue]} target={STEP_TARGET[cue]} onDismiss={dismissCue} />}
+        {!askOpen && !mobile && !flow && <AskPill onOpen={() => setAskOpen(true)} />}
         {ask}
       </div>
     </LayoutCtx.Provider>
@@ -177,10 +236,10 @@ function ScreenFor({ route }: { route: Route }) {
     case 'outreach-draft':
       return <OutreachScreen key={route.outreachId} outreachId={route.outreachId} />;
     case 'you':
-      return <You component={route.component} />;
-    case 'onboarding':
-      return <Onboarding key={route.calibrate ? 'cal' : 'ob'} calibrate={route.calibrate} />;
+      return <You key={route.flow ?? 'you'} component={route.component} flow={route.flow} />;
     case 'settings':
       return <Settings />;
+    case 'runs':
+      return <Runs key={route.runId ?? 'list'} runId={route.runId} />;
   }
 }

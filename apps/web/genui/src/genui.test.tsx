@@ -1,5 +1,6 @@
 import type { ParseResult } from '@openuidev/react-lang';
 import { FORBIDDEN_BUTTON_LABELS, GENUI_PROPS, PRIMARY_ACTIONS } from '@perfect-placement/contracts';
+import { ops } from '@perfect-placement/engine';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -56,6 +57,13 @@ describe('library', () => {
       'ProfileDiff(diffId: string)',
     ])
       expect(prompt).toContain(sig);
+  });
+
+  it('the Ask agent prompt (engine, #39) carries these exact card signatures', () => {
+    const prompt = askSystemPrompt();
+    const sigs = prompt.split('\n').filter((l) => /^[A-Z][A-Za-z]+\(/.test(l) && l.includes(' — '));
+    expect(sigs).toEqual([...ops.ASK_CARD_SIGNATURES]);
+    for (const sig of sigs) expect(ops.askAgentPrompt()).toContain(sig);
   });
 
   it('actions are limited to PRIMARY_ACTIONS ops and never submit or send', () => {
@@ -204,6 +212,8 @@ describe('compose (local Ask)', () => {
     const people = await composeReply('people', { client: live.client, now: now(), roleId: R.linearDraft });
     expect(people).toContain(`OpButton("Draft for Maya", "runs.start", ["${R.linearDraft}", "ct_0001"], "connect")`);
     // Reads only: composing never writes.
-    expect(live.calls.every((c) => ['roles.get', 'roles.list', 'profile.get', 'contacts.get', 'config.get'].includes(c.name))).toBe(true);
+    expect(
+      live.calls.every((c) => ['roles.get', 'roles.list', 'profile.get', 'contacts.get', 'config.get', 'runs.list'].includes(c.name)),
+    ).toBe(true);
   });
 });

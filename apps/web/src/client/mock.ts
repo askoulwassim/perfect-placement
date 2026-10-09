@@ -2,22 +2,28 @@ import {
   ARCHIVE_REASONS,
   CRITERIA,
   type Criterion,
+  nextFire,
   OPS,
   type OpName,
   type OpOutcome,
   OUTREACH_TONES,
   ROLE_STATUSES,
   type Role,
+  SCHEDULE_KEYS,
+  SCHEDULE_SKILL,
   type Score,
 } from '@perfect-placement/contracts';
 import * as fx from '@perfect-placement/fixtures';
+import { composeReply } from '../../genui/src/compose';
+import { scriptedStream } from '../../genui/src/stream';
 import type { In, OpClient, Out } from './types';
 
 /*
  * Read-only fixtures preview (`vite --mode mock`, and unit tests of screens that only read).
  * It answers registry READ ops from the synthetic fixtures and refuses every write with
  * `unimplemented`: the mechanics (moves, decisions, runs, diffs) live in the engine only.
- * Run against `pp up` for anything interactive.
+ * Run against `pp up` for anything interactive. Ask has no agent here: it answers a few intents from
+ * fixture reads (genui/src/compose.ts), streamed at a model-like pace.
  */
 
 type Outcome<N extends OpName> = OpOutcome<Out<N>>;
@@ -40,7 +46,14 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
   const now = opts.now ?? (() => new Date(fx.FIXTURE_NOW));
   const files = new Map<string, string>(fx.vaultFiles());
   const read = (p: string | null | undefined) => (p && files.has(p) ? stripFrontmatter(files.get(p) as string) : null);
-  return {
+  const client: OpClient = {
+    async *ask(req, signal) {
+      yield { type: 'thread', thread_id: req.thread_id ?? 'mock', runner: 'mock' };
+      const text = await composeReply(req.message, { client, now: now(), roleId: req.context?.role_id ?? null });
+      for await (const delta of scriptedStream(text, { tokensPerSecond: 240, chunkTokens: 3, ...(signal ? { signal } : {}) }))
+        yield { type: 'text', delta };
+      yield { type: 'done' };
+    },
     async run<N extends OpName>(name: N, input: In<N>): Promise<Outcome<N>> {
       const def = OPS[name];
       if (!def) return err('not_found', name) as Outcome<N>;
@@ -54,6 +67,7 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
       }
     },
   };
+  return client;
 }
 
 const latestVersion = () => fx.profileVersions[fx.profileVersions.length - 1] as (typeof fx.profileVersions)[number];
@@ -163,8 +177,11 @@ function readOp(
           .sort((a, b) => b.ts.localeCompare(a.ts)),
       });
     }
-    case 'runs.list':
-      return ok({ items: [...fx.runs].sort((a, b) => b.started_at.localeCompare(a.started_at)), next_cursor: null });
+    case 'runs.list': {
+      const all = [...fx.runs].filter((r) => !i.op || r.op === i.op).sort((a, b) => b.started_at.localeCompare(a.started_at));
+      const limit = (i.limit as number | undefined) ?? 50;
+      return ok({ items: all.slice(0, limit), next_cursor: all.length > limit ? String(limit) : null });
+    }
     case 'runs.get': {
       const run = must(
         fx.runs.find((r) => r.id === i.run_id),
@@ -188,7 +205,18 @@ function readOp(
       const text = { hook: section(md, 'Hook'), proof: section(md, 'Proof'), ask: section(md, 'Ask') };
       const signoff = section(md, 'Sign-off') || 'Thanks,';
       const body = `Hi ${contact.name.split(/\s+/)[0]},\n\n${[text.hook, text.proof, text.ask].join('\n\n')}\n\n${signoff}\n`;
-      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text) });
+      // #37: To only when the address is known or confident (the engine also checks Needs you).
+      const sure = !!contact.email && (contact.email_source === 'manual' || (contact.email_confidence ?? 1) >= 0.9);
+      const to = {
+        contact_id: contact.id,
+        name: contact.name,
+        email: sure ? contact.email : null,
+        email_source: contact.email_source,
+        email_confidence: contact.email_confidence,
+        guess: contact.email,
+        reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
+      };
+      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to });
     }
     case 'contacts.get': {
       const contact = must(
@@ -210,6 +238,25 @@ function readOp(
       });
     case 'config.get':
       return ok(fx.FIXTURE_CONFIG);
+    case 'schedules.status':
+      return ok({
+        items: SCHEDULE_KEYS.map((key) => {
+          const spec = fx.FIXTURE_CONFIG.schedules[key];
+          const next = spec === 'off' ? null : nextFire(spec, at);
+          const last = [...fx.runs]
+            .filter((r) => (r.summary_json as { schedule?: string } | null)?.schedule === key)
+            .sort((a, b) => b.started_at.localeCompare(a.started_at))[0];
+          return {
+            key,
+            skill: SCHEDULE_SKILL[key],
+            spec,
+            on: spec !== 'off',
+            next_run: next ? next.toISOString() : null,
+            last_run: last ?? null,
+            job: 'unknown' as const,
+          };
+        }),
+      });
 
     default:
       return err('unimplemented', `${name}: not in the mock`);

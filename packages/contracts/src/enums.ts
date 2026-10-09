@@ -212,6 +212,15 @@ export const CONTACT_SOURCES = ['linkedin', 'gmail', 'jd', 'company_site', 'manu
 export const ContactSource = z.enum(CONTACT_SOURCES);
 export type ContactSource = z.infer<typeof ContactSource>;
 
+/**
+ * Added (#37): where a contact's email came from. Known: `gmail` (a thread or signature), `linkedin`
+ * (1st-degree contact info), `public` (JD, team page, talk, GitHub, personal site), `manual` (the user).
+ * Estimated: `pattern` (the company's address format), `provider` (a finder service; pinned, no adapter yet).
+ */
+export const EMAIL_SOURCES = ['gmail', 'linkedin', 'public', 'pattern', 'provider', 'manual'] as const;
+export const EmailSource = z.enum(EMAIL_SOURCES);
+export type EmailSource = z.infer<typeof EmailSource>;
+
 export const OUTREACH_STATUSES = ['drafted', 'in_gmail', 'replied', 'ignored'] as const;
 export const OutreachStatus = z.enum(OUTREACH_STATUSES);
 export type OutreachStatus = z.infer<typeof OutreachStatus>;
@@ -270,12 +279,19 @@ export const DECISION_KINDS = [
   'people.classify',
   'outreach.to_gmail',
   'apply.submit',
+  /** Added (#54): an unsupported claim in a tailored document or a fill answer: keep, remove or edit. */
+  'apply.fact_check',
+  /** Added (#37): which address to use for a contact (a pattern guess below the policy threshold). */
+  'people.email',
   'other',
 ] as const;
 export const DecisionKind = z.enum(DECISION_KINDS);
 export type DecisionKind = z.infer<typeof DecisionKind>;
 
-export const RUN_STATUSES = ['running', 'ok', 'partial', 'error'] as const;
+/** `queued`: waiting for its turn (run queue, #30); nothing launches it yet. `running`: launched. The rest are final. */
+export const RUN_STATUSES = ['queued', 'running', 'ok', 'partial', 'error'] as const;
+/** Statuses a run can still leave (shown as in progress). */
+export const RUN_ACTIVE_STATUSES = ['queued', 'running'] as const satisfies readonly (typeof RUN_STATUSES)[number][];
 export const RunStatus = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatus>;
 

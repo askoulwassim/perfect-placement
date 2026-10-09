@@ -3,13 +3,13 @@ import { FIXTURE_NOW } from '@perfect-placement/fixtures';
 import { act, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App, shownRoute } from './App';
-import { createMockClient } from './client/mock';
-import { CUE_IDS, CUES, cueFor, pendingCue } from './lib/cues';
+import { GUIDE_STEPS, guideSteps, STEP_CUE } from './lib/guide';
 import { type Live, openLive } from './test/live';
 
 /*
- * First launch: a fresh vault lands on Onboarding; first-visit cues (wave1-decisions #27) show
- * once per screen, persist in the vault (config.ui.cues_seen) and come back with Settings > Show cues.
+ * First launch: a fresh vault lands on You, which is setup until a profile exists (#25). Then a Getting started
+ * card on Now walks the path (#24): steps done from real state, one sentence on arrival at a step, gone for good
+ * once finished (config.ui.guide.done). No setting shows, replays or skips it (#43).
  */
 
 const now = () => new Date(FIXTURE_NOW);
@@ -33,27 +33,33 @@ const nav = async (hash: string) => {
 const screenLabel = (c: HTMLElement) => c.querySelector('[data-screen-label]')?.getAttribute('data-screen-label');
 const rail = (c: HTMLElement, label: string) => c.querySelector(`nav[aria-label="Main"] button[aria-label="${label}"]`) as HTMLElement;
 const cue = (id: string) => document.querySelector(`[data-cue="${id}"]`);
-const savedCues = async () => {
+const savedGuide = async () => {
   const o = await live?.client.run('config.get', {});
-  return o?.status === 'ok' ? (o.output.ui?.cues_seen ?? []) : null;
+  return o?.status === 'ok' ? (o.output.ui?.guide ?? null) : null;
 };
-/** Every cue already seen, so a test can look at one screen's behaviour alone. */
-const allSeen = { config: { ui: { cues_seen: CUE_IDS } } };
+/** A vault mid-path: the fixture state, with the guide flags not set yet. */
+const unguided = { config: { ui: { guide: { policy: false, review: false, done: false } } } };
+const card = () => document.querySelector('section[aria-label="Getting started"]');
+const step = (id: string) => document.querySelector(`[data-step="${id}"]`) as HTMLElement | null;
+const doneSteps = () => Array.from(document.querySelectorAll('[data-step][data-done="true"]')).map((e) => e.getAttribute('data-step'));
 
 describe('fresh start lands on setup', () => {
-  it('a vault with no profile opens Onboarding step 1 from /, with the rail still there', async () => {
-    const { container } = boot('', { seed: false, ...allSeen });
-    await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
-    await waitFor(() => expect(screenLabel(container)).toBe('Onboarding'));
+  it('a vault with no profile opens You at setup step 1 from /, with the rail still there and no Setup entry', async () => {
+    const { container } = boot('', { seed: false });
+    await waitFor(() => expect(window.location.hash).toBe('#/you'));
+    await waitFor(() => expect(screenLabel(container)).toBe('You · setup'));
     expect((container.querySelector('.btn--primary') as HTMLElement).textContent).toBe('Next');
+    expect(container.querySelector('.dropzone')).not.toBeNull();
     expect(container.querySelector('nav[aria-label="Main"]')).not.toBeNull();
+    expect(rail(container, 'Setup')).toBeNull();
+    expect(rail(container, 'You').getAttribute('aria-current')).toBe('page');
     const state = await live?.client.run('onboard.state', {});
     expect(state?.status === 'ok' && state.output.step).toBe('resume');
   });
 
   it('any route on first open goes to setup; Settings stays reachable, Now / Needs you / River redirect', async () => {
-    const { container } = boot('#/settings', { seed: false, ...allSeen });
-    await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
+    const { container } = boot('#/settings', { seed: false });
+    await waitFor(() => expect(window.location.hash).toBe('#/you'));
     fireEvent.click(rail(container, 'Settings'));
     await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
     expect(window.location.hash).toBe('#/settings');
@@ -61,136 +67,201 @@ describe('fresh start lands on setup', () => {
       await nav('#/settings');
       await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
       fireEvent.click(rail(container, label));
-      await waitFor(() => expect(window.location.hash).toBe('#/onboarding'));
-      expect(screenLabel(container)).toBe('Onboarding');
+      await waitFor(() => expect(window.location.hash).toBe('#/you'));
+      // The redirect re-renders after the hash settles: wait for it, never read it synchronously.
+      await waitFor(() => expect(screenLabel(container)).toBe('You · setup'));
     }
   });
 
-  it('with a confirmed profile, / goes to Now and setup hides the rail as before', async () => {
-    const { container } = boot('', allSeen);
+  it('with a confirmed profile, / goes to Now; You is the profile and a redo hides the rail as before', async () => {
+    const { container } = boot('');
     await waitFor(() => expect(screenLabel(container)).toBe('Now'));
     await waitFor(() => expect((container.querySelector('.btn--primary') as HTMLElement).textContent).toBe('Review 7'));
     expect(window.location.hash).toBe('');
+    expect(card()).toBeNull();
+    await nav('#/you');
+    await waitFor(() => expect(screenLabel(container)).toBe('You'));
+    expect(container.querySelector('nav[aria-label="Main"]')).not.toBeNull();
+    // Old Setup links open the same steps inside You.
     await nav('#/onboarding');
-    await waitFor(() => expect(screenLabel(container)).toBe('Onboarding'));
+    await waitFor(() => expect(screenLabel(container)).toBe('You · setup'));
     expect(container.querySelector('nav[aria-label="Main"]')).toBeNull();
   });
 
-  it('shownRoute: gated screens wait, then show Onboarding while fresh; others pass through', () => {
+  it('shownRoute: gated screens wait, then show You (setup) while fresh; others pass through', () => {
     const o = (fresh: boolean | null, lastFresh: boolean | null, mobile = false) => ({ mobile, fresh, lastFresh });
     expect(shownRoute({ screen: 'now' }, o(null, null))).toBeNull();
-    expect(shownRoute({ screen: 'river' }, o(true, true))).toEqual({ screen: 'onboarding' });
+    expect(shownRoute({ screen: 'river' }, o(true, true))).toEqual({ screen: 'you' });
     expect(shownRoute({ screen: 'needs-you' }, o(null, true))).toBeNull(); // refetching after a write
     expect(shownRoute({ screen: 'now' }, o(false, false))).toEqual({ screen: 'now' });
     expect(shownRoute({ screen: 'now' }, o(null, false))).toEqual({ screen: 'now' }); // never flickers once a profile exists
     expect(shownRoute({ screen: 'settings' }, o(true, true))).toEqual({ screen: 'settings' });
     expect(shownRoute({ screen: 'you' }, o(true, true))).toEqual({ screen: 'you' });
-    expect(shownRoute({ screen: 'settings' }, o(true, true, true))).toEqual({ screen: 'onboarding' });
-    expect(shownRoute({ screen: 'onboarding' }, o(false, false, true))).toEqual({ screen: 'now' });
+    expect(shownRoute({ screen: 'settings' }, o(true, true, true))).toEqual({ screen: 'you' });
+    expect(shownRoute({ screen: 'settings' }, o(false, false, true))).toEqual({ screen: 'now' });
+    expect(shownRoute({ screen: 'you', flow: 'calibrate' }, o(false, false))).toEqual({ screen: 'you', flow: 'calibrate' });
   });
 });
 
-describe('first-visit cues', () => {
-  it('labels are one to three words, one per main screen plus Ask', () => {
-    expect(CUE_IDS.sort()).toEqual(['ask', 'needs-you', 'now', 'outreach', 'people', 'river', 'role', 'settings', 'you']);
-    for (const l of Object.values(CUES)) expect(l.split(/\s+/).length).toBeLessThanOrEqual(3);
-    expect(cueFor('outreach-draft', false)).toBe('outreach');
-    expect(cueFor('onboarding', false)).toBeNull();
-    expect(cueFor('now', true)).toBe('ask');
-    expect(pendingCue('now', null)).toBeNull();
-    expect(pendingCue('now', ['now'])).toBeNull();
-    expect(pendingCue('now', [])).toBe('now');
+const run = (id: string, status: 'queued' | 'running' | 'ok' | 'partial' | 'error', at = '2026-10-08T05:00:00.000Z') => ({
+  id,
+  op: 'scout',
+  started_at: at,
+  finished_at: null,
+  status,
+  summary_json: { skill: 'scout' },
+  log_path: null,
+});
+
+describe('getting started', () => {
+  const base = {
+    profile: false,
+    flags: { policy: false, review: false, done: false },
+    scouts: [],
+    counts: {},
+    topRole: null,
+    needsYou: 0,
+  } satisfies Parameters<typeof guideSteps>[0];
+  const done = (i: Partial<typeof base> & Record<string, unknown>) =>
+    guideSteps({ ...base, ...i } as typeof base)
+      .filter((s) => s.done)
+      .map((s) => s.id);
+
+  it('steps complete from real state, in order, with one-sentence cues', () => {
+    expect(guideSteps(base).map((s) => s.id)).toEqual([...GUIDE_STEPS]);
+    expect(done({})).toEqual([]);
+    expect(done({ profile: true })).toEqual(['profile']);
+    expect(done({ flags: { policy: true, review: false, done: false } })).toEqual(['policy']);
+    // Desktop: Policy opens Settings. Phone (no Settings): it opens in the card (#65).
+    expect(guideSteps(base)[1]).toMatchObject({ id: 'policy', route: { screen: 'settings' } });
+    expect(guideSteps(base)[1]?.inline).toBeUndefined();
+    expect(guideSteps({ ...base, mobile: true })[1]).toMatchObject({ id: 'policy', inline: true, route: { screen: 'now' } });
+    // A scout started: step 3; it ended: step 4. A failed one leaves step 4 open, marked Failed.
+    expect(done({ scouts: [run('rn_a', 'running')] })).toEqual(['scout']);
+    expect(guideSteps({ ...base, scouts: [run('rn_a', 'running')] })[3]?.state).toBe('Scouting');
+    expect(guideSteps({ ...base, scouts: [run('rn_a', 'queued')] })[3]?.state).toBe('Queued');
+    expect(guideSteps({ ...base, scouts: [run('rn_a', 'error')] })[3]).toMatchObject({ done: false, state: 'Failed' });
+    expect(done({ scouts: [run('rn_a', 'ok')] })).toEqual(['scout', 'roles']);
+    // Review needs scored roles and River or Needs you opened.
+    expect(done({ counts: { active: 2 } })).toEqual([]);
+    expect(done({ counts: { inbox: 3 }, flags: { policy: false, review: true, done: false } })).toEqual([]);
+    expect(done({ counts: { archived: 1 }, flags: { policy: false, review: true, done: false } })).toEqual(['review']);
+    // First role: one role through Research -> Tailor (draft-ready or later).
+    expect(done({ counts: { active: 4 } })).not.toContain('role');
+    expect(done({ counts: { 'draft-ready': 1 } })).toContain('role');
+    expect(done({ counts: { applied: 1 } })).toContain('role');
+    for (const c of Object.values(STEP_CUE)) {
+      expect(c.split(/\s+/).length).toBeLessThanOrEqual(10);
+      expect(c.match(/[.!?]/g)).toHaveLength(1);
+      expect(c).not.toMatch(/\u2014/);
+    }
   });
 
-  it('spotlights the primary once, any click dismisses it, and the vault remembers', async () => {
-    const { container, unmount } = boot('#/now');
-    await waitFor(() => expect(cue('now')?.textContent).toBe('Review here'));
-    expect(cue('now')?.querySelector('button')).toBeNull();
+  it('Settings has no cue or guide setting', async () => {
+    const { container } = boot('#/settings', unguided);
+    await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
+    await waitFor(() => expect(container.querySelector('button[data-op="config.update"]')).not.toBeNull());
+    expect(container.textContent).not.toMatch(/cue|guide|getting started/i);
+    expect(container.querySelector('[aria-label*="cue" i], [aria-label*="guide" i]')).toBeNull();
+  });
+
+  it('the card walks the path from real state, cues show on step arrival only, and it disappears for good', async () => {
+    const { container, unmount } = boot('#/now', unguided);
+    await waitFor(() => expect(card()).not.toBeNull());
+    // Fixture state: a profile, a finished scout, scored roles, a role tailored; policy and review still open.
+    await waitFor(() => expect(doneSteps()).toEqual(['profile', 'scout', 'roles', 'role']));
+    expect(step('policy')?.getAttribute('aria-current')).toBe('step');
+    expect(step('policy')?.getAttribute('data-op')).toBe('nav');
+    expect(container.querySelector('.guide .btn--primary')).toBeNull();
+    expect(cue('policy')).toBeNull();
+
+    // Opening a step's screen from the card: its one sentence shows; any click dismisses it.
+    fireEvent.click(step('policy') as HTMLElement);
+    await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
+    await waitFor(() => expect(cue('policy')?.textContent).toBe(STEP_CUE.policy));
     fireEvent.click(document.body);
-    await waitFor(() => expect(cue('now')).toBeNull());
-    await waitFor(async () => expect(await savedCues()).toEqual(['now']));
-    expect(live?.calls.filter((c) => c.name === 'config.update').map((c) => c.body)).toEqual([{ patch: { ui: { cues_seen: ['now'] } } }]);
-    // Other screens still have theirs; Now never shows again, even after a reload.
-    await nav('#/river');
-    await waitFor(() => expect(cue('river')?.textContent).toBe('Scout roles'));
+    await waitFor(() => expect(cue('policy')).toBeNull());
+    // Visiting Settings is the real state: saved in the vault.
+    await waitFor(async () => expect((await savedGuide())?.policy).toBe(true));
+
+    await nav('#/now');
+    await waitFor(() => expect(doneSteps()).toContain('policy'));
+    expect(step('review')?.getAttribute('aria-current')).toBe('step');
+    // A plain visit (not from the card) shows no cue.
+    await nav('#/settings');
+    await waitFor(() => expect(screenLabel(container)).toBe('Settings'));
+    await waitFor(() => expect(container.querySelector('.btn--primary')).not.toBeNull());
+    expect(document.querySelector('[data-cue]')).toBeNull();
+
+    await nav('#/now');
+    await waitFor(() => expect(step('review')).not.toBeNull());
+    fireEvent.click(step('review') as HTMLElement);
+    await waitFor(() => expect(window.location.hash).toBe('#/needs-you'));
+    await waitFor(() => expect(cue('review')?.textContent).toBe(STEP_CUE.review));
+    await waitFor(async () => expect(await savedGuide()).toEqual({ policy: true, review: true, done: false }));
+
+    // Every step done: the card goes and the vault remembers it is finished.
+    await nav('#/now');
+    await waitFor(async () => expect((await savedGuide())?.done).toBe(true));
+    await waitFor(() => expect(card()).toBeNull());
     unmount();
     render(<App client={(live as Live).client} now={now} pollMs={20} />);
     await nav('#/now');
-    await waitFor(() => expect(container.ownerDocument.querySelector('.btn--primary')?.textContent).toBe('Review 7'));
-    expect(cue('now')).toBeNull();
+    await waitFor(() => expect(screenLabel(document.body)).toBe('Now'));
+    await waitFor(() => expect((document.querySelector('.btn--primary') as HTMLElement | null)?.textContent).toMatch(/^Review|Open River/));
+    expect(card()).toBeNull();
   });
 
-  it('clicks pass through: the primary still runs its action', async () => {
-    const { container } = boot('#/now');
-    await waitFor(() => expect(cue('now')).not.toBeNull());
-    await waitFor(() => expect((container.querySelector('.btn--primary') as HTMLElement).textContent).toBe('Review 7'));
-    fireEvent.click(container.querySelector('.btn--primary') as HTMLElement);
-    await waitFor(() => expect(window.location.hash).toBe('#/needs-you'));
-    expect(cue('now')).toBeNull();
-  });
-
-  it('Esc dismisses (and only the cue: Ask stays open); keyboard focus is untouched', async () => {
-    const seen = CUE_IDS.filter((x) => x !== 'ask');
-    const { container } = boot('#/river', { config: { ui: { cues_seen: seen } } });
-    await waitFor(() => expect(container.querySelector('.btn--primary')).not.toBeNull());
-    fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    await waitFor(() => expect(cue('ask')?.textContent).toBe('Ask anything'));
-    const input = document.querySelector('.ask input') as HTMLInputElement;
-    input.focus();
-    fireEvent.keyDown(input, { key: 'Escape' });
-    await waitFor(() => expect(cue('ask')).toBeNull());
-    expect(document.querySelector('[role="dialog"][aria-label="Ask"]')).not.toBeNull();
-    expect(document.activeElement).toBe(input);
-    await waitFor(async () => expect(await savedCues()).toContain('ask'));
-  });
-
-  it('Settings "Show cues" brings every cue back, and off retires them', async () => {
-    const { container } = boot('#/settings', allSeen);
-    const toggle = await waitFor(() => {
-      const t = container.querySelector('button[aria-label="Show cues"]') as HTMLElement;
-      expect(t).not.toBeNull();
-      return t;
-    });
-    expect(toggle.getAttribute('data-op')).toBe('config.update');
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
-    expect(cue('settings')).toBeNull();
-    fireEvent.click(toggle);
-    await waitFor(async () => expect(await savedCues()).toEqual([]));
-    await waitFor(() => expect(cue('settings')?.textContent).toBe('Tune policy'));
-    expect(toggle.getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(toggle);
-    await waitFor(async () => expect([...((await savedCues()) ?? [])].sort()).toEqual([...CUE_IDS].sort()));
-    await waitFor(() => expect(cue('settings')).toBeNull());
-    expect(toggle.getAttribute('aria-checked')).toBe('false');
-  });
-
-  it('mock mode keeps seen cues in memory (writes are refused)', async () => {
-    window.location.hash = '#/river';
-    const client = createMockClient();
-    const { container } = render(<App client={client} now={now} />);
-    await waitFor(() => expect(cue('river')).not.toBeNull());
-    fireEvent.keyDown(window, { key: 'Tab' });
-    await waitFor(() => expect(cue('river')).toBeNull());
-    await nav('#/you');
-    await waitFor(() => expect(cue('you')?.textContent).toBe('Your profile'));
-    fireEvent.click(document.body);
-    await nav('#/river');
-    await waitFor(() => expect(screenLabel(container)).toBe('River'));
-    await waitFor(() => expect(container.querySelector('.btn--primary')).not.toBeNull());
-    expect(cue('river')).toBeNull();
-    const cfg = await client.run('config.get', {});
-    expect(cfg.status === 'ok' && cfg.output.ui?.cues_seen).toEqual([]);
-  });
-
-  it('respects reduced motion: no fade', async () => {
+  it('leaving the step screen drops its cue; reduced motion shows it without a fade', async () => {
     const real = window.matchMedia;
     window.matchMedia = ((q: string) => ({ ...real(q), matches: q.includes('reduced-motion') })) as typeof window.matchMedia;
     try {
-      boot('#/now');
-      await waitFor(() => expect(cue('now')).not.toBeNull());
+      const { container } = boot('#/now', unguided);
+      await waitFor(() => expect(step('policy')).not.toBeNull());
+      fireEvent.click(step('policy') as HTMLElement);
+      await waitFor(() => expect(cue('policy')).not.toBeNull());
       const halo = document.querySelector('.cue__halo') as HTMLElement;
       expect(halo.style.animation).toBe('none');
       expect(halo.style.boxShadow).toContain(tint.scrim);
+      await nav('#/river');
+      await waitFor(() => expect(screenLabel(container)).toBe('River'));
+      expect(document.querySelector('[data-cue]')).toBeNull();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  it('mobile: Policy opens a read-only summary in the card (grid + hard exclusions) and that completes the step (#65)', async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ ...real(q), matches: q.includes('max-width') })) as typeof window.matchMedia;
+    try {
+      const { container } = boot('#/now', unguided);
+      await waitFor(() => expect(screenLabel(container)).toBe('Now · mobile'));
+      await waitFor(() => expect(step('policy')?.getAttribute('aria-current')).toBe('step'));
+      const policy = step('policy') as HTMLElement;
+      expect(policy.getAttribute('data-op')).toBe('local');
+      expect(policy.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(policy);
+      const summary = await waitFor(() => {
+        const el = document.querySelector('.guide .policy--summary');
+        if (!el) throw new Error('summary');
+        return el;
+      });
+      expect(window.location.hash).toBe('#/now');
+      expect(summary.querySelectorAll('[data-outcome]')).toHaveLength(9);
+      expect(Array.from(summary.querySelectorAll('.policy__lock')).map((e) => e.textContent)).toEqual([
+        'Submit application',
+        'Send email',
+        'Delete anything',
+        'Dealbreakers',
+        'Comp floor',
+      ]);
+      // Read-only: nothing to drag, type or click.
+      expect(summary.querySelectorAll('button, input, [role="slider"]')).toHaveLength(0);
+      expect(cue('policy')).toBeNull();
+      await waitFor(async () => expect((await savedGuide())?.policy).toBe(true));
+      await waitFor(() => expect(doneSteps()).toContain('policy'));
+      expect(step('review')?.getAttribute('aria-current')).toBe('step');
     } finally {
       window.matchMedia = real;
     }

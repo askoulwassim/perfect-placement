@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,9 +77,31 @@ const REPO_ROOT = resolveRepoRoot();
 /** `skills/` at the repo root. */
 export const DEFAULT_SKILLS_DIR = join(REPO_ROOT, 'skills');
 
-/** The pp MCP server over stdio (packages/mcp, built), pointed at this vault. */
-export function defaultMcpServer(home: string): McpServerSpec {
-  return { command: process.execPath, args: [join(REPO_ROOT, 'packages/mcp/dist/bin.js')], env: { PP_HOME: home } };
+/** A node inside a versioned Homebrew keg (`.../Cellar/<formula>/<version>/bin/node`): gone after `brew upgrade`. */
+export const CELLAR_NODE = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/;
+
+/**
+ * The node to write into any config (runner `--mcp-config`, agent MCP registrations): PP_NODE (set by
+ * the install.sh launcher), else `execPath` with a Homebrew Cellar path mapped to its stable `opt/`
+ * link, so a `brew upgrade` does not break it (#33).
+ */
+export function stableNodePath(
+  env: Record<string, string | undefined> = process.env,
+  execPath: string = process.execPath,
+  exists: (p: string) => boolean = existsSync,
+): string {
+  if (env.PP_NODE && exists(env.PP_NODE)) return env.PP_NODE;
+  const m = CELLAR_NODE.exec(execPath);
+  if (m) {
+    const opt = `${m[1]}/opt/${m[2]}/bin/node`;
+    if (exists(opt)) return opt;
+  }
+  return execPath;
+}
+
+/** The pp MCP server over stdio (packages/mcp, built), pointed at this vault, on a stable node path. */
+export function defaultMcpServer(home: string, nodePath: string = stableNodePath()): McpServerSpec {
+  return { command: nodePath, args: [join(REPO_ROOT, 'packages/mcp/dist/bin.js')], env: { PP_HOME: home } };
 }
 
 export interface PromptContext {
@@ -106,13 +128,19 @@ export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why:
   fill: { web: ['WebFetch'], why: 'reads the real portal questions (a headless run has no browser)' },
   inbox: { web: [], why: 'Gmail read-only plus ops' },
   learn: { web: [], why: 'ops only' },
-  onboard: { web: [], why: 'ops only' },
-  connect: { web: [], why: 'LinkedIn via Claude in Chrome (--chrome); Gmail draft step via the Gmail connector' },
+  onboard: {
+    web: [],
+    why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract, follow-ups with onboard.propose_questions',
+  },
+  connect: {
+    web: [],
+    why: 'LinkedIn via Claude in Chrome (--chrome); Gmail search + read for contact emails (#37); Gmail draft step via the Gmail connector',
+  },
 };
 
-/** Claude Code tool names a skill's headless run pre-approves. */
+/** Claude Code tool names a skill's headless run pre-approves. `connect` also reads Gmail (#37). */
 export function skillAllowedTools(skill: Skill): string[] {
-  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web];
+  return [`mcp__${MCP_SERVER_NAME}`, ...SKILL_TOOLS[skill].web, ...(skill === 'connect' ? GMAIL_READ_TOOLS : [])];
 }
 
 /**
@@ -122,6 +150,7 @@ export function skillAllowedTools(skill: Skill): string[] {
  */
 export const SKILL_ASSETS: Readonly<Partial<Record<Skill, readonly string[]>>> = {
   scout: ['plan.md'],
+  onboard: ['extract.md'],
 };
 
 function readAsset(file: string): string {
@@ -166,6 +195,17 @@ export const GMAIL_DENIED_TOOLS = [
   'mcp__claude_ai_Gmail__reply',
   'mcp__claude_ai_Gmail__forward',
   'mcp__claude_ai_Gmail__delete_draft',
+  'mcp__claude_ai_Gmail__trash_message',
+  'mcp__claude_ai_Gmail__trash_thread',
+] as const;
+/**
+ * Gmail read tools a full `connect` run may use to find contacts' addresses in threads and signatures
+ * (#37): search and read only. Everything else in Gmail stays unlisted (denied headless) or denied.
+ */
+export const GMAIL_READ_TOOLS = [
+  'mcp__claude_ai_Gmail__search_threads',
+  'mcp__claude_ai_Gmail__get_thread',
+  'mcp__claude_ai_Gmail__get_message',
 ] as const;
 
 /** The `## Gmail draft step` section of a SKILL.md (up to the next `## ` heading), or null. */
@@ -187,10 +227,10 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
-    '2. Recipient: the contact\'s email (contacts_get { contact_id }). For a bridge draft (tier "bridge") it is the mutual: the link for this role names via_contact_id; use that contact\'s email. No email on file = leave To empty.',
+    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.email` is null, leave To empty (`to.reason` says why: no address found, or an unconfirmed guess waiting in Needs you); never use `to.guess`.',
     "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
-    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id } } (status "error" with a note if any step failed).`,
+    `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', section] : []),
   ].join('\n');
 }
@@ -258,8 +298,9 @@ export function buildRunnerSpec(opts: {
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
+  // #50: the pp MCP server gets PP_RUN_ID too, so every op the run performs carries ctx.runId.
   const env = { ...mcp.env, PP_RUN_ID: runId };
-  const server = { command: mcp.command, args: mcp.args, env: mcp.env };
+  const server = { command: mcp.command, args: mcp.args, env };
   switch (runner.command) {
     case 'claude': {
       const mcpConfig = JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } });
@@ -274,7 +315,8 @@ export function buildRunnerSpec(opts: {
           ...(opts.gmailDraft
             ? ['--allowedTools', `mcp__${MCP_SERVER_NAME},${GMAIL_DRAFT_TOOL}`, '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
             : opts.skill === 'connect'
-              ? ['--strict-mcp-config', '--allowedTools', `mcp__${MCP_SERVER_NAME}`]
+              ? // No strict MCP config: the claude.ai Gmail connector loads for its read tools (#37).
+                ['--allowedTools', skillAllowedTools('connect').join(','), '--disallowedTools', GMAIL_DENIED_TOOLS.join(',')]
               : [
                   '--strict-mcp-config',
                   // Built-ins narrowed to the skill's web tools (no Bash, Write, Edit or Read), then pre-approved;
@@ -301,7 +343,7 @@ export function buildRunnerSpec(opts: {
     }
     case 'codex': {
       const toml = (v: unknown) => JSON.stringify(v);
-      const envPairs = Object.entries(mcp.env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
+      const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
       return {
         runId,
         command: 'codex',
@@ -345,9 +387,36 @@ export function buildRunnerSpec(opts: {
   }
 }
 
+/** Where the spawn launcher keeps runner output and pid files (OS temp dir, never the vault). */
+export const runnerDir = (base: string = tmpdir()) => join(base, 'pp-runs');
+
+/** `process.kill(pid, 0)`: true if the process exists (EPERM = exists, owned by someone else). */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /**
- * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault). `exit`
- * settles with the log when the runner ends, as long as this process is still alive.
+ * Is the runner for `runId` still alive? Reads the pid file the spawn launcher wrote; no file (never
+ * launched here, temp dir cleared by a reboot) = gone. The runner is detached, so it can outlive `pp up`.
+ */
+export function runnerAlive(runId: string, base: string = tmpdir()): boolean {
+  try {
+    const pid = Number.parseInt(readFileSync(join(runnerDir(base), `${runId}.pid`), 'utf8'), 10);
+    return Number.isInteger(pid) && pid > 0 && pidAlive(pid);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault), next to
+ * a `<runId>.pid` file (removed on exit) so a restarted `pp up` can tell a live runner from a dead one.
+ * `exit` settles with the log when the runner ends, as long as this process is still alive.
  */
 export function createSpawnLauncher(): RunnerLauncher {
   return {
@@ -358,7 +427,8 @@ export function createSpawnLauncher(): RunnerLauncher {
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, f.content);
       }
-      const logDir = join(tmpdir(), 'pp-runs');
+      const logDir = runnerDir();
+      const pidFile = join(logDir, `${spec.runId}.pid`);
       mkdirSync(logDir, { recursive: true });
       const logFile = join(logDir, `${spec.runId}.log`);
       const log = openSync(logFile, 'a');
@@ -371,6 +441,7 @@ export function createSpawnLauncher(): RunnerLauncher {
         });
         const exit = new Promise<RunnerExit>((done) => {
           child.once('exit', (code) => {
+            rmSync(pidFile, { force: true });
             let output = '';
             try {
               output = readFileSync(logFile, 'utf8');
@@ -386,6 +457,7 @@ export function createSpawnLauncher(): RunnerLauncher {
         });
         child.once('spawn', () => {
           closeSync(log);
+          if (child.pid !== undefined) writeFileSync(pidFile, String(child.pid));
           child.unref();
           ok(child.pid === undefined ? { exit } : { pid: child.pid, exit });
         });

@@ -5,6 +5,7 @@ import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
 import type { Io } from './io.js';
+import { fakeDeps } from './system/fake-deps.test-helpers.js';
 
 let home: string;
 let out: string[];
@@ -23,6 +24,7 @@ beforeEach(() => {
     err: (l) => err.push(l),
     stdin: () => '[]',
     // No network, no Kev, no runner spawn in tests.
+    sys: fakeDeps(home),
     services: { fetch: noNetwork, launcher: fakeLauncher(), backends: { kev: fakeBackend('kev', 'down') }, freshnessDelayMs: 0, env: {} },
   };
 });

@@ -6,7 +6,9 @@ import {
   onboardAnswer,
   onboardCalibrate,
   onboardConfirm,
+  onboardExtract,
   onboardIngestResume,
+  onboardProposeQuestions,
   onboardSamples,
   onboardStart,
   onboardState,
@@ -18,6 +20,7 @@ import {
   profileHistory,
   profileProposeDiff,
   profileRejectDiff,
+  profileSetDefaults,
   undoDiff,
 } from '../../profile/profile-ops.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
@@ -51,7 +54,7 @@ export async function rescoreRoles(
     const criteria = Object.fromEntries(CRITERIA.map((c) => [c, s[c]])) as Record<Criterion, number>;
     const o = await h.runOp(
       'roles.score',
-      { role_id: id, criteria, facts, profile_version_id: versionId },
+      { role_id: id, criteria, facts, profile_version_id: versionId, rescore: true },
       { ...ctx, decisionId: undefined },
     );
     if (o.status === 'ok') done.push(id);
@@ -66,7 +69,12 @@ export function profileDeps(h: HandlerContext): ProfileDeps {
     ask: (req) => h.resolver.ask(req, { actor: h.ctx.actor }),
     ...(h.services.profileLlm ? { llm: h.services.profileLlm } : {}),
     config: h.config,
-    vault: { read: (rel) => h.vault.read(rel), write: (rel, content) => h.vault.write(rel, content) },
+    vault: {
+      read: (rel) => h.vault.read(rel),
+      write: (rel, content) => h.vault.write(rel, content),
+      writeBytes: (rel, content) => h.vault.writeBytes(rel, content),
+      readBytes: (rel) => h.vault.readBytes(rel),
+    },
     onboardStore: createDbOnboardStore(h.repos),
     rescore: (ids, versionId) => rescoreRoles(h, ids, versionId),
     runOp: h.runOp,
@@ -92,6 +100,9 @@ export const LANE_E_HANDLERS = {
     run: (i, h) => routed(async () => (await profileApplyDiff(profileDeps(h), i, h.ctx)).output),
   }),
   'profile.reject_diff': defineHandler('profile.reject_diff', { run: (i, h) => profileRejectDiff(profileDeps(h), i, h.ctx).output }),
+  'profile.set_defaults': defineHandler('profile.set_defaults', {
+    run: (i, h) => routed(() => profileSetDefaults(profileDeps(h), i, h.ctx)),
+  }),
   'profile.undo_diff': defineHandler('profile.undo_diff', { run: (i, h) => undoDiff(profileDeps(h), i.diff_id, h.ctx) }),
   'profile.learn': defineHandler('profile.learn', {
     async run(i, h) {
@@ -110,4 +121,8 @@ export const LANE_E_HANDLERS = {
   'onboard.answer': defineHandler('onboard.answer', { run: (i, h) => onboardAnswer(profileDeps(h), i, h.ctx) }),
   'onboard.calibrate': defineHandler('onboard.calibrate', { run: (i, h) => onboardCalibrate(profileDeps(h), i, h.ctx) }),
   'onboard.confirm': defineHandler('onboard.confirm', { run: (i, h) => onboardConfirm(profileDeps(h), i, h.ctx) }),
+  'onboard.extract': defineHandler('onboard.extract', { run: (i, h) => onboardExtract(profileDeps(h), i, h.ctx) }),
+  'onboard.propose_questions': defineHandler('onboard.propose_questions', {
+    run: (i, h) => onboardProposeQuestions(profileDeps(h), i, h.ctx),
+  }),
 } as const;

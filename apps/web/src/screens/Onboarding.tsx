@@ -2,6 +2,7 @@ import {
   CRITERIA,
   CRITERION_LABELS,
   type Criterion,
+  cleanDictation,
   type OpOutput,
   PROFILE_COMPONENT_KEYS,
   PROFILE_COMPONENT_KIND,
@@ -18,15 +19,30 @@ import { PPMark } from '../components/shell';
 import { C, display, eyebrow, mono, tab, X } from '../components/theme';
 import { humanize, k } from '../lib/format';
 import { COMPONENT_NAME, chipsOf } from '../lib/profile';
-import { go } from '../router';
+import { activeLabel, isActive, runOutcome } from '../lib/runs';
+import { go, type YouFlow } from '../router';
 
 type OnboardState = OpOutput<'onboard.answer'>;
 const NODE_COUNT = PROFILE_COMPONENT_KEYS.length;
 
-export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolean } = {}) {
+/** A file as base64 (the upload is kept in the vault and its text extracted by the engine, #38). */
+async function toBase64(f: File): Promise<string> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/**
+ * The onboarding steps, run inside You (#25): `setup` (resume, interview, calibrate, confirm), `interview`
+ * (a re-interview started by `onboard.start { components }`) or `calibrate` (a recalibration started by
+ * `onboard.start { calibrate }`, its bars starting from the current weights).
+ */
+export function Onboarding({ flow = 'setup' }: { flow?: YouFlow } = {}) {
+  const startAtCalibrate = flow === 'calibrate';
   const act = useAct();
-  const { showToast } = useApp();
-  const [step, setStep] = useState(startAtCalibrate ? 2 : 0);
+  const { showToast, client, watchRun, runs, activeRun } = useApp();
+  const [step, setStep] = useState(startAtCalibrate ? 2 : flow === 'interview' ? 1 : 0);
   const [state, setState] = useState<OnboardState | null>(null);
   const [file, setFile] = useState<string | null>(null);
   const [parsed, setParsed] = useState(0);
@@ -36,6 +52,10 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const [ci, setCi] = useState(0);
   /** List text questions (voice.sample): the item being typed before Add. */
   const [pending, setPending] = useState('');
+  /** Dictated text answers shown cleaned for confirmation: the raw text by question id (#38). */
+  const [rawOf, setRawOf] = useState<Record<string, string>>({});
+  /** The headless onboard run parsing the resume (#38). */
+  const [parseRunId, setParseRunId] = useState<string | null>(null);
   /** A scoped re-interview that reached confirm: the component to show on You after Start. */
   const [reinterview, setReinterview] = useState<ProfileComponentKey | null>(null);
   const samples = useOp('onboard.samples', step >= 2 ? {} : null);
@@ -67,13 +87,30 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const ingest = async (f: File | null) => {
     if (state) return;
     setFile(f?.name ?? 'resume');
-    const text = f ? await f.text().catch(() => '') : '';
-    const o = await act('onboard.ingest_resume', text ? { text } : {});
-    if (o.status === 'ok') setState(o.output);
+    const content_base64 = f ? await toBase64(f).catch(() => '') : '';
+    const o = await act('onboard.ingest_resume', f && content_base64 ? { file: { name: f.name, content_base64 } } : {});
+    if (o.status !== 'ok') {
+      setFile(null);
+      return;
+    }
+    setState(o.output);
+    const runId = o.output.resume?.parse_run_id;
+    if (!runId) return;
+    setParseRunId(runId);
+    // Follow the parse run; when it ends, the extracted facts replace the preview.
+    const g = await client.run('runs.get', { run_id: runId });
+    if (g.status === 'ok')
+      watchRun(g.output.run, async () => {
+        const s = await client.run('onboard.state', {});
+        if (s.status === 'ok' && s.output.step !== 'done') setState(s.output);
+      });
   };
+  const parseRun = (parseRunId ? runs.find((r) => r.id === parseRunId) : undefined) ?? activeRun({ skill: 'onboard' });
+  const parseLabel = parseRun ? (isActive(parseRun.status) ? activeLabel(parseRun) : runOutcome(parseRun)) : null;
 
   const q = state?.next_question ?? null;
-  const val = q ? answers[q.id] : undefined;
+  // A resume suggestion pre-fills an open question (#22); the user still confirms it with Next.
+  const val = q ? (answers[q.id] ?? q.suggested) : undefined;
   const sliderMid = q ? Math.round(((q.min ?? 150) + (q.max ?? 300)) / 2) : 200;
   const qVal = q
     ? (val ??
@@ -122,7 +159,21 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       return;
     }
     if (step === 1 && q && answered && (listQ || qVal !== undefined)) {
-      const o = await act('onboard.answer', { question_id: q.id, value: listQ ? listOut : (qVal as string | number | string[]) });
+      // A dictated answer is shown cleaned first; Next again confirms it (the raw text is kept).
+      if (q.answer_type === 'text' && !listQ && typeof qVal === 'string' && rawOf[q.id] === undefined) {
+        const clean = cleanDictation(qVal);
+        if (clean && clean !== qVal.trim()) {
+          setRawOf({ ...rawOf, [q.id]: qVal });
+          setAnswers({ ...answers, [q.id]: clean });
+          return;
+        }
+      }
+      const raw = rawOf[q.id];
+      const o = await act('onboard.answer', {
+        question_id: q.id,
+        value: listQ ? listOut : (qVal as string | number | string[]),
+        ...(raw !== undefined && !listQ ? { raw } : {}),
+      });
       if (o.status !== 'ok') return;
       setPending('');
       setState(o.output);
@@ -136,6 +187,23 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
     }
     setStep((s) => Math.min(3, s + 1));
   };
+
+  /** "I don't know" (#23): the question is answered with nothing. */
+  const skip = async () => {
+    if (!q) return;
+    const o = await act('onboard.answer', { question_id: q.id, skip: true });
+    if (o.status !== 'ok') return;
+    setPending('');
+    setState(o.output);
+    if (o.output.step === 'calibrate') setStep(2);
+    else if (o.output.step === 'confirm') {
+      setReinterview(q.component);
+      setStep(3);
+    } else setQn((n) => n + 1);
+  };
+  /** What the resume gave each component (#22), shown before and during the interview. */
+  const pulled = state?.resume_drafts ?? [];
+  const pulledOf = (key: ProfileComponentKey) => pulled.find((d) => d.component === key);
 
   const lit = (key: string) => {
     if (step > 0) return true;
@@ -157,17 +225,19 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const total = samples.data?.items.length ?? 12;
   const card = samples.data?.items[Math.min(ci, total - 1)];
   const calDone = !!samples.data && ci >= total;
+  /** A recalibration saves only once at least one card is answered. */
+  const recalEmpty = flow === 'calibrate' && step === 2 && !weights;
 
   const primary =
     step === 3 ? (
       <PrimaryButton
-        label="Start"
+        label={flow === 'setup' ? 'Start' : 'Save'}
         op="onboard.confirm"
         onClick={async () => {
           const o = await act('onboard.confirm', {});
           if (o.status === 'ok') {
-            showToast('Profile live');
-            go(reinterview ? { screen: 'you', component: reinterview } : { screen: 'now' });
+            showToast(flow === 'setup' ? 'Profile live' : 'Profile saved');
+            go(reinterview ? { screen: 'you', component: reinterview } : flow === 'setup' ? { screen: 'now' } : { screen: 'you' });
           }
         }}
       />
@@ -175,8 +245,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       <PrimaryButton
         label="Next"
         op={step === 1 ? 'onboard.answer' : null}
-        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && !answered)}
-        disabled={(step === 0 && !state) || (step === 1 && !answered)}
+        dim={(step === 0 && (!state || parsed < NODE_COUNT)) || (step === 1 && !answered) || recalEmpty}
+        disabled={(step === 0 && !state) || (step === 1 && !answered) || recalEmpty}
         onClick={() => void next()}
       />
     );
@@ -193,7 +263,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const story = profile.data?.components.find((c) => c.key === 'story');
 
   return (
-    <div data-screen-label="Onboarding" style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div data-screen-label={`You · ${flow}`} style={{ maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 72 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 22 }}>
           <PPMark />
@@ -204,7 +274,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             label="Exit"
             op={null}
             height={44}
-            onClick={() => go({ screen: 'now' })}
+            onClick={() => go(flow === 'setup' ? { screen: 'now' } : { screen: 'you' })}
             style={{ color: C.muted, padding: '0 18px' }}
             hover={{ borderColor: C['emerald-2'], color: C.fg }}
           />
@@ -259,6 +329,11 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 <span style={{ ...mono(12, C.emerald), border: `1px solid ${C['emerald-2']}`, borderRadius: 999, padding: '6px 14px' }}>
                   {file}
                 </span>
+                {parseLabel && (
+                  <span className="dropzone__run" style={{ ...mono(11, C.muted), letterSpacing: '.1em' }}>
+                    {parseLabel}
+                  </span>
+                )}
                 <span style={{ width: 220, height: 4, borderRadius: 4, background: C.line, overflow: 'hidden', display: 'block' }}>
                   <span
                     style={{
@@ -282,17 +357,37 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             accept=".pdf,.md,.txt,.docx"
             onChange={(e) => void ingest(e.target.files?.[0] ?? null)}
           />
-          <MiniConstellation nodes={nodes} lit={lit} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+            <MiniConstellation nodes={nodes} lit={lit} />
+            {state && parsed >= NODE_COUNT && pulled.length > 0 && (
+              <div className="resume-drafts" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={eyebrow()}>From resume</div>
+                {pulled.map((d) => (
+                  <ResumeDraft key={d.component} name={COMPONENT_NAME[d.component]} conf={d.confidence} items={d.items} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {step === 1 && q && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 240px', gap: 48, marginTop: 90, alignItems: 'start' }}>
           <div>
-            <div style={eyebrow()}>Q {qn + 1}</div>
-            <div className="onboard-q__text" style={{ ...display(72, 800, '-0.04em'), lineHeight: 1, margin: '14px 0 44px' }}>
+            <div className="onboard-q__for" style={eyebrow()}>
+              Q {qn + 1} · {COMPONENT_NAME[q.component]}
+            </div>
+            <div
+              className="onboard-q__text"
+              style={{ ...display(44, 800, '-0.03em'), lineHeight: 1.08, margin: `14px 0 ${q.example ? 14 : 40}px`, maxWidth: 860 }}
+            >
               {q.label}
             </div>
+            {q.example && (
+              <div className="onboard-q__example" style={{ fontSize: 16, color: C.muted, marginBottom: 36 }}>
+                {q.example}
+              </div>
+            )}
             {(q.answer_type === 'chips' || q.answer_type === 'multi_chips') && (
               <div className="onboard-q" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {q.options?.map((o) => {
@@ -324,7 +419,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                       }}
                       hover={{ borderColor: C['emerald-2'] }}
                     >
-                      {o}
+                      {q.kind === 'confirm' ? (CONFIRM_LABEL[o] ?? o) : o}
                     </Btn>
                   );
                 })}
@@ -427,6 +522,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             )}
             {q.answer_type === 'text' && !listQ && (
               <div className="onboard-q" style={{ maxWidth: 620 }}>
+                {rawOf[q.id] !== undefined && <div style={{ ...eyebrow(C.emerald), marginBottom: 10 }}>Cleaned</div>}
                 <textarea
                   aria-label={q.label}
                   value={typeof qVal === 'string' ? qVal : ''}
@@ -447,22 +543,36 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 />
               </div>
             )}
+            <Btn
+              op="onboard.answer"
+              className="onboard-q__skip"
+              onClick={() => void skip()}
+              style={{ marginTop: 28, background: 'transparent', border: 'none', color: C.muted, fontSize: 15, padding: 0 }}
+              hover={{ color: C.fg }}
+            >
+              I don't know
+            </Btn>
           </div>
-          <QuestionNode
-            name={COMPONENT_NAME[q.component]}
-            color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
-            conf={
-              q.answer_type === 'slider'
-                ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
-                : Array.isArray(qVal)
-                  ? qVal.includes('Any')
-                    ? 55
-                    : 72
-                  : qVal
-                    ? 95
-                    : 0
-            }
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <QuestionNode
+              name={COMPONENT_NAME[q.component]}
+              color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
+              conf={
+                q.answer_type === 'slider'
+                  ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
+                  : Array.isArray(qVal)
+                    ? qVal.includes('Any')
+                      ? 55
+                      : 72
+                    : qVal
+                      ? 95
+                      : 0
+              }
+            />
+            {pulledOf(q.component) && (
+              <ResumeDraft name="From resume" conf={pulledOf(q.component)?.confidence ?? 0} items={pulledOf(q.component)?.items ?? []} />
+            )}
+          </div>
         </div>
       )}
 
@@ -618,7 +728,9 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
         </div>
       )}
 
-      {step === 3 && (
+      {step === 3 && flow === 'calibrate' && base && w && <WeightsDiff before={base} after={w} />}
+
+      {step === 3 && flow !== 'calibrate' && (
         <div
           style={{
             maxWidth: 1000,
@@ -681,6 +793,96 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Recalibration result (#25): every criterion's weight before and after, changed ones marked. */
+function WeightsDiff({ before, after }: { before: Record<Criterion, number>; after: Record<Criterion, number> }) {
+  return (
+    <div
+      className="weights-diff"
+      style={{
+        maxWidth: 720,
+        margin: '48px auto 0',
+        background: C.panel,
+        border: `1px solid ${C['line-2']}`,
+        borderRadius: 12,
+        padding: 36,
+      }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: '28px 110px minmax(0,1fr) 40px 40px', gap: 12, marginBottom: 16 }}>
+        <span />
+        <span style={eyebrow()}>Weights</span>
+        <span />
+        <span style={{ ...eyebrow(), textAlign: 'right' }}>Before</span>
+        <span style={{ ...eyebrow(C.emerald), textAlign: 'right' }}>After</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {CRITERIA.map((c, j) => {
+          const b = Math.round(before[c]);
+          const a = Math.round(after[c]);
+          return (
+            <div
+              key={c}
+              className="weights-diff__row"
+              data-criterion={c}
+              data-changed={a !== b}
+              style={{ display: 'grid', gridTemplateColumns: '28px 110px minmax(0,1fr) 40px 40px', gap: 12, alignItems: 'center' }}
+            >
+              <span style={mono(11, C.dim)}>C{j + 1}</span>
+              <span style={{ fontSize: 13, color: C.muted }}>{CRITERION_LABELS[c]}</span>
+              <div style={{ position: 'relative', height: 8, borderRadius: 4, background: C.line, overflow: 'hidden' }}>
+                <div
+                  style={{ position: 'absolute', inset: 0, width: `${Math.min(100, (before[c] / 22) * 100)}%`, background: C['line-2'] }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: `${Math.min(100, (after[c] / 22) * 100)}%`,
+                    background: a > b ? C.emerald : a < b ? C.gold : C['emerald-2'],
+                    opacity: 0.85,
+                  }}
+                />
+              </div>
+              <span className="weights-diff__before" style={{ ...mono(13, C.muted), textAlign: 'right', ...tab }}>
+                {b}
+              </span>
+              <span
+                className="weights-diff__after"
+                style={{ ...mono(13, a > b ? C.emerald : a < b ? C.gold : C.fg), textAlign: 'right', ...tab }}
+              >
+                {a}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const CONFIRM_LABEL: Record<string, string> = { yes: 'Yes', edit: 'Edit' };
+
+/** One component's resume draft: name, confidence, the lines pulled (#22). */
+function ResumeDraft({ name, conf, items }: { name: string; conf: number; items: string[] }) {
+  return (
+    <div
+      className="resume-draft"
+      style={{ background: C.panel, border: `1px solid ${C['line-2']}`, borderRadius: 12, padding: '14px 16px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
+        <span className="resume-draft__conf" style={{ ...mono(11, conf >= 0.7 ? C.emerald : C.gold), ...tab }}>
+          {Math.round(conf * 100)}%
+        </span>
+      </div>
+      {items.slice(0, 3).map((x) => (
+        <div key={x} style={{ fontSize: 13, color: C.muted, marginTop: 6, overflowWrap: 'anywhere' }}>
+          {x}
+        </div>
+      ))}
     </div>
   );
 }

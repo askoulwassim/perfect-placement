@@ -12,6 +12,7 @@ import {
   CRITERIA,
   DecisionKind,
   DecisionStatus,
+  EmailSource,
   Freshness,
   HeldReason,
   Impact,
@@ -27,6 +28,7 @@ import {
   Workplace,
 } from './enums.js';
 import { EventType } from './events.js';
+import { RUNNER_COMMANDS } from './policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, Slug, VaultPath } from './primitives.js';
 
 /*
@@ -210,6 +212,10 @@ export const Contact = z.object({
   email: z.string().email().nullable(),
   source: ContactSource,
   notes: z.string().nullable(),
+  /** Added (#37): where `email` came from; null when there is no email. */
+  email_source: EmailSource.nullable(),
+  /** Added (#37): 0..1, how sure the address is right (1 = confirmed by the user or seen in mail). */
+  email_confidence: z.number().min(0).max(1).nullable(),
 });
 export type Contact = z.infer<typeof Contact>;
 
@@ -326,8 +332,38 @@ export const OnboardSession = z.object({
   calibration_json: Json,
   /** Profile version written by `onboard.confirm`; null until then. */
   version_id: Id.nullable(),
+  /**
+   * Added (#22, migration 007): the resume-adaptive interview plan `{ hints, questions, skipped }`:
+   * per-component resume drafts with a confidence, follow-up questions the agent proposed, skipped ids.
+   */
+  interview_json: Json,
 });
 export type OnboardSession = z.infer<typeof OnboardSession>;
+
+/** Most turns an Ask thread keeps (`ask_thread.turns_json`, #69); the newest are kept. */
+export const ASK_THREAD_MAX_TURNS = 20;
+/** Ask threads not updated for this many days are pruned (#69). */
+export const ASK_THREAD_TTL_DAYS = 30;
+
+/** One finished Ask turn: the user's message and the reply text. */
+export const AskThreadTurn = z.object({ user: z.string(), reply: z.string() });
+export type AskThreadTurn = z.infer<typeof AskThreadTurn>;
+
+/**
+ * An Ask (Cmd+K) thread (#69, migration 008), kept so a `pp up` restart resumes it. Engine state, not an
+ * op: written by `pp up`'s Ask turn, never by skills or agents.
+ */
+export const AskThreadRow = z.object({
+  id: Id,
+  created_at: IsoTimestamp,
+  updated_at: IsoTimestamp,
+  runner: z.enum(RUNNER_COMMANDS),
+  /** The runner's session id (Claude Code `--resume`); null until a turn reported one. */
+  session_id: z.string().nullable(),
+  /** The last turns, oldest first, at most ASK_THREAD_MAX_TURNS. */
+  turns_json: z.array(AskThreadTurn).max(ASK_THREAD_MAX_TURNS),
+});
+export type AskThreadRow = z.infer<typeof AskThreadRow>;
 
 /** Table name -> row schema. Migrations 001..003 must match this exactly. */
 export const TABLES = {
@@ -346,6 +382,7 @@ export const TABLES = {
   decision: Decision,
   run: Run,
   onboard_session: OnboardSession,
+  ask_thread: AskThreadRow,
 } as const;
 export type TableName = keyof typeof TABLES;
 

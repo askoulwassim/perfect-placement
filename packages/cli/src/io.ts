@@ -17,6 +17,8 @@ export interface Io {
   ask?(question: string, defaultYes: boolean): Promise<boolean>;
   /** Machine access for `pp setup` / `pp kev` / Kev in `pp up` (tests: temp HOME, fake spawn, no network). */
   sys?: SystemDeps;
+  /** Is a headless runner still alive (stale-run sweep in `pp up`)? Default: the launcher's pid file. */
+  runnerAlive?(runId: string): boolean;
 }
 
 export const processIo: Io = {

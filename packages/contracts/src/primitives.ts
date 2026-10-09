@@ -23,6 +23,7 @@ export const ID_PREFIX = {
   decision: 'dc',
   run: 'rn',
   onboard_session: 'ob',
+  ask_thread: 'ask',
 } as const;
 
 export const Slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'kebab-case slug');

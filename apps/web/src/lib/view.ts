@@ -3,7 +3,7 @@ import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
 import type { TileData } from '../components/roles';
 import { bandColor } from '../components/theme';
-import { altsOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
+import { altsOf, DOC_NAME, emailOf, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { ago, humanize } from './format';
 import { bestPath, initials, type Person } from './people';
 import { COMPONENT_NAME, chipsOf } from './profile';
@@ -26,6 +26,7 @@ export const tile = (v: RoleView, now: Date, bands?: Bands): TileData => {
     co: v.company.name,
     fit,
     band: bandColor(fit, bands),
+    url: v.role.url,
   };
 };
 
@@ -51,39 +52,39 @@ export type DocLine =
   | { t: 'b'; w: string }
   | { t: 'c'; chips: string[] };
 
-/** Markdown -> prototype doc lines (heading, key, text, chips). Skeleton bars when no file yet. */
-export function docLines(md: string | null | undefined): DocLine[] {
-  if (!md)
-    return [
-      { t: 'k', text: '—' },
-      { t: 'b', w: '84%' },
-      { t: 'b', w: '62%' },
-      { t: 'b', w: '70%' },
-      { t: 'b', w: '44%' },
-    ];
+/** Skeleton bars for a document that does not exist yet (documents themselves render as markdown, #35). */
+export const DOC_SKELETON: readonly DocLine[] = [
+  { t: 'b', w: '84%' },
+  { t: 'b', w: '62%' },
+  { t: 'b', w: '70%' },
+  { t: 'b', w: '44%' },
+];
+
+/**
+ * The answers file (#42) as doc lines: groups (Needs you, Written, Standard, Portal fills) as headings,
+ * each question as a key, a needs-you reason as a muted line, portal fills as chips.
+ */
+export function answerLines(md: string | null | undefined): DocLine[] {
+  if (!md) return [...DOC_SKELETON];
   const out: DocLine[] = [];
-  let bullets: string[] = [];
-  const flush = () => {
-    if (bullets.length) out.push(...bullets.map((text) => ({ t: 't' as const, text })));
-    bullets = [];
-  };
+  let fills: string[] | null = null;
   for (const raw of md.split('\n')) {
     const line = raw.trim();
-    if (!line) {
-      flush();
+    if (!line || /^# /.test(line)) continue;
+    const g = /^## (.*)$/.exec(line);
+    if (g) {
+      if (fills?.length) out.push({ t: 'c', chips: fills });
+      fills = g[1] === 'Portal fills' ? [] : null;
+      out.push({ t: 'h', text: g[1] as string });
       continue;
     }
-    const h = line.match(/^(#{1,3})\s+(.*)$/);
-    if (h) {
-      flush();
-      out.push(h[1] === '#' ? { t: 'h', text: h[2] as string } : { t: 'k', text: h[2] as string });
-    } else if (/^[-*]\s/.test(line)) bullets.push(line.replace(/^[-*]\s+/, ''));
-    else {
-      flush();
-      out.push({ t: 't', text: line });
-    }
+    const q = /^### (.*)$/.exec(line);
+    if (q) out.push({ t: 'k', text: q[1] as string });
+    else if (fills && /^[-*]\s/.test(line)) fills.push(line.replace(/^[-*]\s+/, ''));
+    else if (line.startsWith('>')) out.push({ t: 's', text: line.replace(/^>\s*/, '') });
+    else out.push({ t: 't', text: line.replace(/^_(.*)_$/, '$1') });
   }
-  flush();
+  if (fills?.length) out.push({ t: 'c', chips: fills });
   return out;
 }
 
@@ -111,6 +112,47 @@ export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
     p: d.p,
     alts: altsOf(d).map((v) => ({ value: v, label: valueLabel(d.kind, v) })),
   };
+  const fc = factCheckOf(d);
+  if (fc) {
+    // #54: the claim, the document line it is on, the closest source line; keep / remove / edit.
+    const fact = {
+      ...base,
+      question: `Keep "${fc.claim}"?`,
+      alts: base.alts.filter((a) => a.value !== 'other'),
+      edit: fc.line,
+      evidence: [
+        { k: DOC_NAME[fc.doc], d: fc.line },
+        { k: 'Source', d: fc.source ?? 'none found' },
+      ],
+    };
+    if (ctx.role)
+      return {
+        ...fact,
+        letter: ctx.role.company.name.slice(0, 1),
+        fresh: freshOf(ctx.role.role, ctx.now),
+        objTitle: ctx.role.role.title,
+        objSub: `${ctx.role.company.name} · ${DOC_NAME[fc.doc]}`,
+      };
+    return { ...fact, objTitle: d.subject_id, objSub: DOC_NAME[fc.doc] };
+  }
+  const em = emailOf(d);
+  if (em) {
+    // #37: the guessed address, the other candidates, and a field to type the right one.
+    const name = ctx.contact?.name ?? em.name;
+    return {
+      ...base,
+      question: `Use ${String(pick)}?`,
+      alts: base.alts.filter((a) => a.value !== 'other'),
+      edit: String(pick ?? ''),
+      ini: initials(name || '?'),
+      objTitle: name || d.subject_id,
+      objSub: ctx.contact?.headline ?? em.domain,
+      evidence: [
+        { k: 'Format', d: em.pattern ? `${em.pattern} · ${em.examples} seen` : 'none seen' },
+        { k: 'Domain', d: `${em.domain} · ${em.mx === true ? 'MX found' : em.mx === false ? 'no MX' : 'MX unknown'}` },
+      ],
+    };
+  }
   if (ctx.role) {
     const r = ctx.role.role;
     const ev =

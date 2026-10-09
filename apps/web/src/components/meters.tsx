@@ -229,6 +229,43 @@ export function ScoreRadar({ criteria, size }: { criteria: readonly number[]; si
   );
 }
 
+// ------------------------------------------------------------ CriterionSources (#40)
+
+/** Under the radar: who judged each criterion (Kev, Agent, You) and how sure; coral when Kev split from the agent. */
+export function CriterionSources({
+  items,
+}: {
+  items: ReadonlyArray<{ id: string; label: string; pct: number | null; kev: number | null }>;
+}) {
+  if (!items.length) return null;
+  return (
+    <div className="criterion-sources" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 6, marginTop: 18 }}>
+      {items.map((s) => (
+        <span
+          key={s.id}
+          data-source={s.label}
+          data-split={s.kev !== null ? 'true' : undefined}
+          style={{
+            display: 'flex',
+            gap: 6,
+            alignItems: 'baseline',
+            border: `1px solid ${s.kev !== null ? C.coral : C.line}`,
+            borderRadius: 999,
+            padding: '4px 9px',
+            whiteSpace: 'nowrap',
+            ...mono(10, C.muted),
+          }}
+        >
+          <span style={{ color: C.dim }}>{s.id}</span>
+          <span style={{ color: C.fg }}>{s.label}</span>
+          {s.pct !== null && <span style={tab}>{s.pct}%</span>}
+          {s.kev !== null && <span style={{ color: C.coral }}>Kev {s.kev}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ StageRail
 
 const STAGE_NAMES = ['Research', 'Tailor', 'Connect', 'Fill', 'Submit'] as const;

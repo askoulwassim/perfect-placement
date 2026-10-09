@@ -8,8 +8,17 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { OP_NAMES } from '@perfect-placement/contracts';
-import { type FixtureEngine, fakeBackend, fakeLauncher, noNetwork, openFixtureEngine } from '@perfect-placement/engine/testing';
+import { OP_NAMES, parseAskChatFrames } from '@perfect-placement/contracts';
+import { ops } from '@perfect-placement/engine';
+import {
+  claudeScoreTranscript,
+  type FixtureEngine,
+  fakeAskLauncher,
+  fakeBackend,
+  fakeLauncher,
+  noNetwork,
+  openFixtureEngine,
+} from '@perfect-placement/engine/testing';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runCli } from './cli.js';
@@ -113,8 +122,13 @@ describe('pp up (in-process smoke)', () => {
     await expect(up({ engine, port: 0, host: '0.0.0.0', webDir: null })).rejects.toThrow(/loopback/);
   });
 
-  it('--kev only checks reachability', async () => {
-    expect((await checkKev(engine)).ok).toBe(false); // the fixture engine's Kev is a fake that is down
+  it('--kev only checks reachability; system.backends tells not installed from down (#40)', async () => {
+    const r = await checkKev(engine); // the fixture engine's Kev is a fake that is down, and PP_HOME has no Kev
+    expect(r.ok).toBe(false);
+    expect(r.line).toContain('kev: not installed (run pp kev install)');
+    mkdirSync(join(engine.home, 'kev'), { recursive: true });
+    writeFileSync(join(engine.home, 'kev', 'installed.json'), '{}');
+    expect((await checkKev(engine)).line).toMatch(/^kev: unreachable at /);
   });
 });
 
@@ -145,5 +159,140 @@ describe('pp up command', () => {
     expect(out.at(-1)).toBe('pp up: stopped');
     const home = /fixtures demo \(synthetic data, offline\) at (\S+)/.exec(out.join('\n'))?.[1] as string;
     rmSync(dirname(home), { recursive: true, force: true });
+  });
+});
+
+describe('pp up: interrupted runs (#21)', () => {
+  it('on startup, a run left running whose runner is gone is finished as error "interrupted"', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'pp-up-stale-'));
+    const home = join(tmp, 'vault');
+    const out: string[] = [];
+    const services = {
+      fetch: noNetwork,
+      launcher: fakeLauncher(),
+      backends: { kev: fakeBackend('kev', 'down') },
+      freshnessDelayMs: 0,
+      env: {},
+    };
+    const base: Io = { env: {}, out: (l) => out.push(l), err: (l) => out.push(l), stdin: () => '', services };
+    try {
+      expect(await runCli(['init', '--home', home], base)).toBe(0);
+      // A previous pp up launched two runs an hour ago; one runner is still alive.
+      const prev = ops.openEngine({ home, services });
+      const hourAgo = () => new Date(Date.now() - 3_600_000);
+      const start = async (skill: string) => {
+        const o = await prev.runOp('runs.start', { skill }, { actor: 'human', now: hourAgo });
+        return (o as { output: { run: { id: string } } }).output.run.id;
+      };
+      const dead = await start('scout');
+      const alive = await start('inbox');
+      prev.close();
+
+      const io: Io = { ...base, runnerAlive: (id) => id === alive };
+      const statusOf = async (url: string, id: string) => {
+        const res = await fetch(`${url}/api/ops/runs.get`, { method: 'POST', body: JSON.stringify({ run_id: id }) });
+        return ((await res.json()) as { output: { run: { status: string; summary_json: { error?: string } } } }).output.run;
+      };
+      let stop: () => void = () => {};
+      const stopped = new Promise<void>((r) => {
+        stop = r;
+      });
+      const code = runCli(['up', '--home', home, '--port', '0', '--web', 'none', '--no-kev'], io, async () => {
+        const url = /pp up: (http:\/\/127\.0\.0\.1:\d+)/.exec(out.join('\n'))?.[1] as string;
+        expect(await statusOf(url, dead)).toMatchObject({ status: 'error', summary_json: { error: 'interrupted' } });
+        expect((await statusOf(url, alive)).status).toBe('running');
+        stop();
+        await stopped;
+      });
+      expect(await code).toBe(0);
+      expect(out.join('\n')).toContain(`pp up: 1 interrupted run marked error (${dead})`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('run queue (#30): pp drain and pp up launch queued runs', () => {
+  it('a run queued while nothing dispatched is launched by pp drain once, and by pp up on start', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'pp-drain-'));
+    const home = join(tmp, 'vault');
+    const out: string[] = [];
+    const launcher = fakeLauncher();
+    const services = { fetch: noNetwork, launcher, backends: { kev: fakeBackend('kev', 'down') }, freshnessDelayMs: 0, env: {} };
+    const io: Io = { env: {}, out: (l) => out.push(l), err: (l) => out.push(l), stdin: () => '', services, runnerAlive: () => true };
+    const queue = (id: string, skill: string) => {
+      const e = ops.openEngine({ home, services });
+      const at = new Date().toISOString();
+      e.db
+        .prepare(
+          `INSERT INTO run (id, op, started_at, finished_at, status, summary_json, log_path) VALUES (?, ?, ?, NULL, 'queued', ?, NULL)`,
+        )
+        .run(id, skill, at, JSON.stringify({ skill, actor: 'schedule', runner: 'claude', queued_at: at }));
+      e.close();
+    };
+    try {
+      expect(await runCli(['init', '--home', home], io)).toBe(0);
+      queue('rn_q1', 'inbox');
+      expect(await runCli(['drain', '--home', home], io)).toBe(0);
+      expect(out.at(-1)).toBe('pp drain: 1 launched (rn_q1), 0 queued');
+      expect(launcher.specs.map((s) => s.runId)).toEqual(['rn_q1']);
+      expect(await runCli(['drain', '--home', home], io)).toBe(0);
+      expect(out.at(-1)).toBe('pp drain: 0 launched, 0 queued');
+
+      queue('rn_q2', 'learn');
+      const code = runCli(['up', '--home', home, '--port', '0', '--web', 'none', '--no-kev'], io, async () => {});
+      expect(await code).toBe(0);
+      expect(out).toContain('pp up: launched 1 queued run');
+      expect(launcher.specs.map((s) => s.runId)).toEqual(['rn_q1', 'rn_q2']);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pp up: POST /api/ask (#39, fake runner)', () => {
+  it('streams one agent turn as SSE events and resumes the thread on the next message, also after a restart', async () => {
+    const launcher = fakeAskLauncher(() => claudeScoreTranscript());
+    const eng = openFixtureEngine();
+    let srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
+    try {
+      const ask = async (body: unknown) => {
+        const res = await fetch(`${srv.url}/api/ask`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        expect(res.headers.get('content-type')).toMatch(/^text\/event-stream/);
+        return parseAskChatFrames(await res.text()).events;
+      };
+      const first = await ask({ message: 'Score my inbox roles', context: { screen: 'river' } });
+      expect(first[0]).toMatchObject({ type: 'thread', runner: 'claude' });
+      expect(first).toContainEqual({ type: 'run', run_id: 'run_0001', skill: 'score' });
+      expect(first.at(-1)).toEqual({ type: 'done' });
+      // The Ask agent gets the vault's MCP server in Ask mode.
+      const spec = launcher.specs[0];
+      expect(spec?.cwd).toBe(eng.home);
+      const cfg = JSON.parse(spec?.args[spec.args.indexOf('--mcp-config') + 1] as string);
+      expect(cfg.mcpServers.pp.env).toMatchObject({ PP_HOME: eng.home, PP_ASK: '1' });
+      const thread = (first[0] as { thread_id: string }).thread_id;
+      await ask({ thread_id: thread, message: 'thanks' });
+      const args = launcher.specs[1]?.args ?? [];
+      expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+
+      // A restart keeps the thread (#69): it is restored from the vault and resumes the same session.
+      await srv.close();
+      srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
+      const restored = await ask({ thread_id: thread, message: 'still there?' });
+      expect(restored[0]).toMatchObject({ type: 'thread', thread_id: thread });
+      const after = launcher.specs[2]?.args ?? [];
+      expect(after[after.indexOf('--resume') + 1]).toBe('sess-0001');
+
+      expect((await ask({ message: '' }))[0]).toMatchObject({ type: 'error', code: 'invalid_input' });
+      const get = await fetch(`${srv.url}/api/ask`);
+      expect(get.status).toBe(405);
+    } finally {
+      await srv.close();
+      eng.cleanup();
+    }
   });
 });

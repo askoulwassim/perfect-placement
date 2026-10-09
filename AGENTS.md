@@ -18,7 +18,7 @@ packages/
   engine/               openEngine(): db/ (repos, migrations, vault, doctor)  ops/ (runOp + handlers)  status/  profile/  scoring/  freshness/  people/  integrations/
   resolver/             decision layer: rule, Kev, agent, human; policy; decision ops
   mcp/                  MCP server generated from ops (stdio `pp-mcp`, HTTP at /mcp)
-  cli/                  `pp`: setup, up, init, kev, doctor, op, scout, score, fresh, inbox
+  cli/                  `pp`: setup, up, init, kev, doctor, op, scout, score, fresh, inbox, uninstall
   fixtures/             synthetic vault + db seed (Wave 0)
 apps/web/               UI from the Claude Design prototype; genui/ renders Ask replies with OpenUI
 skills/<name>/SKILL.md  agent-agnostic skills
@@ -41,19 +41,23 @@ docs/v2/                the build brief
 4. **Never submit an application or send an email.** Gmail is read plus draft only. Applications end at **Open portal**; outreach ends at **Create Gmail draft**. LinkedIn automation is read-only, capped, slow, and never messages or connects.
 5. **No personal data in this repo.** Nothing from a user's profile, pipeline, applications, interviews, resume, `.docx` or vault is ever committed. Fixtures are synthetic. Tests use temp dirs and never touch the real `PP_HOME`. `.gitignore` blocks vaults, `*.db`, `.env`, resumes, `.pdf` and `.docx`; do not weaken it.
 6. **Writing in the user's voice:** no em dashes; punchy (hook, reframe, close). Grounded in the Story and Voice components only; never invent facts.
-7. **UI copy:** no explanatory text, no tips, labels of one to three words. One primary action per screen. Every button calls exactly one op. Dark only, tokens from `@perfect-placement/contracts`.
+7. **UI copy:** no explanatory text, no tips, labels of one to three words (buttons and labels; onboarding interview questions are full sentences with an optional one-line example, wave1-decisions #28). One primary action per screen. Every button calls exactly one op. Dark only, tokens from `@perfect-placement/contracts`.
 8. **No-downgrade:** automated actors never move a role backwards out of `draft-ready` or later, and a rescore never moves an `on-deck` pick.
 
 ## How to run
 
 ```
 ./install.sh                    # prerequisites, pnpm install + build, `pp` + `pp-mcp` launchers in ~/.local/bin (--check: report only)
-pp setup                        # vault at PP_HOME (default ~/.perfect-placement), optional Kev, MCP for detected agents (--yes, --no-kev, --no-mcp)
-pp up                           # API /api/ops, MCP /mcp, web UI on http://127.0.0.1:5177; starts Kev if installed (--no-kev)
+pp setup                        # vault at PP_HOME (default ~/.perfect-placement), optional Kev (offers to install uv), MCP for detected agents, schedule jobs (asks), then a pass/fail summary (--yes, --no-kev, --no-mcp, --no-schedules)
+pp up                           # API /api/ops, Ask /api/ask (agent session, SSE), MCP /mcp, web UI on http://127.0.0.1:5177; starts Kev if installed (--no-kev)
 pp up --fixtures                # demo on synthetic data
 pp doctor                       # integrity checks
 pp op <name> --input '<json>'   # any op
+pp drain                        # launch queued skill runs once (pp up does it continuously)
+pp run <skill> [--schedule]     # queue a skill run, drain until it (and what it triggers) finishes; what schedule jobs run
+pp schedules install|remove|status   # config.schedules as OS jobs (launchd / systemd user timers); pp setup offers it
 pp kev install|start|stop|status
+pp uninstall [--purge] [--dry-run] [--yes]   # or ./uninstall.sh: undo setup (keeps the vault); --purge: vault (tar.gz backup first) + Kev's HF model files
 
 corepack enable                 # development: pnpm version pinned in package.json
 pnpm i && pnpm build && pnpm test && pnpm lint
@@ -64,7 +68,8 @@ pnpm --filter @perfect-placement/fixtures gen   # after editing fixtures/src/dat
 
 - Node 22+. `better-sqlite3` is native: on macOS it needs the Xcode command line tools if no prebuilt binary matches.
 - **Kev** (local decision model): `pp kev install` puts it in `$PP_HOME/kev/`; `pp up` starts it on demand and stops it on exit only if it started it. Model in `config.backends.kev.model`. Background: `packages/resolver/docs/kev-setup.md`.
-- **Agents (Claude Code, Codex, Cursor, Claude Desktop):** `pp setup` registers the stdio `pp-mcp` server (key `pp`, absolute node + bin, `PP_HOME` env) after asking; manual snippets in `packages/mcp/README.md`. Tool names use underscores (`roles_list`) because all three clients mishandle dots; op names stay dotted. `runs.start` launches a headless runner from `config.runner` (`claude`, `codex` or `cursor-agent`).
+- **Agents (Claude Code, Codex, Cursor, Claude Desktop):** `pp setup` registers the stdio `pp-mcp` server (key `pp`, absolute node + bin, `PP_HOME` env) after asking; manual snippets in `packages/mcp/README.md`. Tool names use underscores (`roles_list`) because all three clients mishandle dots; op names stay dotted. `runs.start` queues a headless runner from `config.runner` (`claude`, `codex` or `cursor-agent`); the run queue launches it (`config.runs.max_concurrent`), and the pipeline chains scout -> score -> research (`config.pipeline`). The runner passes `PP_RUN_ID` to the pp MCP server, so a headless run's ops and events carry its run id. Schedules run as OS jobs (`pp schedules`, see `packages/cli/README.md`); `pp up` queues any schedule missed since its last run.
+- **Uninstall:** `pp uninstall` (`./uninstall.sh` picks the node and builds the CLI if needed) reverses setup through the same `src/system/` modules: stop the Kev pp started, remove schedule jobs, only the `pp` MCP entry per agent (backup first), and launchers that are Perfect Placement's. `--purge` adds the vault (verified tar.gz backup to `~/perfect-placement-backups` unless `--no-backup`; refuses non-vault or git-tracked dirs unless `--force`) and Kev's Hugging Face files (Kev dirs + pinned base snapshots, unshared blobs only). Plan first, asks, `--dry-run`. It never touches Node, pnpm, uv, Homebrew or the checkout. Never run it against the real HOME from a test or an agent session.
 - **Tests never touch real machine state:** `pp setup` / `pp kev` take an injected `SystemDeps` (temp HOME, fake spawn, no network); `install.sh` is tested with `--check` only. CI job `fresh-install` runs the real `./install.sh` and `scripts/fresh-install-smoke.sh` (setup, up, write, restart, read back).
 - **Web dev:** `pnpm --filter @perfect-placement/web dev` (port 5178) proxies `/api` to `pp up` on 5177; `dev:mock` runs on read-only fixtures.
 - **OpenUI telemetry:** set `OPENUI_TELEMETRY_DISABLED=1` in your shell; root `package.json` also blocks its install script (`pnpm.onlyBuiltDependencies`). Never add `@openuidev/lang-core` to that list.

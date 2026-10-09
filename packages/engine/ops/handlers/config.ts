@@ -17,6 +17,15 @@ export const configUpdate = defineHandler('config.update', {
     const parsed = PolicyConfig.safeParse(merged);
     if (!parsed.success) throw new OpError('invalid_input', 'patched config does not parse as PolicyConfig', parsed.error.issues);
     h.vault.write(CONFIG_FILE, `${JSON.stringify(parsed.data, null, 2)}\n`);
+    // Schedules changed (#29): bring the OS jobs in line once the config is on disk (installs the ones
+    // on, removes the ones off). Only where the surface wired a job manager in (`pp up`).
+    const jobs = h.services.scheduleJobs;
+    if (jobs && !h.ctx.dryRun && JSON.stringify(h.config.schedules) !== JSON.stringify(parsed.data.schedules)) {
+      const schedules = parsed.data.schedules;
+      h.afterCommit(async () => {
+        await jobs.sync(schedules);
+      });
+    }
     return parsed.data;
   },
 });

@@ -10,7 +10,8 @@ Scoring v2 mechanics. The score skill supplies judgment (C1..C9, facts); this co
 | `math.ts` | Total, capped affinity, band, dealbreakers (no company bypass), verdict. |
 | `cap.ts` | Per-company cap: top `company_active_cap` stay active, rest held; promotion when a slot frees. |
 | `blind.ts` | Brand masking and the two resolver requests (blind C1 C2 C3 C4 C9, open C5..C8); `judgeCriteria()`. |
-| `source-mix.ts` | Scout source mix: watchlist queries at most `scout.watchlist_share_max`. |
+| `judge.ts` | #40: `judgeThroughResolver` (no criteria: the resolver judges, Kev first, blind where required) and `recordAgentCriteria` (agent criteria as `agent` decisions + Kev second opinion, gaps over one point flagged); the op wiring is in `ops/lanes/scoring.ts`. |
+| `source-mix.ts` | Scout source mix: watchlist queries at most `scout.watchlist_share_max`; `achievedMix` / `mixLine` report a run's adds by source vs the target (`runs.finish`, #67). |
 | `handler.ts` | `rolesScoreHandler` (op `roles.score`) and `rebalanceCompany` (lane B's `moveRole` and freshness closes call it after every move, archive or close). |
 | `store.ts` | `ScoringStore` seam; the engine implements it over lane A repos and runOp's emitter (`ops/lanes/scoring.ts`). |
 

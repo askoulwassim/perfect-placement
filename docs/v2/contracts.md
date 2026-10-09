@@ -72,7 +72,7 @@ role(id, company_id, title, url, ats_job_id, source, found_at, posted_at, workpl
 score(id, role_id, profile_version_id, rubric_json, c1..c9, affinity_mod, total, band, decision, created_at)  -- append-only
 event(id, ts, type, subject_type, subject_id, payload_json, actor[agent|human|schedule], decision_id)
 application(id, role_id, stage, applied_at, portal_url, package_paths_json)
-contact(id, name, headline, linkedin_url, email, source, notes)
+contact(id, name, headline, linkedin_url, email, source, notes, email_source[gmail|linkedin|public|pattern|provider|manual], email_confidence)
 contact_link(id, contact_id, company_id, role_id, degree[1|2|cold], tier, via_contact_id, is_hiring_team)
 outreach(id, contact_id, role_id, tier, gmail_draft_id, status[drafted|in_gmail|replied|ignored], md_path)
 interview(id, role_id, round, at, prep_path, retro_path, outcome)
@@ -90,21 +90,25 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `profile.get`, `profile.history` | low | read |
 | `profile.propose_diff` | low | creates a pending diff |
 | `profile.apply_diff` | per diff: weights medium, filters/dealbreakers high | |
+| `profile.set_defaults` | low | Application defaults (Terms `application_defaults`): a human edit applies as v+1, never rescored (#42) |
 | `onboard.ingest_resume`, `onboard.answer`, `onboard.calibrate`, `onboard.confirm` | low | |
-| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy) |
+| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32); per scout run, watchlist adds capped at ceil(share x target) and `max_per_company` (#67) |
+| `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, ranked by fit, near-identical titles grouped, at most `scout.max_per_company` per company, as roles.add candidates (#28, #67) |
 | `roles.score` | low | writes score row, sets active/held/archived |
 | `roles.move` | medium | status change with no-downgrade guard |
 | `roles.archive` | medium | requires reason |
 | `roles.check_freshness` | medium (if closing) | |
 | `roles.get`, `roles.list`, `pipeline.summary` | low | read |
 | `companies.dossier.write` | low | |
-| `apply.tailor` | low | writes package, moves to draft-ready |
-| `apply.fill` | low | answers file |
+| `apply.tailor` | low | writes package, moves to draft-ready; unsupported prose claims queue `apply.fact_check` decisions (#54) |
+| `apply.fill` | low | answers file: portal fills, standard answers from Application defaults, fact-checked written answers; needs-you only with a reason (#42) |
+| `apply.resolve_claim` | low | keep / remove / rewrite the line of an unsupported claim (the `apply.fact_check` action, #54) |
 | `apply.mark_submitted` | high | human only |
 | `people.find` | low | runs LinkedIn adapter (rate-limited) |
 | `people.link`, `people.classify` | low | |
+| `people.find_email` | low | known address or a ranked pattern guess with a confidence; unsure guesses queue a `people.email` decision (#37) |
 | `outreach.draft` | low | vault draft |
-| `outreach.to_gmail` | medium | creates a Gmail **draft** |
+| `outreach.to_gmail` | medium | creates a Gmail **draft**; To only when the address is confirmed or confident (#37) |
 | `outreach.send` | high | not implemented in v2; human sends from Gmail |
 | `inbox.ingest` | medium | classify + move |
 | `decisions.queue`, `decisions.resolve`, `decisions.undo` | low / per item | the Needs-you queue |
@@ -143,11 +147,13 @@ decide(answer: Answer, impact: Impact, thresholds): 'auto' | 'auto_second' | 'au
   "overrides": { "freshness.closed": { "auto": 0.92 } },
   "backends": { "default": "jev", "fallback": "kev", "jev": { "baseUrl": "", "keyEnv": "JEV_API_KEY" }, "kev": { "baseUrl": "http://127.0.0.1:8009" }, "llm": { "provider": "anthropic" } },
   "scoring": { "affinity_cap": 5, "company_active_cap": 3, "green_min": 75, "yellow_min": 55 },
-  "scout": { "watchlist_share_max": 0.34 },
+  "scout": { "watchlist_share_max": 0.34, "target_new_roles": 25, "max_queries": 30 },
   "linkedin": { "max_profiles_per_day": 40, "min_delay_s": 20 },
   "schedules": { "inbox": "daily 07:30", "freshness": "daily 06:30", "scout_score": "fri 05:30" }
 }
 ```
+
+`scout.max_per_company` is optional: the most roles one watchlist company adds per scout run (default `scoring.company_active_cap` + 2).
 
 ## Design tokens
 

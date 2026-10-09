@@ -106,16 +106,20 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
   you: [
     { label: 'Review diff', op: null },
     { label: 'Accept diff', op: 'profile.apply_diff' },
-    { label: 'Recalibrate', op: null },
+    /** Starts a recalibration session (#25); the calibrate step then runs in You. */
+    { label: 'Recalibrate', op: 'onboard.start' },
   ],
   /**
    * `Next` calls `onboard.answer` on the Interview step only; on Resume and Calibrate it navigates
    * (those steps call `onboard.ingest_resume` and `onboard.calibrate` from the drop zone and N/M/Y).
+   * Since #25 these steps run inside You (setup with no profile, re-interview, recalibrate); `Save`
+   * confirms a re-interview or recalibration.
    */
   onboarding: [
     { label: 'Next', op: null },
     { label: 'Next', op: 'onboard.answer' },
     { label: 'Start', op: 'onboard.confirm' },
+    { label: 'Save', op: 'onboard.confirm' },
   ],
   ask: [{ label: 'Check all', op: 'roles.check_freshness' }],
   settings: [{ label: 'Save', op: 'config.update' }],

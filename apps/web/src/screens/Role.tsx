@@ -1,17 +1,20 @@
+import type { Skill } from '@perfect-placement/contracts';
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
-import { AffinityChip, STATUS_LABEL, StatusChip } from '../components/controls';
+import { AffinityChip, SecondaryButton, STATUS_LABEL, StatusChip } from '../components/controls';
 import { FreshnessRing, RoleTile } from '../components/glyphs';
-import { ScoreRadar, StageRail } from '../components/meters';
+import { InlineMarkdown, Markdown } from '../components/Markdown';
+import { CriterionSources, ScoreRadar, StageRail } from '../components/meters';
 import { BestPathPill, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
 import { C, display, eyebrow, mono, tab } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
 import { bestPath, initials } from '../lib/people';
-import { criteriaOf, freshOf } from '../lib/role';
+import { criteriaOf, freshOf, sourcesOf } from '../lib/role';
+import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
-import { type DocLine, docLines, tile } from '../lib/view';
+import { answerLines, DOC_SKELETON, type DocLine, tile } from '../lib/view';
 import { go } from '../router';
 
 const TABS = [
@@ -22,9 +25,11 @@ const TABS = [
   ['answers', 'Answers'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+/** The stage (index into STAGES) that fills each tab (#36). */
+const TAB_STAGE: Record<Tab, number> = { dossier: 0, resume: 1, cover_letter: 1, fit_map: 1, answers: 3 };
 
 export function RoleScreen({ roleId }: { roleId: string }) {
-  const { now, config, showToast, watchRun } = useApp();
+  const { now, config, showToast, watchRun, activeRun, runs } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
@@ -43,8 +48,43 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const { role, company, latest_score: score, contacts } = data;
   const tl = tile(data, t, config.scoring);
   const best = bestPath(contacts);
-  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id));
+  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id), !!company.md_path);
   const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
+  // Connect runs are per person (People shows them); Research, Tailor and Fill are per role.
+  const runOf = (s: Skill | null | undefined) =>
+    s && s !== 'connect'
+      ? activeRun({ skill: s, role_id: role.id, ...(s === 'research' ? { company_id: role.company_id } : {}) })
+      : undefined;
+  const inFlight = runOf(skill);
+  const start = async (s: Skill) => {
+    const o = await act('runs.start', { skill: s, role_id: role.id });
+    if (o.status !== 'ok') return;
+    watchRun(o.output.run);
+    if (s === 'connect') go({ screen: 'people', roleId: role.id });
+  };
+  /** An empty tab or section: the stage that fills it and that stage's button, or its queued or running state (#36). */
+  const slot = (i: number, m: boolean) => {
+    const s = STAGE_SKILL[i] ?? null;
+    const run = runOf(s);
+    return (
+      <div className="stage-slot" data-stage={STAGES[i]} style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, ...eyebrow(C.muted, m ? 9.5 : 10) }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', border: `1.5px solid ${i === stage ? C.emerald : C['line-2']}` }} />
+          From {STAGES[i]}
+        </span>
+        {s && stage >= 0 && (
+          <SecondaryButton
+            op="runs.start"
+            height={m ? 32 : 34}
+            label={run ? activeLabel(run) : (STAGES[i] as string)}
+            disabled={!!run}
+            onClick={() => start(s)}
+            style={{ fontSize: m ? 12 : 13 }}
+          />
+        )}
+      </div>
+    );
+  };
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';
@@ -62,31 +102,37 @@ export function RoleScreen({ roleId }: { roleId: string }) {
     else go({ screen: 'people', roleId: role.id });
   };
 
+  // An inbox role is unscored (#31): scoring comes first. Its run, or an all-inbox score run, shows "Scoring".
+  const scoring = role.status === 'inbox' ? scoreRunFor(runs, role.id) : undefined;
   const primary =
-    stage === 4
+    role.status === 'inbox'
       ? {
-          label: 'Open portal',
-          op: null,
-          onClick: () => {
-            const url = app?.portal_url ?? role.url;
-            if (url) window.open(url, '_blank', 'noopener');
-            showToast('Portal opened · you submit');
+          label: scoring ? activeLabel(scoring) : 'Score',
+          op: 'runs.start' as const,
+          disabled: !!scoring,
+          onClick: async () => {
+            const o = await act('runs.start', scoreInput(role.id));
+            if (o.status === 'ok') watchRun(o.output.run);
           },
         }
-      : skill
+      : stage === 4
         ? {
-            label: STAGES[stage] as string,
-            op: 'runs.start' as const,
-            onClick: async () => {
-              const label = STAGES[stage] as string;
-              const o = await act('runs.start', { skill, role_id: role.id });
-              if (o.status !== 'ok') return;
-              watchRun(o.output.run.id, (run) => showToast(run.status === 'error' ? `${label} failed` : `${label} done`));
-              if (skill === 'connect') go({ screen: 'people', roleId: role.id });
-              else showToast(`${label} started`);
+            label: 'Open portal',
+            op: null,
+            onClick: () => {
+              const url = app?.portal_url ?? role.url;
+              if (url) window.open(url, '_blank', 'noopener');
+              showToast('Portal opened · you submit');
             },
           }
-        : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
+        : skill
+          ? {
+              label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
+              op: 'runs.start' as const,
+              disabled: !!inFlight,
+              onClick: () => start(skill),
+            }
+          : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
 
   const tabs = (m: boolean) => (
     <div
@@ -123,14 +169,57 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               whiteSpace: 'nowrap',
             }}
           >
-            {!m && <span style={{ width: 6, height: 6, borderRadius: '50%', background: paths[id] ? C.emerald : C['line-2'] }} />}
+            {!m && (
+              // Same read as the Stage rail: filled = done, emerald ring = its stage is current.
+              <span
+                className="tab-dot"
+                data-state={paths[id] ? 'done' : TAB_STAGE[id] === stage ? 'current' : 'future'}
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: paths[id] ? C.emerald : 'transparent',
+                  boxShadow: `inset 0 0 0 1.5px ${paths[id] || TAB_STAGE[id] === stage ? C.emerald : C['line-2']}`,
+                }}
+              />
+            )}
             {n}
           </Btn>
         );
       })}
     </div>
   );
-  const lines = docLines(paths[tabId] ? doc.data?.markdown : null);
+  const md = paths[tabId] ? doc.data?.markdown : null;
+  // No file yet (or it went missing): the stage that fills it, then skeleton bars. While it loads: bars only.
+  const empty = !paths[tabId] || doc.data?.markdown === null;
+  const body = (m: boolean) => (
+    <>
+      {empty && slot(TAB_STAGE[tabId], m)}
+      {md && tabId !== 'answers' ? <Markdown source={md} compact={m} /> : <Doc lines={md ? answerLines(md) : DOC_SKELETON} compact={m} />}
+    </>
+  );
+  const posting = (m: boolean) =>
+    role.url && (
+      <a
+        className="open-posting"
+        href={role.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-op="nav"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          border: `1px solid ${C['line-2']}`,
+          borderRadius: 999,
+          padding: m ? '3px 10px' : '5px 12px',
+          fontSize: m ? 12 : 13,
+          fontWeight: 600,
+        }}
+      >
+        Open posting ↗
+      </a>
+    );
   const bestPill = (m: boolean) =>
     best && (
       <BestPathPill
@@ -160,6 +249,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
               <StatusChip small status={role.status} />
               <span style={mono(10, C.muted)}>{checked}</span>
+              {posting(true)}
             </div>
           </div>
           <div style={display(52, 800, '-0.05em')}>{tl.fit ?? '—'}</div>
@@ -170,6 +260,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
         <div style={{ width: 260, height: 260, margin: '18px auto 26px' }}>
           {score && <ScoreRadar criteria={criteriaOf(score)} size={300} />}
         </div>
+        {score && <CriterionSources items={sourcesOf(score)} />}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {facts.map(([k, v]) => (
             <span
@@ -192,6 +283,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
         {bestPill(true)}
         {tabs(true)}
         <div
+          className="doc-preview"
           style={{
             marginTop: 14,
             background: C['bg-2'],
@@ -203,7 +295,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             gap: 10,
           }}
         >
-          <Doc lines={lines} compact />
+          {body(true)}
         </div>
       </Screen>
     );
@@ -227,6 +319,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
               <FreshnessRing color={freshColor} />
               checked {checked}
             </span>
+            {posting(false)}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -245,6 +338,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
           <div style={{ width: '100%', maxWidth: 330, aspectRatio: '1', margin: '30px auto 0' }}>
             {score && <ScoreRadar criteria={criteriaOf(score)} size={320} />}
           </div>
+          {score && <CriterionSources items={sourcesOf(score)} />}
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 16 }}>Facts</div>
@@ -282,34 +376,37 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             </Btn>
           </div>
           {bestPill(false)}
-          {TIER_ORDER.map((tier) => {
-            const ps = contacts.filter((p) => p.link.tier === tier);
-            return (
-              <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
-                <div style={{ ...eyebrow(C.dim, 10), width: 104, flex: 'none' }}>{TIER_VIS[tier].label}</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {ps.map((p) => (
-                    <Btn
-                      key={p.contact.id}
-                      op={null}
-                      title={p.contact.name}
-                      data-contact={p.contact.id}
-                      onClick={() => openPerson(p.contact.id)}
-                      style={{ background: 'none', border: 0, padding: 0, borderRadius: '50%' }}
-                      hover={{ filter: 'brightness(1.3)' }}
-                    >
-                      <ContactAvatar initials={initials(p.contact.name)} tier={p.link.tier} />
-                    </Btn>
-                  ))}
+          {!contacts.length && slot(2, false)}
+          {!!contacts.length &&
+            TIER_ORDER.map((tier) => {
+              const ps = contacts.filter((p) => p.link.tier === tier);
+              return (
+                <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                  <div style={{ ...eyebrow(C.dim, 10), width: 104, flex: 'none' }}>{TIER_VIS[tier].label}</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {ps.map((p) => (
+                      <Btn
+                        key={p.contact.id}
+                        op={null}
+                        title={p.contact.name}
+                        data-contact={p.contact.id}
+                        onClick={() => openPerson(p.contact.id)}
+                        style={{ background: 'none', border: 0, padding: 0, borderRadius: '50%' }}
+                        hover={{ filter: 'brightness(1.3)' }}
+                      >
+                        <ContactAvatar initials={initials(p.contact.name)} tier={p.link.tier} />
+                      </Btn>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
       <div style={{ marginTop: 52 }}>
         {tabs(false)}
         <div
+          className="doc-preview"
           style={{
             marginTop: 20,
             maxWidth: 880,
@@ -320,16 +417,14 @@ export function RoleScreen({ roleId }: { roleId: string }) {
           }}
         >
           <div style={{ ...mono(11, C.dim), marginBottom: 22 }}>{paths[tabId] ?? '—'}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Doc lines={lines} />
-          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{body(false)}</div>
         </div>
       </div>
     </Screen>
   );
 }
 
-/** Prototype document preview: heading, key, text, chips, skeleton bars. */
+/** Prototype document preview for the grouped Answers file (#42) and skeleton bars; text is inline markdown. */
 export function Doc({ lines, compact }: { lines: readonly DocLine[]; compact?: boolean }) {
   return (
     <>
@@ -339,25 +434,25 @@ export function Doc({ lines, compact }: { lines: readonly DocLine[]; compact?: b
           case 'h':
             return (
               <div key={k} style={display(compact ? 20 : 26, 700, compact ? 'normal' : '-0.02em')}>
-                {l.text}
+                <InlineMarkdown source={l.text} compact={compact} />
               </div>
             );
           case 's':
             return (
               <div key={k} style={{ fontSize: compact ? 13 : 15, color: C.muted, marginTop: compact ? 0 : -6 }}>
-                {l.text}
+                <InlineMarkdown source={l.text} compact={compact} />
               </div>
             );
           case 'k':
             return (
               <div key={k} style={{ ...eyebrow(C.emerald, compact ? 9.5 : 10), letterSpacing: '.12em', marginTop: compact ? 6 : 10 }}>
-                {l.text}
+                <InlineMarkdown source={l.text} compact={compact} />
               </div>
             );
           case 't':
             return (
               <div key={k} style={{ fontSize: compact ? 13 : 15 }}>
-                {l.text}
+                <InlineMarkdown source={l.text} compact={compact} />
               </div>
             );
           case 'b':

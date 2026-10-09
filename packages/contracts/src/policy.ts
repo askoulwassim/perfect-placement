@@ -115,6 +115,15 @@ export const ScheduleSpec = z.union([z.literal('off'), z.string().min(1)]);
 export const LINKEDIN_MODES = ['off', 'dry-run', 'live'] as const;
 export const LINKEDIN_DRIVERS = ['claude-in-chrome', 'playwright'] as const;
 
+/** Getting started path flags (#24): the steps not read from the pipeline itself. */
+export const GuideState = z.object({
+  policy: z.boolean().default(false),
+  review: z.boolean().default(false),
+  done: z.boolean().default(false),
+});
+export type GuideState = z.infer<typeof GuideState>;
+export const DEFAULT_GUIDE: GuideState = { policy: false, review: false, done: false };
+
 export const PolicyConfig = z.object({
   policy: Thresholds,
   /** Per decision-kind threshold overrides. */
@@ -126,7 +135,20 @@ export const PolicyConfig = z.object({
     green_min: z.number(),
     yellow_min: z.number(),
   }),
-  scout: z.object({ watchlist_share_max: z.number().min(0).max(1) }),
+  /**
+   * Scout (#28). `watchlist_share_max`: watchlist web-search queries as a share of a run's queries (ATS board
+   * scans are not queries). `target_new_roles`: a run keeps building query variations until this many roles
+   * were added or `max_queries` web searches ran. Defaults keep older config.json files valid.
+   * #67: the share also caps a run's watchlist **adds** at `ceil(watchlist_share_max * target_new_roles)`.
+   * `max_per_company`: most roles one company adds per run from its board (`scout.watchlist_scan`,
+   * `roles.add` source `watchlist`); unset = `scoring.company_active_cap + 2` (`scoutMaxPerCompany`).
+   */
+  scout: z.object({
+    watchlist_share_max: z.number().min(0).max(1),
+    target_new_roles: z.number().int().min(1).default(25),
+    max_queries: z.number().int().min(1).default(30),
+    max_per_company: z.number().int().min(1).optional(),
+  }),
   runner: RunnerConfig,
   /** Read-only, capped, slow; never messages or connects. Tests use `dry-run`. */
   linkedin: z.object({
@@ -138,20 +160,40 @@ export const PolicyConfig = z.object({
     min_delay_s: z.number().min(0),
   }),
   freshness: z.object({ stale_after_days: z.number().int().positive() }),
+  /** Run queue (#30): how many queued skill runs run at once (each is an agent session). */
+  runs: z.object({ max_concurrent: z.number().int().min(1) }),
+  /**
+   * Automatic pipeline (#30), on by default. `score_after_scout`: a scout run that ends `ok` queues one
+   * score run for the inbox. `research_after_score`: a score run that ends `ok` or `partial` queues one
+   * research run per company of a role it kept (not archived) that has no dossier yet.
+   */
+  pipeline: z.object({ score_after_scout: z.boolean(), research_after_score: z.boolean() }),
   schedules: z.object({
     inbox: ScheduleSpec,
     freshness: ScheduleSpec,
     scout_score: ScheduleSpec,
   }),
   /**
-   * UI state kept in the vault (wave1-decisions #27). `cues_seen`: first-visit cue ids already
-   * dismissed (screen names, plus `ask`); Settings "Show cues" resets it to []. Optional: older
-   * config.json files parse unchanged.
+   * UI state kept in the vault (wave1-decisions #27, superseded 2026-10-09: #24/#43). `guide`: the
+   * Getting started path on Now. `policy`: Settings opened; `review`: River or Needs you opened with
+   * scored roles; `done`: every step finished, the card never shows again. No user setting reads or
+   * resets it; a dev reset is `pp op config.update` with `{ ui: { guide: { done: false, ... } } }`.
+   * Optional: older config.json files (including ones with the retired `cues_seen`) parse unchanged.
    */
-  ui: z.object({ cues_seen: z.array(z.string()).default([]) }).optional(),
+  ui: z.object({ guide: GuideState.default(DEFAULT_GUIDE) }).optional(),
 });
 /** Shape of `$PP_HOME/config.json`. */
 export type PolicyConfig = z.infer<typeof PolicyConfig>;
+
+/** Most roles one watchlist company adds per scout run (#67): `scout.max_per_company`, else the active cap + 2. */
+export function scoutMaxPerCompany(config: Pick<PolicyConfig, 'scout' | 'scoring'>): number {
+  return config.scout.max_per_company ?? config.scoring.company_active_cap + 2;
+}
+
+/** Most watchlist roles one scout run adds (#67): `ceil(watchlist_share_max * target_new_roles)`. */
+export function scoutWatchlistMaxAdds(config: Pick<PolicyConfig, 'scout'>): number {
+  return Math.ceil(config.scout.watchlist_share_max * config.scout.target_new_roles - 1e-9);
+}
 
 export const DEFAULT_CONFIG: PolicyConfig = {
   policy: { auto: 0.9, second_opinion: 0.7, undo_hours: 24 },
@@ -170,7 +212,7 @@ export const DEFAULT_CONFIG: PolicyConfig = {
     agent: {},
   },
   scoring: { affinity_cap: 5, company_active_cap: 3, green_min: 75, yellow_min: 55 },
-  scout: { watchlist_share_max: 0.34 },
+  scout: { watchlist_share_max: 0.34, target_new_roles: 25, max_queries: 30 },
   runner: { command: 'claude' },
   linkedin: {
     mode: 'live',
@@ -181,8 +223,10 @@ export const DEFAULT_CONFIG: PolicyConfig = {
     min_delay_s: 20,
   },
   freshness: { stale_after_days: 45 },
+  runs: { max_concurrent: 2 },
+  pipeline: { score_after_scout: true, research_after_score: true },
   schedules: { inbox: 'daily 07:30', freshness: 'daily 06:30', scout_score: 'fri 05:30' },
-  ui: { cues_seen: [] },
+  ui: { guide: { ...DEFAULT_GUIDE } },
 };
 
 /** Effective thresholds for a decision kind (base merged with override). Pure data merge, no policy logic. */

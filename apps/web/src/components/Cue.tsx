@@ -22,8 +22,8 @@ function find(selector: string): HTMLElement | null {
 }
 
 /**
- * One-time spotlight (wave1-decisions #27): a soft scrim with an emerald halo around the target
- * and a one to three word label beside it. Never blocks: clicks and keys pass through, and the
+ * Step cue (Getting started, #24): a soft scrim with an emerald halo around the target and one short
+ * sentence beside it, shown on arrival at a step's screen. Never blocks: clicks and keys pass through, and the
  * first click or key dismisses it (Esc only dismisses). Renders nothing until the target exists.
  */
 export function Cue({ id, label, target, onDismiss }: { id: string; label: string; target: string; onDismiss: () => void }) {
@@ -86,7 +86,7 @@ export function Cue({ id, label, target, onDismiss }: { id: string; label: strin
   const mid = box.top + box.height / 2;
   // Beside the target when there is room on its left (desktop header), else above (pinned mobile) or below.
   const place: CSSProperties =
-    box.left > 220
+    box.left > Math.max(220, vw / 2)
       ? { right: vw - box.left + PAD + 14, top: mid, transform: 'translateY(-50%)' }
       : box.top > vh / 2
         ? { left: box.left, bottom: vh - box.top + PAD + 12 }
@@ -117,7 +117,7 @@ export function Cue({ id, label, target, onDismiss }: { id: string; label: strin
           ...place,
           zIndex: 81,
           pointerEvents: 'none',
-          whiteSpace: 'nowrap',
+          maxWidth: Math.min(320, vw - 32),
           background: C['emerald-deep'],
           color: C.fg,
           border: `1px solid ${C.emerald}`,

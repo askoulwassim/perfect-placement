@@ -99,6 +99,8 @@ export function openFixtureEngine(opts: FixtureOptions = {}): FixtureEngine {
   const launcher = fakeLauncher();
   const services: EngineServices = {
     fetch: noNetwork,
+    // No DNS in tests (#37): MX unknown unless a test injects a fake.
+    mx: async () => null,
     freshnessDelayMs: 0,
     launcher,
     env: {},
@@ -169,3 +171,5 @@ export function learnKev(changes: readonly string[], applyP = 0.95): FakeScript 
     return undefined;
   };
 }
+
+export * from './ask.js';

@@ -15,12 +15,65 @@ export const COMPONENT_NAME: Record<ProfileComponentKey, string> = {
   network: 'Network',
 };
 
+/** Provenance and links, not facts to show as chips (#38); Application defaults have their own editor (#42). */
+const META_KEYS = new Set(['source_path', 'source_file', 'dictated', 'extracted_by', 'years_basis', 'application_defaults']);
+
+/** Application defaults (#42) as You edits them: field, label (1-3 words), list or text. */
+export const DEFAULT_FIELDS = [
+  ['sponsorship', 'Sponsorship', 'no / yes'],
+  ['authorized_countries', 'Work countries', 'United States, Canada'],
+  ['relocation', 'Relocation', 'no / yes / depends on the role'],
+  ['notice_period', 'Notice', '2 weeks'],
+  ['in_office', 'Office days', '0 / 1-2 / 3 / 4-5'],
+  ['comp_expectation', 'Comp', ''],
+  ['eeo', 'EEO', 'Prefer not to say'],
+] as const;
+export type DefaultField = (typeof DEFAULT_FIELDS)[number][0];
+
+/** The editor's text for each field (lists comma-joined). */
+export function defaultsText(d: Record<string, unknown> | undefined): Record<DefaultField, string> {
+  const out = {} as Record<DefaultField, string>;
+  for (const [f] of DEFAULT_FIELDS) {
+    const v = d?.[f];
+    out[f] = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : '';
+  }
+  return out;
+}
+
+/** Editor text -> `profile.set_defaults` input (an empty field clears it). */
+export function defaultsInput(t: Record<DefaultField, string>): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  for (const [f] of DEFAULT_FIELDS)
+    out[f] =
+      f === 'authorized_countries'
+        ? t[f]
+            .split(',')
+            .map((x) => x.trim())
+            .filter(Boolean)
+        : t[f].trim();
+  return out;
+}
+
+/** A list item as a chip: text, or a role as "Company · Title". */
+const itemLabel = (x: unknown): string | null => {
+  if (x && typeof x === 'object') {
+    const o = x as Record<string, unknown>;
+    return typeof o.company === 'string' && typeof o.title === 'string' ? `${o.company} · ${o.title}` : null;
+  }
+  return String(x);
+};
+
 /** Flatten a component's data_json into short chip values. */
 export function chipsOf(data: Record<string, unknown>): Array<{ label: string; value?: string }> {
   const out: Array<{ label: string; value?: string }> = [];
   for (const [key, v] of Object.entries(data)) {
+    if (META_KEYS.has(key)) continue;
     const label = humanize(key);
-    if (Array.isArray(v)) for (const x of v) out.push({ label: String(x) });
+    if (Array.isArray(v))
+      for (const x of v) {
+        const l = itemLabel(x);
+        if (l) out.push({ label: l });
+      }
     else if (typeof v === 'number') out.push({ label, value: v >= 1000 ? k(v) : String(v) });
     else if (typeof v === 'boolean') out.push({ label, value: v ? 'Yes' : 'No' });
     else if (v && typeof v === 'object') for (const [kk, vv] of Object.entries(v)) out.push({ label: humanize(kk), value: String(vv) });

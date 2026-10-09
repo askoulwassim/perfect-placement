@@ -6,6 +6,7 @@
 import {
   type Application,
   type ArchiveReason,
+  type AskThreadRow,
   type Band,
   type Company,
   type Contact,
@@ -572,6 +573,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0002',
@@ -581,6 +584,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0003',
@@ -590,6 +595,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0004',
@@ -599,6 +606,8 @@ export const contacts: Contact[] = [
     email: 'omar.s@example.com',
     source: 'jd',
     notes: null,
+    email_source: 'public',
+    email_confidence: 0.9,
   },
   {
     id: 'ct_0005',
@@ -608,6 +617,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'linkedin',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
   {
     id: 'ct_0006',
@@ -617,6 +628,8 @@ export const contacts: Contact[] = [
     email: null,
     source: 'company_site',
     notes: null,
+    email_source: null,
+    email_confidence: null,
   },
 ];
 
@@ -1079,6 +1092,22 @@ export const onboardSessions: OnboardSession[] = [
     answered_json: ['domain.ranked', 'growth.scope_ceiling'],
     calibration_json: { sample_ids: ['cal_01', 'cal_02', 'cal_03'], choices: { cal_01: 'yes' } },
     version_id: null,
+    interview_json: {},
+  },
+];
+
+/** One earlier Ask thread (#69): a Claude Code session with two turns. */
+export const askThreads: AskThreadRow[] = [
+  {
+    id: 'ask_01jz0000000000000000000001',
+    created_at: at(1, 18),
+    updated_at: at(1, 18),
+    runner: 'claude',
+    session_id: 'sess-fixture-0001',
+    turns_json: [
+      { user: 'Which active roles are going stale?', reply: 'root = Reply([t])\nt = Text("Two active roles look stale")' },
+      { user: 'Score my inbox roles', reply: 'root = Reply([t])\nt = Text("Score run started for your inbox")' },
+    ],
   },
 ];
 
@@ -1099,6 +1128,8 @@ export const FIXTURE_TABLES = {
   decision: decisions,
   run: runs,
   onboard_session: onboardSessions,
+  ask_thread: askThreads,
 } as const;
 
-export const FIXTURE_CONFIG = DEFAULT_CONFIG;
+/** An established search: the Getting started path (#24) is long finished. */
+export const FIXTURE_CONFIG: typeof DEFAULT_CONFIG = { ...DEFAULT_CONFIG, ui: { guide: { policy: true, review: true, done: true } } };

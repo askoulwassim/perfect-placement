@@ -32,6 +32,10 @@ function referencedPaths(h: Parameters<(typeof vaultRead)['run']>[1]): Set<strin
   }
   for (const a of select(h.db, 'application')) for (const p of Object.values(a.package_paths_json)) add(p);
   for (const r of select(h.db, 'run')) add(r.log_path);
+  // The kept resume text (#38): linked from Story, and from the onboarding draft before confirm.
+  for (const c of select(h.db, 'profile_component', 'key = ?', ['story'])) add(c.data_json.source_path);
+  const s = select(h.db, 'onboard_session', '1 ORDER BY started_at DESC, id DESC LIMIT 1')[0];
+  add((s?.draft_json as { story?: { source_path?: unknown } } | undefined)?.story?.source_path);
   return out;
 }
 
