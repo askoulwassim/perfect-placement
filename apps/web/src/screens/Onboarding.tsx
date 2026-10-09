@@ -2,6 +2,7 @@ import {
   CRITERIA,
   CRITERION_LABELS,
   type Criterion,
+  cleanDictation,
   type OpOutput,
   PROFILE_COMPONENT_KEYS,
   PROFILE_COMPONENT_KIND,
@@ -18,14 +19,23 @@ import { PPMark } from '../components/shell';
 import { C, display, eyebrow, mono, tab, X } from '../components/theme';
 import { humanize, k } from '../lib/format';
 import { COMPONENT_NAME, chipsOf } from '../lib/profile';
+import { activeLabel, isActive, runOutcome } from '../lib/runs';
 import { go } from '../router';
 
 type OnboardState = OpOutput<'onboard.answer'>;
 const NODE_COUNT = PROFILE_COMPONENT_KEYS.length;
 
+/** A file as base64 (the upload is kept in the vault and its text extracted by the engine, #38). */
+async function toBase64(f: File): Promise<string> {
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolean } = {}) {
   const act = useAct();
-  const { showToast } = useApp();
+  const { showToast, client, watchRun, runs, activeRun } = useApp();
   const [step, setStep] = useState(startAtCalibrate ? 2 : 0);
   const [state, setState] = useState<OnboardState | null>(null);
   const [file, setFile] = useState<string | null>(null);
@@ -36,6 +46,10 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const [ci, setCi] = useState(0);
   /** List text questions (voice.sample): the item being typed before Add. */
   const [pending, setPending] = useState('');
+  /** Dictated text answers shown cleaned for confirmation: the raw text by question id (#38). */
+  const [rawOf, setRawOf] = useState<Record<string, string>>({});
+  /** The headless onboard run parsing the resume (#38). */
+  const [parseRunId, setParseRunId] = useState<string | null>(null);
   /** A scoped re-interview that reached confirm: the component to show on You after Start. */
   const [reinterview, setReinterview] = useState<ProfileComponentKey | null>(null);
   const samples = useOp('onboard.samples', step >= 2 ? {} : null);
@@ -67,10 +81,26 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const ingest = async (f: File | null) => {
     if (state) return;
     setFile(f?.name ?? 'resume');
-    const text = f ? await f.text().catch(() => '') : '';
-    const o = await act('onboard.ingest_resume', text ? { text } : {});
-    if (o.status === 'ok') setState(o.output);
+    const content_base64 = f ? await toBase64(f).catch(() => '') : '';
+    const o = await act('onboard.ingest_resume', f && content_base64 ? { file: { name: f.name, content_base64 } } : {});
+    if (o.status !== 'ok') {
+      setFile(null);
+      return;
+    }
+    setState(o.output);
+    const runId = o.output.resume?.parse_run_id;
+    if (!runId) return;
+    setParseRunId(runId);
+    // Follow the parse run; when it ends, the extracted facts replace the preview.
+    const g = await client.run('runs.get', { run_id: runId });
+    if (g.status === 'ok')
+      watchRun(g.output.run, async () => {
+        const s = await client.run('onboard.state', {});
+        if (s.status === 'ok' && s.output.step !== 'done') setState(s.output);
+      });
   };
+  const parseRun = (parseRunId ? runs.find((r) => r.id === parseRunId) : undefined) ?? activeRun({ skill: 'onboard' });
+  const parseLabel = parseRun ? (isActive(parseRun.status) ? activeLabel(parseRun) : runOutcome(parseRun)) : null;
 
   const q = state?.next_question ?? null;
   const val = q ? answers[q.id] : undefined;
@@ -122,7 +152,21 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
       return;
     }
     if (step === 1 && q && answered && (listQ || qVal !== undefined)) {
-      const o = await act('onboard.answer', { question_id: q.id, value: listQ ? listOut : (qVal as string | number | string[]) });
+      // A dictated answer is shown cleaned first; Next again confirms it (the raw text is kept).
+      if (q.answer_type === 'text' && !listQ && typeof qVal === 'string' && rawOf[q.id] === undefined) {
+        const clean = cleanDictation(qVal);
+        if (clean && clean !== qVal.trim()) {
+          setRawOf({ ...rawOf, [q.id]: qVal });
+          setAnswers({ ...answers, [q.id]: clean });
+          return;
+        }
+      }
+      const raw = rawOf[q.id];
+      const o = await act('onboard.answer', {
+        question_id: q.id,
+        value: listQ ? listOut : (qVal as string | number | string[]),
+        ...(raw !== undefined && !listQ ? { raw } : {}),
+      });
       if (o.status !== 'ok') return;
       setPending('');
       setState(o.output);
@@ -259,6 +303,11 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 <span style={{ ...mono(12, C.emerald), border: `1px solid ${C['emerald-2']}`, borderRadius: 999, padding: '6px 14px' }}>
                   {file}
                 </span>
+                {parseLabel && (
+                  <span className="dropzone__run" style={{ ...mono(11, C.muted), letterSpacing: '.1em' }}>
+                    {parseLabel}
+                  </span>
+                )}
                 <span style={{ width: 220, height: 4, borderRadius: 4, background: C.line, overflow: 'hidden', display: 'block' }}>
                   <span
                     style={{
@@ -427,6 +476,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             )}
             {q.answer_type === 'text' && !listQ && (
               <div className="onboard-q" style={{ maxWidth: 620 }}>
+                {rawOf[q.id] !== undefined && <div style={{ ...eyebrow(C.emerald), marginBottom: 10 }}>Cleaned</div>}
                 <textarea
                   aria-label={q.label}
                   value={typeof qVal === 'string' ? qVal : ''}

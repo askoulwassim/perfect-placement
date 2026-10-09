@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CRITERIA, type Criterion, type OpContext, type OpOutput } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { type CalibrationSample, deriveWeights } from './calibration.js';
 import { rubricWeights } from './components.js';
 import { nextSamples } from './questions.js';
 import { parseResumeHeuristic } from './resume.js';
-import { SYNTH_RESUME } from './synthetic.js';
+import { SYNTH_RESUME, SYNTH_RESUME_NO_YEARS, synthDocx, synthPdf } from './synthetic.js';
 
 type State = OpOutput<'onboard.ingest_resume'>;
 const clock = tickingClock();
@@ -41,6 +41,7 @@ describe('resume parsing', () => {
     const d = parseResumeHeuristic(SYNTH_RESUME, new Date('2026-10-08T00:00:00Z'));
     expect(d.story.headline).toBe('Principal Product Manager, Data Platforms');
     expect(d.story.years).toBe(10);
+    expect(d.story.years_basis).toBe('stated');
     expect((d.story.roles as unknown[]).length).toBe(3);
     expect(d.story.wins).toContain('Self-serve analytics: Launched a self-serve analytics product used by 120 teams.');
     expect(d.craft.functions).toEqual(['PM']);
@@ -251,5 +252,111 @@ describe('onboarding end to end via ops', () => {
     const r = (await op('onboard.ingest_resume', { text: SYNTH_RESUME })) as State;
     expect(r.next_question).not.toBeNull();
     expect((await ee.runOp('onboard.answer', { question_id: 'terms.floor', value: 'lots' }, ctx())).status).toBe('error');
+  });
+});
+
+describe('the resume is kept, parsed by an agent, and never guessed (#38)', () => {
+  const upload = (name: string, bytes: Buffer) => ({ file: { name, content_base64: bytes.toString('base64') } });
+  const NO_YEARS_PARAS = SYNTH_RESUME_NO_YEARS.trim().split('\n').filter(Boolean);
+
+  it('an upload keeps the original and its text in files/, links it from Story and queues the onboard run', async () => {
+    e = openFixtureEngine({ seed: false });
+    const ee = e as FixtureEngine;
+    const state = (await op('onboard.ingest_resume', upload('Riley Resume.docx', synthDocx(NO_YEARS_PARAS)))) as State;
+    expect(state.resume?.source_path).toMatch(/^files\/resume-\d{8}-\d{6}\.md$/);
+    expect(state.resume?.file_path).toMatch(/^files\/resume-\d{8}-\d{6}-original\.docx$/);
+    expect(existsSync(join(ee.home, state.resume?.file_path as string))).toBe(true);
+    const kept = readFileSync(join(ee.home, state.resume?.source_path as string), 'utf8');
+    expect(kept).toMatch(/^---\nid: "resume_\d{8}-\d{6}"\ntype: "resume_source"\n---/);
+    expect(kept).toContain('Northwind Analytics — Senior Product Manager — Jan 2019–Present');
+    // Viewable: vault.read serves the kept resume (the onboarding draft links it).
+    const viewed = await op('vault.read', { path: state.resume?.source_path });
+    expect(viewed.markdown).toContain('Shipped a forecasting product used by 85 customers.');
+    // The headless onboard run is queued and launched (fake launcher) with the extraction asset in its prompt.
+    expect(state.resume?.parse_run_id).toMatch(/^rn_/);
+    const run = ee.db.prepare('SELECT op, status FROM run WHERE id = ?').get(state.resume?.parse_run_id) as { op: string; status: string };
+    expect(run.op).toBe('onboard');
+    await new Promise((r) => setTimeout(r, 20));
+    const spec = ee.launcher.specs.find((x) => x.args.join(' ').includes('extract.md'));
+    expect(spec).toBeDefined();
+    // The instant preview never guesses: years only from the role dates, asked for confirmation.
+    expect(state.next_question?.id).toBe('story.years');
+    expect(state.next_question?.options).toEqual(['10', 'leave out']);
+    // An agent ingest (e.g. the skill in a live session) does not queue another run.
+    const runs = (ee.db.prepare(`SELECT COUNT(*) AS n FROM run WHERE op = 'onboard'`).get() as { n: number }).n;
+    await op('onboard.ingest_resume', upload('r.pdf', synthPdf(['Riley Sample', 'Senior Product Manager'])), ctx('agent'));
+    expect((ee.db.prepare(`SELECT COUNT(*) AS n FROM run WHERE op = 'onboard'`).get() as { n: number }).n).toBe(runs);
+    // Unreadable uploads are refused.
+    expect(await ee.runOp('onboard.ingest_resume', upload('r.docx', Buffer.from('nope')), ctx())).toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('onboard.extract: verbatim facts replace the preview; invented numbers, employers and years are refused', async () => {
+    e = openFixtureEngine({ seed: false });
+    const ee = e as FixtureEngine;
+    await op('onboard.ingest_resume', { text: SYNTH_RESUME_NO_YEARS }, ctx('agent'));
+    const roles = [
+      {
+        company: 'Northwind Analytics',
+        title: 'Senior Product Manager',
+        dates: 'Jan 2019–Present',
+        bullets: ['Shipped a forecasting product used by 85 customers.'],
+      },
+      { company: 'Contoso Retail', title: 'Product Analyst', dates: '2016–2018', bullets: ['Built the weekly demand dashboard.'] },
+    ];
+    const bad = async (story: Record<string, unknown>, re: RegExp) => {
+      const o = await ee.runOp('onboard.extract', { story }, ctx('agent'));
+      expect(o).toMatchObject({ status: 'error', code: 'invalid_input' });
+      expect((o as { message: string }).message).toMatch(re);
+    };
+    await bad({ headline: 'Senior Product Manager', years: 26, years_basis: 'stated', roles }, /years 26/);
+    await bad({ years: 26, roles }, /years_basis/);
+    await bad({ years: 12, years_basis: 'from dates', roles }, /role dates give 10/);
+    await bad({ wins: ['Shipped a forecasting product used by 95 customers.'], roles }, /"95"/);
+    await bad({ roles: [{ ...roles[0], company: 'Globex' }] }, /Globex/);
+
+    const out = await op('onboard.extract', {
+      story: {
+        headline: 'Senior Product Manager',
+        roles,
+        wins: [roles[0]?.bullets[0]],
+        years: 10,
+        years_basis: 'from dates',
+        source_path: 'x',
+      },
+      craft: { level: 'senior' },
+    });
+    expect(out.target).toBe('session');
+    expect(out.state.next_question.id).toBe('story.years');
+    const draft = (ee.db.prepare('SELECT draft_json FROM onboard_session ORDER BY started_at DESC LIMIT 1').get() as { draft_json: string })
+      .draft_json;
+    const story = JSON.parse(draft).story;
+    expect(story).toMatchObject({ extracted_by: 'agent', roles, years: 10, years_basis: 'from dates' });
+    expect(story.source_path).toMatch(/^files\/resume-/);
+    expect(story.education).toBeUndefined(); // the preview is replaced, not merged
+  });
+
+  it('dictated answers are stored clean with the raw text kept; unconfirmed years are never saved', async () => {
+    e = openFixtureEngine();
+    let state = (await op('onboard.start', { components: ['story'] })) as State;
+    expect(state.next_question?.id).toBe('story.headline');
+    state = (await op('onboard.answer', { question_id: 'story.headline', value: 'Data platform product lead' })) as State;
+    expect(state.next_question?.id).toBe('story.win');
+    const raw = 'um, so I uh cut pipeline cost the the 38%, you know, with a usage-based redesign';
+    state = (await op('onboard.answer', { question_id: 'story.win', value: raw })) as State;
+    expect(state.step).toBe('confirm');
+    await op('onboard.confirm', {});
+    const story = (await comps()).components.find((c) => c.key === 'story')?.data_json ?? {};
+    expect(story.wins).toEqual(['I cut pipeline cost the 38%, with a usage-based redesign']);
+    expect(story.dictated).toEqual({ 'story.win': raw });
+    // The fixture Story's years (no basis: a guess) is dropped on confirm.
+    expect(story.years).toBeUndefined();
+    // The UI sends the cleaned text the user confirmed plus the raw.
+    await op('onboard.start', { components: ['story'] });
+    await op('onboard.answer', { question_id: 'story.headline', value: 'Data platform product lead' });
+    await op('onboard.answer', { question_id: 'story.win', value: 'Cut pipeline cost 38%.', raw: 'uh cut pipeline cost 38%' });
+    await op('onboard.confirm', {});
+    const again = (await comps()).components.find((c) => c.key === 'story')?.data_json ?? {};
+    expect(again.wins).toEqual(['Cut pipeline cost 38%.']);
+    expect((again.dictated as Record<string, string>)['story.win']).toBe('uh cut pipeline cost 38%');
   });
 });

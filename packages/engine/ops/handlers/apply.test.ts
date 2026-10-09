@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURE_ROLE_IDS, roles as fixtureRoles } from '@perfect-placement/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SYNTH_RESUME } from '../../profile/synthetic.js';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../../testing/index.js';
 
 let e: FixtureEngine;
@@ -69,6 +70,67 @@ describe('apply.tailor', () => {
     expect(await e.runOp('apply.tailor', { role_id: FIXTURE_ROLE_IDS.stripeApplied, ...pkg }, ctxAt())).toMatchObject({
       code: 'forbidden_transition',
     });
+  });
+});
+
+describe('apply.tailor fact check (#38)', () => {
+  /** A kept SYNTHETIC source resume, linked from the confirmed Story (as onboarding leaves it). */
+  async function keepResume() {
+    mkdirSync(join(e.home, 'files'), { recursive: true });
+    writeFileSync(join(e.home, 'files/resume-synth.md'), `---\nid: "resume_synth"\ntype: "resume_source"\n---\n\n${SYNTH_RESUME}`);
+    const p = okOut(
+      await e.runOp(
+        'profile.propose_diff',
+        { component: 'story', before: {}, after: { source_path: 'files/resume-synth.md' }, evidence: ['test'] },
+        ctxAt('human'),
+      ),
+    );
+    okOut(await e.runOp('profile.apply_diff', { diff_id: p.diff.id }, ctxAt('human')));
+  }
+  const truthful = [
+    '# Jordan Example',
+    '',
+    'Principal Product Manager, Data Platforms. Ten years across startups and a public company.',
+    '',
+    '### Acme Data — Principal Product Manager, Analytics — Mar 2022–Present',
+    '- Launched a self-serve analytics product used by 120 teams.',
+    '- Cut warehouse spend 30% with usage-based pricing.',
+  ].join('\n');
+
+  it('an invented "26 years" is rejected with the list; the role does not move', async () => {
+    await keepResume();
+    const id = FIXTURE_ROLE_IDS.datadogActive;
+    const o = await e.runOp(
+      'apply.tailor',
+      { role_id: id, ...pkg, resume_md: `${truthful}\n\nA leader with 26 years of experience.` },
+      ctxAt(),
+    );
+    expect(o).toMatchObject({ status: 'error', code: 'invalid_input' });
+    expect((o as { message: string }).message).toContain('resume "26 years" (years)');
+    expect((o as { issues: unknown[] }).issues).toEqual([
+      { doc: 'resume', kind: 'years', claim: '26 years', line: 'A leader with 26 years of experience.' },
+    ]);
+    expect(status(id)).toBe('active');
+    // A guessed Story number (the fixture's years: 12, no basis) is no source either.
+    const g = await e.runOp('apply.tailor', { role_id: id, ...pkg, cover_letter_md: 'I bring 12 years of experience.' }, ctxAt());
+    expect(g).toMatchObject({ status: 'error', code: 'invalid_input' });
+  });
+
+  it('a grounded package passes; the fit map cites each claim; a prose employer not in the sources needs you', async () => {
+    await keepResume();
+    const id = FIXTURE_ROLE_IDS.datadogActive;
+    const cover = 'Hi Datadog team,\n\nAt Acme Data I cut warehouse spend 30%. Before that I worked at Globex on billing.';
+    const out = okOut(await e.runOp('apply.tailor', { role_id: id, ...pkg, resume_md: truthful, cover_letter_md: cover }, ctxAt()));
+    expect(out.fact_check.checked).toBeGreaterThan(5);
+    expect(out.fact_check.needs_you).toEqual([
+      { doc: 'cover_letter', kind: 'employer', claim: 'Globex', line: expect.stringContaining('worked at Globex') },
+    ]);
+    const fit = read(`applications/${id}/fit_map.md`);
+    expect(fit).toContain('## Fact check');
+    expect(fit).toContain('files/resume-synth.md');
+    expect(fit).toMatch(/\| 120 \| - \*\*Self-serve analytics:\*\* Launched a self-serve analytics product used by 120 teams\. \|/);
+    expect(fit).toContain('Cover letter: "Globex" (employer) not in the sources');
+    expect(status(id)).toBe('draft-ready');
   });
 });
 

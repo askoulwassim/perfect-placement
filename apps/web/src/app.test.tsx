@@ -334,6 +334,75 @@ describe('click paths', () => {
     expect(opsCalled()).toContain('onboard.confirm');
   });
 
+  it('Onboarding: the resume upload is kept and parsed by a run; derived years are confirmed (#38)', async () => {
+    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
+    const text = [
+      '# Riley Sample',
+      '',
+      '**Title:** Senior Product Manager',
+      '',
+      '## Experience',
+      '',
+      '### Northwind Analytics — Senior Product Manager — Jan 2019–Present',
+      '- Shipped a forecasting product used by 85 customers.',
+      '',
+      '### Contoso Retail — Product Analyst — 2016–2018',
+      '- Built the weekly demand dashboard.',
+    ].join('\n');
+    fireEvent.drop($(container, '.dropzone'), { dataTransfer: { files: [new File([text], 'riley.md', { type: 'text/markdown' })] } });
+    await waitFor(() => expect(live?.calls.some((c) => c.name === 'onboard.ingest_resume')).toBe(true));
+    const sent = live?.calls.find((c) => c.name === 'onboard.ingest_resume')?.body as { file: { name: string; content_base64: string } };
+    expect(sent.file.name).toBe('riley.md');
+    expect(new TextDecoder().decode(Uint8Array.from(atob(sent.file.content_base64), (ch) => ch.charCodeAt(0)))).toBe(text);
+    // The parse run shows its status on the drop zone.
+    await waitFor(() => expect(['Queued', 'Setting up']).toContain($(container, '.dropzone__run').textContent));
+    await waitFor(() => expect(primary(container).style.opacity).toBe('1'), { timeout: 4000 });
+    fireEvent.click(primary(container));
+    // Years are derived from the role dates, never guessed: the user confirms or leaves them out.
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Years'));
+    const chips = Array.from(container.querySelectorAll('.onboard-q .chip')).map((c) => c.textContent);
+    expect(chips).toEqual(['10', 'leave out']);
+    assertButtons(container);
+  });
+
+  it('Onboarding: a dictated answer is shown cleaned, then saved with its raw text (#38)', async () => {
+    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['story'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Headline'));
+    fireEvent.change($(container, '.onboard-q textarea'), { target: { value: 'um, data platform uh product lead' } });
+    fireEvent.click(primary(container));
+    await screen.findByText('Cleaned');
+    expect(($(container, '.onboard-q textarea') as HTMLTextAreaElement).value).toBe('Data platform product lead');
+    expect(live?.calls.some((c) => c.name === 'onboard.answer')).toBe(false);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.some((c) => c.name === 'onboard.answer')).toBe(true));
+    expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toEqual({
+      question_id: 'story.headline',
+      value: 'Data platform product lead',
+      raw: 'um, data platform uh product lead',
+    });
+  });
+
+  it('You: Story opens the kept source resume (#38)', async () => {
+    const { container } = await boot('#/you/story', async (l) => {
+      const s = (await l.client.run('onboard.ingest_resume', { text: '# Sam Fixture\n\nData platform product lead.' })) as {
+        status: 'ok';
+        output: { resume: { source_path: string } };
+      };
+      const path = s.output.resume.source_path;
+      const p = (await l.client.run('profile.propose_diff', {
+        component: 'story',
+        before: {},
+        after: { source_path: path },
+        evidence: ['test'],
+      })) as { status: 'ok'; output: { diff: { id: string } } };
+      await l.client.run('profile.apply_diff', { diff_id: p.output.diff.id });
+    });
+    const btn = await screen.findByRole('button', { name: 'Resume' });
+    expect(btn.getAttribute('data-op')).toBe('vault.read');
+    fireEvent.click(btn);
+    await waitFor(() => expect($(container, '.resume-source__text').textContent).toContain('Data platform product lead.'));
+  });
+
   it('Onboarding: four steps end to end', async () => {
     const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));

@@ -30,6 +30,9 @@ export const vaultPath = {
   interviewRetro: (roleId: string, n: number) => `interviews/${roleId}/retro-${n}.md`,
   outreach: (contactId: string, roleId: string) => `outreach/${contactId}-${roleId}.md`,
   file: (name: string) => `files/${name}`,
+  /** Added (#38): a kept resume upload: its extracted text (markdown) and the original file. */
+  resumeText: (stamp: string) => `files/resume-${stamp}.md`,
+  resumeFile: (stamp: string, ext: string) => `files/resume-${stamp}-original.${ext}`,
   runLog: (date: string, op: string) => `runs/${date}_${op}.md`,
 } as const;
 
@@ -45,6 +48,7 @@ export const MARKDOWN_TYPES = [
   'interview_retro',
   'outreach',
   'run',
+  'resume_source',
 ] as const;
 
 /** Every vault markdown file starts with this frontmatter. Structured fields live in the db, never parsed from markdown. */

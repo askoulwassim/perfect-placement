@@ -83,6 +83,8 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'runs.finish': 'low',
   'vault.read': 'low',
   'system.backends': 'low',
+  // #38
+  'onboard.extract': 'low',
 };
 
 /** Wave 2 read ops. */

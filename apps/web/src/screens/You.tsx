@@ -48,6 +48,8 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
   const after = chipText(dj?.after ?? {});
   const reject = selDiff ? () => void act('profile.reject_diff', { diff_id: selDiff.id }) : undefined;
   const chips = sel ? chipText(sel.data_json) : [];
+  // The kept source resume (#38), linked from Story.
+  const source = selected === 'story' && typeof sel?.data_json.source_path === 'string' ? sel.data_json.source_path : null;
   const weight = sel?.weight != null ? Math.round(sel.weight * 100) : null;
   const pick = (k: string) => setSelected(k === selected ? null : (k as ProfileComponentKey));
   const header = { eyebrow: `Profile · v${versions.length || 1}`, title: 'You' };
@@ -70,6 +72,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                 </span>
               ))}
             </div>
+            {source && <ResumeSource path={source} />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
             <VersionTimeline compact versions={tl} />
           </div>
@@ -176,6 +179,7 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
                   </span>
                 ))}
               </div>
+              {source && <ResumeSource path={source} />}
               {weight != null && (
                 <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr 26px', gap: 12, alignItems: 'center' }}>
@@ -205,5 +209,54 @@ export function You({ component }: { component?: ProfileComponentKey } = {}) {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** The kept source resume: one button opens its extracted text. */
+function ResumeSource({ path }: { path: string }) {
+  const [open, setOpen] = useState(false);
+  const doc = useOp('vault.read', open ? { path } : null);
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Btn
+        op="vault.read"
+        className="resume-source"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        style={{
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: open ? C['panel-2'] : 'transparent',
+          color: C.fg,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Resume
+      </Btn>
+      {open && (
+        <div
+          className="resume-source__text"
+          style={{
+            marginTop: 12,
+            maxHeight: 360,
+            overflow: 'auto',
+            background: C['bg-2'],
+            border: `1px solid ${C.line}`,
+            borderRadius: 10,
+            padding: 14,
+            ...mono(12, C.muted),
+            lineHeight: 1.55,
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {doc.data?.markdown ?? ''}
+        </div>
+      )}
+    </div>
   );
 }

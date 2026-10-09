@@ -1,5 +1,6 @@
 import {
   type Criterion,
+  cleanDictation,
   type OpContext,
   type OpInput,
   type OpOutput,
@@ -7,17 +8,21 @@ import {
   PROFILE_COMPONENT_KIND,
   type ProfileComponentKey,
   type ProfileDiff,
+  vaultPath,
 } from '@perfect-placement/contracts';
+import { renderMarkdown, stripFrontmatter } from '../ops/vault.js';
 import { CALIBRATION_SIZE, type CalibrationSample, deriveWeights, samplesFromDb, statedPrior } from './calibration.js';
 import { parseComponentData, rubricWeights, weightsByComponent } from './components.js';
 import { newId, type ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
+import { checkFacts, describeClaims, inSource, storySourceText } from './facts.js';
 import { clone, deepEqual } from './json.js';
 import { componentMdPath, MD_COMPONENTS, renderComponentMd } from './markdown.js';
 import type { FillSource, OnboardSession, OnboardStore } from './onboard-store.js';
 import { profileProposeDiff } from './profile-ops.js';
-import { type AnswerValue, checkAnswer, type Draft, findQuestion, nextQuestion } from './questions.js';
-import { parseResumeHeuristic } from './resume.js';
+import { type AnswerValue, checkAnswer, type Draft, findQuestion, nextQuestion, optionsOf } from './questions.js';
+import { parseResumeHeuristic, statedYears, yearsFromDates } from './resume.js';
+import { extractResumeText, resumeKind } from './resume-text.js';
 import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } from './versions.js';
 
 /*
@@ -83,9 +88,20 @@ function filled(d: Draft): ProfileComponentKey[] {
   return PROFILE_COMPONENT_KEYS.filter((k) => d[k] && Object.keys(d[k] as object).length > 0);
 }
 
-export function stateOf(s: OnboardSession): OnboardState {
+export function stateOf(s: OnboardSession, parseRunId: string | null = null): OnboardState {
   const q = s.step === 'interview' ? nextQuestion(s.draft, s.answered, s.scope) : null;
+  const options = q ? optionsOf(q, s.draft) : undefined;
+  const story = s.draft.story ?? {};
   return {
+    ...(typeof story.source_path === 'string'
+      ? {
+          resume: {
+            source_path: story.source_path,
+            file_path: typeof story.source_file === 'string' ? story.source_file : null,
+            parse_run_id: parseRunId,
+          },
+        }
+      : {}),
     step: s.step,
     components_filled: filled(s.draft),
     next_question: q
@@ -94,7 +110,7 @@ export function stateOf(s: OnboardSession): OnboardState {
           component: q.component,
           label: q.label,
           answer_type: q.answer_type,
-          ...(q.options ? { options: q.options } : {}),
+          ...(options ? { options } : {}),
           ...(q.min != null ? { min: q.min } : {}),
           ...(q.max != null ? { max: q.max } : {}),
           ...(q.max_items != null ? { max_items: q.max_items } : {}),
@@ -112,42 +128,217 @@ function advance(s: OnboardSession): void {
 
 // ------------------------------------------------------------------ ops
 
+/** Largest resume upload kept (bytes). */
+export const RESUME_MAX_BYTES = 10 * 1024 * 1024;
+
+/** `20261008-120000`: the stamp in a kept resume's file names. */
+const stampOf = (now: Date) => now.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+
+/** Read the upload (or the vault file) and keep it: the original in files/ and its text as vault markdown. */
+async function keepResume(
+  deps: ProfileDeps,
+  input: OpInput<'onboard.ingest_resume'>,
+  now: Date,
+): Promise<{ text: string; source_path: string | null; file_path: string | null }> {
+  const stamp = stampOf(now);
+  let text = input.text ?? '';
+  let file_path: string | null = null;
+  if (input.file) {
+    const bytes = Buffer.from(input.file.content_base64, 'base64');
+    if (!bytes.length) throw new OpError('invalid_input', 'empty file');
+    if (bytes.length > RESUME_MAX_BYTES) throw new OpError('invalid_input', `resume over ${RESUME_MAX_BYTES / 1024 / 1024} MB`);
+    const got = await extractResumeText(input.file.name, bytes).catch((e: unknown) => {
+      throw new OpError('invalid_input', e instanceof Error ? e.message : String(e));
+    });
+    text = got.text;
+    if ((got.kind === 'pdf' || got.kind === 'docx') && deps.vault?.writeBytes) {
+      file_path = vaultPath.resumeFile(stamp, got.kind);
+      deps.vault.writeBytes(file_path, bytes);
+    }
+  } else if (!text && input.file_path) {
+    if (!deps.vault) throw new OpError('invalid_input', 'file_path needs a vault');
+    const kind = resumeKind(input.file_path);
+    if (kind === 'pdf' || kind === 'docx') {
+      const bytes = deps.vault.readBytes?.(input.file_path) ?? null;
+      if (!bytes) throw new OpError('not_found', `cannot read ${input.file_path}`);
+      text = (
+        await extractResumeText(input.file_path, bytes).catch((e: unknown) => {
+          throw new OpError('invalid_input', e instanceof Error ? e.message : String(e));
+        })
+      ).text;
+    } else {
+      let raw: string | null = null;
+      try {
+        raw = deps.vault.read(input.file_path);
+      } catch {
+        raw = null;
+      }
+      if (raw === null) throw new OpError('not_found', `cannot read ${input.file_path}`);
+      text = stripFrontmatter(raw);
+    }
+    file_path = input.file_path;
+  }
+  if (!text.trim()) throw new OpError('invalid_input', 'resume text, file or file_path required');
+  // The source is kept (#38): every later fact is checked against this text.
+  let source_path: string | null = null;
+  if (deps.vault) {
+    source_path = vaultPath.resumeText(stamp);
+    deps.vault.write(source_path, renderMarkdown({ id: `resume_${stamp}`, type: 'resume_source' }, text));
+  }
+  return { text, source_path, file_path };
+}
+
 export async function onboardIngestResume(
   deps: ProfileDeps,
   input: OpInput<'onboard.ingest_resume'>,
   ctx: OpContext,
 ): Promise<OnboardState> {
-  let text = input.text;
-  if (!text && input.file_path) {
-    if (!deps.vault) throw new OpError('invalid_input', 'file_path needs a vault');
-    let raw: string | null = null;
-    try {
-      raw = deps.vault.read(input.file_path);
-    } catch {
-      raw = null;
-    }
-    if (raw === null) throw new OpError('not_found', `cannot read ${input.file_path}`);
-    text = raw;
-  }
-  if (!text?.trim()) throw new OpError('invalid_input', 'resume text or file_path required');
-
   const now = ctx.now();
+  const { text, source_path, file_path } = await keepResume(deps, input, now);
+
   const prev = store(deps).load();
   const s = prev && prev.step !== 'done' && !prev.scope ? prev : newSession(deps, now, null);
+  // The instant preview: copied from the text, never an inferred number. The agent run replaces it.
   const parsed = deps.llm?.parseResume ? await deps.llm.parseResume(text) : parseResumeHeuristic(text, now);
   for (const key of ['story', 'craft'] as const) {
     const fromResume = parsed[key];
     if (!fromResume || !Object.keys(fromResume).length) continue;
     // Resume facts fill gaps; they never overwrite an explicit interview answer.
-    const existing = s.draft[key] ?? {};
+    const existing = { ...(s.draft[key] ?? {}) };
+    // A years figure with no basis was guessed by an older parser: never keep it.
+    if (key === 'story' && existing.years !== undefined && !existing.years_basis) delete existing.years;
     s.draft[key] = s.sources[key]?.includes('interview') ? { ...fromResume, ...existing } : { ...existing, ...fromResume };
     addSource(s, key, 'resume');
   }
+  s.draft.story ??= {};
+  const story = s.draft.story;
+  delete story.source_path;
+  delete story.source_file;
+  if (source_path) story.source_path = source_path;
+  if (file_path) story.source_file = file_path;
   if (s.step === 'resume') s.step = 'interview';
   advance(s);
   s.updated_at = now.toISOString();
   if (!ctx.dryRun) store(deps).save(s);
-  return stateOf(s);
+
+  // A person uploaded it: queue the headless onboard run that extracts the facts verbatim (onboard.extract).
+  let runId: string | null = null;
+  if (ctx.actor === 'human' && !ctx.dryRun && source_path && deps.runOp && !deps.llm?.parseResume) {
+    const o = await deps.runOp('runs.start', { skill: 'onboard' }, { ...ctx, decisionId: undefined });
+    if (o.status === 'ok') runId = (o.output as { run: { id: string } }).run.id;
+  }
+  return stateOf(s, runId);
+}
+
+/** Story fields an interview question sets (an answer beats an extraction). */
+const ANSWER_FIELDS: Record<string, string[]> = {
+  'story.headline': ['headline'],
+  'story.win': ['wins'],
+  'story.years': ['years', 'years_basis'],
+};
+
+/** Fields an agent never sets through onboard.extract (provenance and links are code's). */
+const EXTRACT_RESERVED = ['source_path', 'source_file', 'dictated', 'extracted_by', 'criterion_weights'];
+
+/**
+ * onboard.extract (#38): the facts an agent extracted from the kept resume. Each value must be in the
+ * resume text (checkFacts, every claim hard); years only stated or derived from the role dates.
+ */
+export async function onboardExtract(
+  deps: ProfileDeps,
+  input: OpInput<'onboard.extract'>,
+  ctx: OpContext,
+): Promise<OpOutput<'onboard.extract'>> {
+  const now = ctx.now();
+  const s = store(deps).load();
+  const live = s && s.step !== 'done' && !s.scope ? s : null;
+  const current = getCurrentVersion(deps.repos);
+  const prevStory = current ? (getComponents(deps.repos, current.id).find((c) => c.key === 'story')?.data_json ?? null) : null;
+  const sourcePath = (live?.draft.story?.source_path ?? prevStory?.source_path) as string | undefined;
+  if (!sourcePath || !deps.vault) throw new OpError('conflict', 'no kept resume: run onboard.ingest_resume first');
+  const raw = deps.vault.read(sourcePath);
+  if (raw === null) throw new OpError('not_found', `cannot read ${sourcePath}`);
+  const text = stripFrontmatter(raw);
+
+  const story: Record<string, unknown> = { ...input.story };
+  for (const k of EXTRACT_RESERVED) delete story[k];
+  let craft: Record<string, unknown> = {};
+  try {
+    parseComponentData('story', story);
+    if (input.craft) craft = parseComponentData('craft', input.craft);
+  } catch (e) {
+    throw new OpError('invalid_input', 'story or craft: invalid data', e);
+  }
+
+  // Verbatim: every number, date, title, employer and degree must be in the resume.
+  const problems: string[] = [];
+  const { unsupported } = checkFacts(storySourceText(story), text, { headings: false });
+  if (unsupported.length) problems.push(`not in the resume: ${describeClaims(unsupported)}`);
+  for (const r of (Array.isArray(story.roles) ? story.roles : []) as Array<Record<string, unknown>>) {
+    for (const f of ['company', 'title'] as const)
+      if (typeof r[f] === 'string' && !inSource(text, r[f] as string)) problems.push(`role ${f} "${r[f]}" is not in the resume`);
+  }
+  if (story.years !== undefined) {
+    const y = story.years;
+    if (story.years_basis === 'stated') {
+      if (statedYears(text) !== y) problems.push(`years ${String(y)}: the resume does not state it`);
+    } else if (story.years_basis === 'from dates') {
+      const d = yearsFromDates((story.roles ?? []) as Array<{ dates?: string }>, now);
+      if (d !== y) problems.push(`years ${String(y)}: the role dates give ${d ?? 'nothing'}`);
+    } else problems.push('years needs years_basis "stated" or "from dates" (never a guess)');
+  } else delete story.years_basis;
+  if (problems.length) throw new OpError('invalid_input', `extraction not verbatim: ${problems.join('; ')}`, problems);
+
+  const links = { source_path: sourcePath, ...(live?.draft.story?.source_file ? { source_file: live.draft.story.source_file } : {}) };
+  if (live) {
+    const existing = live.draft.story ?? {};
+    const keep: Record<string, unknown> = {};
+    for (const q of live.answered) for (const f of ANSWER_FIELDS[q] ?? []) if (f in existing) keep[f] = existing[f];
+    if (existing.dictated) keep.dictated = existing.dictated;
+    const next: Record<string, unknown> = { ...story, extracted_by: 'agent', ...keep, ...links };
+    if (
+      !live.answered.includes('story.years') &&
+      next.years_basis === 'from dates' &&
+      live.step !== 'interview' &&
+      live.step !== 'resume'
+    ) {
+      // Past the interview nobody can confirm it: leave it out.
+      delete next.years;
+      delete next.years_basis;
+    }
+    live.draft.story = next;
+    live.draft.craft = { ...craft, ...(live.draft.craft ?? {}) };
+    addSource(live, 'story', 'resume');
+    if (Object.keys(craft).length) addSource(live, 'craft', 'resume');
+    if (live.step === 'resume') live.step = 'interview';
+    advance(live);
+    live.updated_at = now.toISOString();
+    if (!ctx.dryRun) store(deps).save(live);
+    return { target: 'session', state: stateOf(live) };
+  }
+
+  // Onboarding is done: the extraction is a Story diff for the user to accept.
+  if (!prevStory) throw new OpError('conflict', 'no onboarding in progress and no profile: start with onboard.ingest_resume');
+  const after: Record<string, unknown> = { ...story, extracted_by: 'agent' };
+  if (after.years_basis === 'from dates') {
+    delete after.years;
+    delete after.years_basis;
+  }
+  const keys = Object.keys(after).filter((k) => !deepEqual(prevStory[k], after[k]));
+  if (!keys.length) return { target: 'diff' };
+  const diffInput = {
+    component: 'story' as const,
+    before: Object.fromEntries(keys.filter((k) => k in prevStory).map((k) => [k, prevStory[k]])),
+    after: Object.fromEntries(keys.map((k) => [k, after[k]])),
+    evidence: [`extracted verbatim from ${sourcePath}`],
+  };
+  if (deps.runOp) {
+    const o = await deps.runOp('profile.propose_diff', diffInput, ctx);
+    if (o.status !== 'ok')
+      throw new OpError(o.status === 'error' ? o.code : 'internal', `propose story: ${o.status === 'error' ? o.message : o.status}`);
+    return { target: 'diff', diff_id: (o.output as { diff: ProfileDiff }).diff.id };
+  }
+  return { target: 'diff', diff_id: profileProposeDiff(deps, diffInput, ctx).output.diff.id };
 }
 
 /** Start a re-interview of one or more components (seeded from the current profile). */
@@ -166,11 +357,21 @@ export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'
   const q = findQuestion(input.question_id);
   if (!q) throw new OpError('not_found', `unknown question ${input.question_id}`);
   if (s.scope && !s.scope.includes(q.component)) throw new OpError('invalid_input', `${q.id} is outside this re-interview`);
+  let value = input.value as AnswerValue;
+  // A dictated free-text answer is kept clean (fillers out, meaning kept); the raw text is provenance.
+  const dictation = q.answer_type === 'text' && !q.max_items && typeof value === 'string';
+  const raw = dictation ? (input.raw ?? (value as string)) : null;
+  if (dictation) value = cleanDictation(value as string);
   try {
-    checkAnswer(q, input.value as AnswerValue);
-    q.apply(s.draft, input.value as AnswerValue);
+    checkAnswer(q, value, s.draft);
+    q.apply(s.draft, value);
   } catch (e) {
     throw new OpError('invalid_input', e instanceof Error ? e.message : String(e));
+  }
+  if (raw !== null && raw.trim() !== value) {
+    s.draft[q.component] ??= {};
+    const c = s.draft[q.component] as Record<string, unknown>;
+    c.dictated = { ...((c.dictated as Record<string, string> | undefined) ?? {}), [q.id]: raw.trim() };
   }
   if (!s.answered.includes(q.id)) s.answered.push(q.id);
   addSource(s, q.component, 'interview');
@@ -254,6 +455,11 @@ export async function onboardConfirm(
     if (s.scope && !s.scope.includes(key) && !(calibrated && PROFILE_COMPONENT_KIND[key] === 'weighted')) continue;
     const prev = prevComps.find((c) => c.key === key);
     const data: Record<string, unknown> = { ...(s.draft[key] ?? {}) };
+    // Years are never stored unconfirmed or guessed (#38).
+    if (key === 'story' && data.years !== undefined && data.years_basis !== 'stated' && data.years_basis !== 'confirmed') {
+      delete data.years;
+      delete data.years_basis;
+    }
     const own = byComp[key];
     if (Object.keys(own.criterion_weights).length) data.criterion_weights = own.criterion_weights;
     let parsed: Record<string, unknown>;

@@ -9,6 +9,7 @@ export * from './profile-data.js';
 export * from './resolver.js';
 export * from './schedules.js';
 export * from './schema.js';
+export * from './text.js';
 export * from './tokens.js';
 export * from './ui.js';
 export * from './vault.js';

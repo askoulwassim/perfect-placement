@@ -6,6 +6,7 @@ import {
   onboardAnswer,
   onboardCalibrate,
   onboardConfirm,
+  onboardExtract,
   onboardIngestResume,
   onboardSamples,
   onboardStart,
@@ -66,7 +67,12 @@ export function profileDeps(h: HandlerContext): ProfileDeps {
     ask: (req) => h.resolver.ask(req, { actor: h.ctx.actor }),
     ...(h.services.profileLlm ? { llm: h.services.profileLlm } : {}),
     config: h.config,
-    vault: { read: (rel) => h.vault.read(rel), write: (rel, content) => h.vault.write(rel, content) },
+    vault: {
+      read: (rel) => h.vault.read(rel),
+      write: (rel, content) => h.vault.write(rel, content),
+      writeBytes: (rel, content) => h.vault.writeBytes(rel, content),
+      readBytes: (rel) => h.vault.readBytes(rel),
+    },
     onboardStore: createDbOnboardStore(h.repos),
     rescore: (ids, versionId) => rescoreRoles(h, ids, versionId),
     runOp: h.runOp,
@@ -110,4 +116,5 @@ export const LANE_E_HANDLERS = {
   'onboard.answer': defineHandler('onboard.answer', { run: (i, h) => onboardAnswer(profileDeps(h), i, h.ctx) }),
   'onboard.calibrate': defineHandler('onboard.calibrate', { run: (i, h) => onboardCalibrate(profileDeps(h), i, h.ctx) }),
   'onboard.confirm': defineHandler('onboard.confirm', { run: (i, h) => onboardConfirm(profileDeps(h), i, h.ctx) }),
+  'onboard.extract': defineHandler('onboard.extract', { run: (i, h) => onboardExtract(profileDeps(h), i, h.ctx) }),
 } as const;

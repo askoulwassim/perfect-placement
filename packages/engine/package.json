@@ -22,9 +22,10 @@
   },
   "dependencies": {
     "@perfect-placement/contracts": "workspace:*",
+    "@perfect-placement/resolver": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "zod": "^4.6.5",
-    "@perfect-placement/resolver": "workspace:*"
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@perfect-placement/fixtures": "workspace:*",

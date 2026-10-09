@@ -10,9 +10,11 @@
 | `versions.ts` | versions, components and diffs over lane A repositories |
 | `profile-ops.ts` | `profile.get`, `profile.history`, `profile.propose_diff`, `profile.apply_diff`, `profile.reject_diff`, `undoDiff` (`profile.undo_diff`) |
 | `questions.ts` | onboarding question bank with skip logic |
-| `resume.ts` | heuristic resume -> Story + Craft drafts (fallback when no LLM is injected) |
+| `resume.ts` | heuristic resume -> Story + Craft instant preview (never infers a number; years only stated or from role dates, confirmed) |
+| `resume-text.ts` | text out of a resume upload: PDF (`unpdf`), DOCX (zip + XML), MD / TXT |
+| `facts.ts` | `checkFacts(doc, sources)`: numbers, years, dates, degrees, titles, employers not in the sources (#38) |
 | `calibration.ts` | 12-sample calibration -> criterion weights |
-| `onboard.ts`, `onboard-store.ts` | `onboard.*` ops (start, state, samples, ingest_resume, answer, calibrate, confirm); sessions in the `onboard_session` table |
+| `onboard.ts`, `onboard-store.ts` | `onboard.*` ops (start, state, samples, ingest_resume, extract, answer, calibrate, confirm); sessions in the `onboard_session` table |
 | `learn.ts` | learn loop: event -> resolver -> LLM diff -> policy |
 | `deps.ts` | `ProfileDeps`, built per op call by `ops/lanes/profile.ts`: lane A repos, runOp's emitter + staged vault, the resolver, nested `runOp`, optional writing model |
 | `synthetic.ts` | synthetic resume for tests (a made-up person) |
@@ -52,7 +54,7 @@ Applying a weighted or filter diff returns the unapplied roles to rescore (`acti
 
 ## Onboarding
 
-1. `onboard.ingest_resume` parses Story + Craft (LLM if injected, else heuristic). Draft is seeded from the current profile.
+1. `onboard.ingest_resume` keeps the resume in `files/` (original + extracted text, Story `source_path`), drafts an instant preview (LLM if injected, else heuristic) and, for a human upload, queues a headless `onboard` run whose `onboard.extract` replaces the preview with facts copied verbatim (checked against the text). Draft is seeded from the current profile. Dictated text answers are stored clean (`cleanDictation`), the raw kept in `dictated`.
 2. `onboard.answer` walks `QUESTION_BANK` in component order. A question is skipped when the draft already answers it
    (resume, profile, earlier answer). Follow-ups are conditional (`when`). `startComponentInterview([key])` re-asks one
    component and goes straight to confirm.

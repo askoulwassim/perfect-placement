@@ -201,7 +201,7 @@ describe('skill assets in the prompt (#20)', () => {
       for (const f of files) {
         const text = readFileSync(join(DEFAULT_SKILLS_DIR, skill, f), 'utf8');
         for (const line of text.split('\n').filter((l) => /vault[._]read/.test(l)))
-          expect(line, `${skill}/${f}`).toMatch(/never look for|never in the vault|not in the vault/i);
+          expect(line, `${skill}/${f}`).toMatch(/never look for|never in the vault|not in the vault|kept resume/i);
       }
       const companions = files.filter((f) => f !== 'SKILL.md' && f !== 'RUNBOOK.md');
       expect(companions, skill).toEqual([...(SKILL_ASSETS[skill as Skill] ?? [])]);

@@ -20,6 +20,10 @@ export interface QuestionDef {
   label: string;
   answer_type: AnswerType;
   options?: string[];
+  /** Options that depend on the draft (story.years: the derived number or leave it out). */
+  optionsFor?: (d: Draft) => string[];
+  /** Free text that may be dictated: fillers are stripped (cleanDictation) and the raw text kept. Default true for text. */
+  dictated?: boolean;
   min?: number;
   max?: number;
   /** List text question: a string answer appends one item, a string[] answer replaces the list. */
@@ -82,6 +86,9 @@ export function nextSamples(current: readonly string[], v: AnswerValue): string[
   return list;
 }
 
+/** story.years option that drops a derived number. */
+export const YEARS_LEAVE_OUT = 'leave out';
+
 export const QUESTION_BANK: QuestionDef[] = [
   // Story: the resume normally answers these.
   {
@@ -100,6 +107,26 @@ export const QUESTION_BANK: QuestionDef[] = [
     known: known('story', 'wins'),
     apply: (d, v) => {
       comp(d, 'story').wins = [asStr(v)];
+    },
+  },
+  {
+    // Years are never guessed (#38): a number derived from the role dates is shown for confirmation.
+    id: 'story.years',
+    component: 'story',
+    label: 'Years',
+    answer_type: 'chips',
+    optionsFor: (d) => [String(d.story?.years ?? ''), YEARS_LEAVE_OUT].filter(Boolean),
+    known: () => false,
+    when: (d) => d.story?.years_basis === 'from dates' && typeof d.story?.years === 'number',
+    apply: (d, v) => {
+      const c = comp(d, 'story');
+      if (asStr(v) === YEARS_LEAVE_OUT) {
+        delete c.years;
+        delete c.years_basis;
+      } else {
+        c.years = asNum(v);
+        c.years_basis = 'confirmed';
+      }
     },
   },
   // Craft
@@ -363,8 +390,14 @@ export function nextQuestion(draft: Draft, answered: readonly string[], scope?: 
   return null;
 }
 
+/** The options a question shows for this draft. */
+export function optionsOf(q: QuestionDef, d: Draft): string[] | undefined {
+  return q.optionsFor ? q.optionsFor(d) : q.options;
+}
+
 /** Validate an answer against its question's type. Throws with a short message. */
-export function checkAnswer(q: QuestionDef, v: AnswerValue): void {
+export function checkAnswer(q: QuestionDef, v: AnswerValue, d: Draft = {}): void {
+  const options = optionsOf(q, d);
   if (q.answer_type === 'slider') {
     const n = typeof v === 'number' ? v : Number(v);
     if (!Number.isFinite(n)) throw new Error(`${q.id}: expected a number`);
@@ -373,13 +406,13 @@ export function checkAnswer(q: QuestionDef, v: AnswerValue): void {
   }
   if (q.answer_type === 'chips') {
     if (Array.isArray(v) || typeof v !== 'string') throw new Error(`${q.id}: expected one option`);
-    if (q.options && !q.options.includes(v)) throw new Error(`${q.id}: unknown option '${v}'`);
+    if (options && !options.includes(v)) throw new Error(`${q.id}: unknown option '${v}'`);
     return;
   }
   if (q.answer_type === 'multi_chips') {
     const list = asList(v);
     if (!list.length) throw new Error(`${q.id}: pick at least one`);
-    if (q.options) for (const x of list) if (!q.options.includes(x)) throw new Error(`${q.id}: unknown option '${x}'`);
+    if (options) for (const x of list) if (!options.includes(x)) throw new Error(`${q.id}: unknown option '${x}'`);
     return;
   }
   if (q.max_items) {

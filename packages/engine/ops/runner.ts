@@ -128,7 +128,7 @@ export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why:
   fill: { web: ['WebFetch'], why: 'reads the real portal questions (a headless run has no browser)' },
   inbox: { web: [], why: 'Gmail read-only plus ops' },
   learn: { web: [], why: 'ops only' },
-  onboard: { web: [], why: 'ops only' },
+  onboard: { web: [], why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract' },
   connect: { web: [], why: 'LinkedIn via Claude in Chrome (--chrome); Gmail draft step via the Gmail connector' },
 };
 
@@ -144,6 +144,7 @@ export function skillAllowedTools(skill: Skill): string[] {
  */
 export const SKILL_ASSETS: Readonly<Partial<Record<Skill, readonly string[]>>> = {
   scout: ['plan.md'],
+  onboard: ['extract.md'],
 };
 
 function readAsset(file: string): string {

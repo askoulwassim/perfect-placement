@@ -56,6 +56,9 @@ export interface ProfileLlm {
 export interface ProfileVault {
   read(rel: string): string | null;
   write(rel: string, content: string): void;
+  /** Binary files (a kept resume upload, #38). */
+  writeBytes?(rel: string, content: Uint8Array): void;
+  readBytes?(rel: string): Uint8Array | null;
 }
 
 export interface ProfileDeps {

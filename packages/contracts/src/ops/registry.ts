@@ -162,6 +162,18 @@ const OnboardState = z.object({
       items: z.array(z.string()).optional(),
     })
     .nullable(),
+  /**
+   * Added (#38): the kept source resume. `source_path` is its extracted text (vault markdown), `file_path`
+   * the original upload (PDF / DOCX), `parse_run_id` the headless `onboard` run queued to parse it
+   * (only on the ingest that queued it). Absent before a resume is in.
+   */
+  resume: z
+    .object({
+      source_path: VaultPath,
+      file_path: VaultPath.nullable(),
+      parse_run_id: Id.nullable(),
+    })
+    .optional(),
 });
 
 /** Added in Wave 2 (lane E): start full onboarding, or re-interview only some components. */
@@ -211,8 +223,14 @@ export const onboardSamples = defineOp({
 
 export const onboardIngestResume = defineOp({
   name: 'onboard.ingest_resume',
-  description: 'Parse a resume into Story and Craft drafts.',
-  input: z.object({ file_path: VaultPath.optional(), text: z.string().optional() }),
+  description:
+    'Keep a resume in the vault (files/) and draft Story and Craft from it. A human upload also queues a headless onboard run that extracts the facts verbatim (onboard.extract).',
+  input: z.object({
+    file_path: VaultPath.optional(),
+    text: z.string().optional(),
+    /** Added (#38): an uploaded file (PDF, DOCX, MD, TXT), base64. Kept in files/ with its extracted text. */
+    file: z.object({ name: z.string().min(1), content_base64: z.string().min(1) }).optional(),
+  }),
   output: OnboardState,
   impact: 'low',
   emits: [],
@@ -222,8 +240,39 @@ export const onboardIngestResume = defineOp({
 export const onboardAnswer = defineOp({
   name: 'onboard.answer',
   description: 'Answer one interview question for a component.',
-  input: z.object({ question_id: z.string(), value: z.union([z.string(), z.number(), z.array(z.string())]) }),
+  input: z.object({
+    question_id: z.string(),
+    value: z.union([z.string(), z.number(), z.array(z.string())]),
+    /** Added (#38): the dictated original of a text answer whose cleaned `value` the user confirmed (kept for provenance). */
+    raw: z.string().optional(),
+  }),
   output: OnboardState,
+  impact: 'low',
+  emits: [],
+  owner: 'E',
+});
+
+/**
+ * Added (#38): the resume facts an agent extracted verbatim from the kept source resume. Every value must
+ * appear in the resume text (numbers, dates, titles, employers, degrees), else invalid_input with the list.
+ * `years` only when stated (`years_basis: 'stated'`) or derived from the role dates (`'from dates'`, asked
+ * for confirmation). During onboarding it replaces the instant preview in the draft (interview answers
+ * win); after onboarding it is proposed as a Story diff for the user.
+ */
+export const onboardExtract = defineOp({
+  name: 'onboard.extract',
+  description:
+    'Write the facts extracted verbatim from the kept resume (roles, employers, titles, dates, wins, metrics, skills) as a draft for the user to confirm.',
+  input: z.object({
+    story: z.record(z.string(), z.unknown()),
+    craft: z.record(z.string(), z.unknown()).optional(),
+  }),
+  output: z.object({
+    /** `session`: merged into the onboarding draft; `diff`: proposed as a Story diff (onboarding was done). */
+    target: z.enum(['session', 'diff']),
+    state: OnboardState.optional(),
+    diff_id: Id.optional(),
+  }),
   impact: 'low',
   emits: [],
   owner: 'E',
@@ -509,7 +558,21 @@ export const applyTailor = defineOp({
     cover_letter_md: z.string().min(1),
     fit_map_md: z.string().min(1),
   }),
-  output: z.object({ application: Application }),
+  output: z.object({
+    application: Application,
+    /**
+     * Added (#38): the fact check against the sources (kept resume text + confirmed Story). Numbers, years,
+     * dates, degrees, and the resume's role headings not in the sources reject the op (invalid_input, the
+     * list in `issues`); a title or employer named in prose that the sources lack is kept here as needs-you
+     * (also listed in the fit map).
+     */
+    fact_check: z
+      .object({
+        checked: z.number().int().min(0),
+        needs_you: z.array(z.object({ doc: z.enum(['resume', 'cover_letter']), kind: z.string(), claim: z.string(), line: z.string() })),
+      })
+      .default({ checked: 0, needs_you: [] }),
+  }),
   impact: 'low',
   emits: ['application_tailored', 'role_moved', 'role_promoted'],
   owner: 'B',
@@ -995,6 +1058,7 @@ export const OPS = {
   'onboard.answer': onboardAnswer,
   'onboard.calibrate': onboardCalibrate,
   'onboard.confirm': onboardConfirm,
+  'onboard.extract': onboardExtract,
   'roles.add': rolesAdd,
   'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,

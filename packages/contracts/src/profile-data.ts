@@ -31,6 +31,8 @@ const common = {
   criteria: z.array(CriterionAnchor).optional(),
   notes: TextList.optional(),
   open_questions: TextList.optional(),
+  /** Added (#38): dictated answers as spoken, by question id (provenance; the cleaned text is the value). */
+  dictated: z.record(z.string(), z.string()).optional(),
 };
 
 export const StoryRole = z.looseObject({
@@ -60,6 +62,16 @@ export const COMPONENT_DATA_SCHEMAS = {
     ...common,
     headline: Text.optional(),
     years: z.number().nonnegative().optional(),
+    /**
+     * Added (#38): where `years` came from. `stated` (in the resume), `from dates` (role dates, not yet
+     * confirmed), `confirmed` (the user confirmed it). Never guessed; unconfirmed years are not a source.
+     */
+    years_basis: z.enum(['stated', 'from dates', 'confirmed']).optional(),
+    /** Added (#38): the kept source resume: extracted text (vault markdown) and the original upload. */
+    source_path: Text.optional(),
+    source_file: Text.optional(),
+    /** Added (#38): who extracted the facts (`agent` run or the instant `preview`). */
+    extracted_by: z.enum(['agent', 'preview']).optional(),
     summary: Text.optional(),
     contact: z.record(z.string(), z.string()).optional(),
     roles: z.array(StoryRole).optional(),
