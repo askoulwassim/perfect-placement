@@ -85,6 +85,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
             <ProfileNode key={n.key} n={n} size={60} selected={selected === n.key} onClick={() => pick(n.key)} />
           ))}
         </div>
+        {diffs.length > 0 && <RecalibrateSecondary onClick={() => void recalibrate()} />}
         {sel && selected && (
           <div style={{ marginTop: 22, background: C.panel, border: `1px solid ${C['line-2']}`, borderRadius: 12, padding: 18 }}>
             <div style={display(24, 800, 'normal')}>{COMPONENT_NAME[selected]}</div>
@@ -163,6 +164,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
                       </Btn>
                     ))}
                   </div>
+                  <RecalibrateSecondary onClick={() => void recalibrate()} />
                 </>
               )}
             </>
@@ -239,13 +241,13 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
   );
 }
 
-/** Re-interview the selected component (`onboard.start { components }`); the questions run in You. */
-function Reinterview({ onClick }: { onClick: () => void }) {
+/** A secondary profile action: one pill button calling `onboard.start` (the steps then run in You). */
+function ProfileAction({ className, label, onClick }: { className: string; label: string; onClick: () => void }) {
   return (
     <div style={{ marginTop: 18 }}>
       <Btn
         op="onboard.start"
-        className="reinterview"
+        className={className}
         onClick={onClick}
         style={{
           height: 34,
@@ -259,11 +261,24 @@ function Reinterview({ onClick }: { onClick: () => void }) {
         }}
         hover={{ borderColor: C['emerald-2'] }}
       >
-        Re-interview
+        {label}
       </Btn>
     </div>
   );
 }
+
+/** Re-interview the selected component (`onboard.start { components }`); the questions run in You. */
+const Reinterview = ({ onClick }: { onClick: () => void }) => (
+  <ProfileAction className="reinterview" label="Re-interview" onClick={onClick} />
+);
+
+/**
+ * Recalibrate while diffs are pending (#66): the primary stays "Review N diff" (one primary per screen),
+ * so Recalibrate (`onboard.start { calibrate }`) is a secondary action until they are resolved.
+ */
+const RecalibrateSecondary = ({ onClick }: { onClick: () => void }) => (
+  <ProfileAction className="recalibrate" label="Recalibrate" onClick={onClick} />
+);
 
 /** The kept source resume: one button opens its extracted text. */
 function ResumeSource({ path }: { path: string }) {

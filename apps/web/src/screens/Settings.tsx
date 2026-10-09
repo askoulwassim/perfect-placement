@@ -1,7 +1,5 @@
 import {
   DAY_NAMES,
-  type HardHumanSubject,
-  isHardHuman,
   nextFire,
   type PolicyConfig,
   PP_HOME_DEFAULT,
@@ -12,7 +10,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
-import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
+import { BackendCard, HardExclusions, LOCKED_LABELS, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
 import { go } from '../router';
@@ -24,15 +22,6 @@ const SCHEDULES: ReadonlyArray<[ScheduleKey, string]> = [
   ['freshness', 'Freshness'],
   ['scout_score', 'Scout + score'],
 ];
-/** Hard exclusions (wave1-decisions #24): shown locked as "you"; each is checked against the contract. */
-const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
-  ['Submit application', { kind: 'apply.submit' }],
-  ['Send email', { op: 'outreach.send' }],
-  ['Delete anything', { op: 'roles.delete' }],
-  ['Dealbreakers', { component: 'dealbreakers' }],
-  ['Comp floor', { component: 'terms', changedKeys: ['comp_floor'] }],
-];
-export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
 
 const cap = (s: string) => s.replace(/^./, (c) => c.toUpperCase());
 const two = (n: number) => String(n).padStart(2, '0');

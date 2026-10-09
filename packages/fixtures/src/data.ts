@@ -6,6 +6,7 @@
 import {
   type Application,
   type ArchiveReason,
+  type AskThreadRow,
   type Band,
   type Company,
   type Contact,
@@ -1095,6 +1096,21 @@ export const onboardSessions: OnboardSession[] = [
   },
 ];
 
+/** One earlier Ask thread (#69): a Claude Code session with two turns. */
+export const askThreads: AskThreadRow[] = [
+  {
+    id: 'ask_01jz0000000000000000000001',
+    created_at: at(1, 18),
+    updated_at: at(1, 18),
+    runner: 'claude',
+    session_id: 'sess-fixture-0001',
+    turns_json: [
+      { user: 'Which active roles are going stale?', reply: 'root = Reply([t])\nt = Text("Two active roles look stale")' },
+      { user: 'Score my inbox roles', reply: 'root = Reply([t])\nt = Text("Score run started for your inbox")' },
+    ],
+  },
+];
+
 /** Insert order respects foreign keys. */
 export const FIXTURE_TABLES = {
   profile_version: profileVersions,
@@ -1112,6 +1128,7 @@ export const FIXTURE_TABLES = {
   decision: decisions,
   run: runs,
   onboard_session: onboardSessions,
+  ask_thread: askThreads,
 } as const;
 
 /** An established search: the Getting started path (#24) is long finished. */

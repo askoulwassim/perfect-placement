@@ -673,3 +673,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: Setup and You / Recalibrate were two places for one profile, and Recalibrate had no session to calibrate in (#25).
 - Shim: none (new optional input; without `calibrate` `onboard.start` is unchanged).
 - Status: accepted
+
+## Small follow-ups
+
+### `ask_thread` table, `AskThreadRow`, `ID_PREFIX.ask_thread`; migration 008 (#69)
+- Lane: small-followups (A, D, J, CLI)
+- Date: 2026-10-09
+- Contract: entities `AskThreadRow` (`id`, `created_at`, `updated_at`, `runner` in `RUNNER_COMMANDS`, `session_id` nullable, `turns_json: [{ user, reply }]` at most `ASK_THREAD_MAX_TURNS`), `AskThreadTurn`, `ASK_THREAD_MAX_TURNS` (20), `ASK_THREAD_TTL_DAYS` (30), `TABLES.ask_thread`; primitives `ID_PREFIX.ask_thread = 'ask'`; migration 008
+- Change: Ask threads survive a `pp up` restart. `pp up` keeps each thread in the vault (`ask_thread`): the runner, the runner's session id (Claude Code `--resume`) and the last 20 turns (Codex and Cursor still replay the last 6). `POST /api/ask` with a `thread_id` not in memory restores it from the table; a changed runner or an unknown id still starts a new thread. Threads not updated for 30 days are pruned when `pp up` opens Ask and on every new thread. Engine (not a contract): `AskThreads({ store?, now?, max? })`, `dbAskThreadStore(db)` in the db layer (raw SQL stays there); thread ids are `ask_<ulid>`. Not an op: conversation state written only by the Ask turn, never by skills, agents or MCP. Web (not a contract): the current thread id is kept in `localStorage` (`pp.ask.thread`, guarded), so reopening the app continues the thread; New thread clears it. Migration 008 is additive (`CREATE TABLE ask_thread` + index on `updated_at`).
+- Why: a restart lost the conversation and the Claude session (#69).
+- Shim: none (new table; `new AskThreads()` without a store keeps the in-memory behavior; the request contract is unchanged).
+- Status: accepted

@@ -34,7 +34,7 @@ Now, Needs you, River, Role, People, Outreach draft, You, Onboarding (4 steps), 
 ## Non-negotiables
 
 - No explanatory text, no tips, labels of one to three words.
-  - Exception (wave1-decisions #27, revised 2026-10-09 by #24 / #43): first-run guidance is a Getting started card on Now with six ordered steps (Profile, Policy, First scout, Roles arriving, Review, First role), each done from real state. Opening a step from the card shows one short sentence beside its target in the cue styling; any click dismisses it. Automatic and one-time: gone for good once every step is done. No setting shows, replays or skips it. Never a paragraph.
+  - Exception (wave1-decisions #27, revised 2026-10-09 by #24 / #43): first-run guidance is a Getting started card on Now with six ordered steps (Profile, Policy, First scout, Roles arriving, Review, First role), each done from real state (on the phone, Policy opens a compact read-only policy summary in the card, the grid cells and hard exclusions, since there is no Settings screen; #65). Opening a step from the card shows one short sentence beside its target in the cue styling; any click dismisses it. Automatic and one-time: gone for good once every step is done. No setting shows, replays or skips it. Never a paragraph.
   - Clarification (wave1-decisions #28, #23): the rule is for buttons and labels. Onboarding interview questions are full, plain sentences with an optional one-line example.
 - One primary action per screen, same place, filled emerald.
 - Every button calls exactly one op from `packages/contracts`.

@@ -251,10 +251,10 @@ describe('run queue (#30): pp drain and pp up launch queued runs', () => {
 });
 
 describe('pp up: POST /api/ask (#39, fake runner)', () => {
-  it('streams one agent turn as SSE events and resumes the thread on the next message', async () => {
+  it('streams one agent turn as SSE events and resumes the thread on the next message, also after a restart', async () => {
     const launcher = fakeAskLauncher(() => claudeScoreTranscript());
     const eng = openFixtureEngine();
-    const srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
+    let srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
     try {
       const ask = async (body: unknown) => {
         const res = await fetch(`${srv.url}/api/ask`, {
@@ -278,6 +278,14 @@ describe('pp up: POST /api/ask (#39, fake runner)', () => {
       await ask({ thread_id: thread, message: 'thanks' });
       const args = launcher.specs[1]?.args ?? [];
       expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+
+      // A restart keeps the thread (#69): it is restored from the vault and resumes the same session.
+      await srv.close();
+      srv = await up({ engine: eng, port: 0, webDir: null, mcp: false, askLauncher: launcher });
+      const restored = await ask({ thread_id: thread, message: 'still there?' });
+      expect(restored[0]).toMatchObject({ type: 'thread', thread_id: thread });
+      const after = launcher.specs[2]?.args ?? [];
+      expect(after[after.indexOf('--resume') + 1]).toBe('sess-0001');
 
       expect((await ask({ message: '' }))[0]).toMatchObject({ type: 'error', code: 'invalid_input' });
       const get = await fetch(`${srv.url}/api/ask`);

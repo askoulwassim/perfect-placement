@@ -7,6 +7,11 @@ process.env.TZ = 'UTC';
 afterEach(() => {
   cleanup();
   window.location.hash = '';
+  try {
+    window.localStorage.clear();
+  } catch {
+    // no storage in this environment
+  }
 });
 
 if (!window.matchMedia)

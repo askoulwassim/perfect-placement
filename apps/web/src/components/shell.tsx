@@ -1,4 +1,4 @@
-import { CONFIDENCE_BANDS, IMPACTS, POLICY_GRID } from '@perfect-placement/contracts';
+import { CONFIDENCE_BANDS, type HardHumanSubject, IMPACTS, isHardHuman, POLICY_GRID } from '@perfect-placement/contracts';
 import { type ReactNode, type RefObject, type KeyboardEvent as RKeyboardEvent, useEffect, useRef, useState } from 'react';
 import { Btn, useHover } from './Btn';
 import { Toggle } from './controls';
@@ -741,12 +741,31 @@ export function PolicyGrid({
   );
 }
 
-function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
+function PolicyRow({ imp, compact }: { imp: (typeof IMPACTS)[number]; compact?: boolean }) {
   const c = IMPACT_HEX[imp];
+  const h = compact ? 44 : 68;
   return (
     <>
-      <div style={{ height: 68, display: 'flex', alignItems: 'center', padding: '0 20px', borderTop: `1px solid ${C.line}` }}>
-        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>{imp}</span>
+      <div
+        style={{
+          height: h,
+          display: 'flex',
+          alignItems: 'center',
+          padding: compact ? '0 10px' : '0 20px',
+          borderTop: `1px solid ${C.line}`,
+        }}
+      >
+        <span
+          style={{
+            border: `1px solid ${c}`,
+            color: c,
+            borderRadius: 999,
+            padding: compact ? '3px 8px' : '4px 12px',
+            ...eyebrow(c, compact ? 10 : undefined),
+          }}
+        >
+          {imp}
+        </span>
       </div>
       {CONFIDENCE_BANDS.map((band) => {
         const k = whoOf(POLICY_GRID[imp][band]);
@@ -755,7 +774,7 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
             key={band}
             data-outcome={POLICY_GRID[imp][band]}
             style={{
-              height: 68,
+              height: h,
               display: 'grid',
               placeItems: 'center',
               borderTop: `1px solid ${C.line}`,
@@ -763,7 +782,7 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
               background: CELL_BG[k],
             }}
           >
-            <WhoDecidesGlyph kind={k} size={22} />
+            <WhoDecidesGlyph kind={k} size={compact ? 18 : 22} />
           </div>
         );
       })}
@@ -771,18 +790,77 @@ function PolicyRow({ imp }: { imp: (typeof IMPACTS)[number] }) {
   );
 }
 
+/** Hard exclusions (wave1-decisions #24): shown locked as "you"; each is checked against the contract. */
+const LOCKED: ReadonlyArray<[string, HardHumanSubject]> = [
+  ['Submit application', { kind: 'apply.submit' }],
+  ['Send email', { op: 'outreach.send' }],
+  ['Delete anything', { op: 'roles.delete' }],
+  ['Dealbreakers', { component: 'dealbreakers' }],
+  ['Comp floor', { component: 'terms', changedKeys: ['comp_floor'] }],
+];
+export const LOCKED_LABELS = LOCKED.filter(([, s]) => isHardHuman(s)).map(([label]) => label);
+
+/**
+ * The policy at a glance, read-only (#65): the grid cells at the current thresholds and the hard
+ * exclusions, compact for the phone, where there is no Settings screen. Opened from Getting started.
+ */
+export function PolicySummary({ thresholds }: { thresholds: { auto: number; second_opinion: number } }) {
+  const t0 = thresholds.second_opinion;
+  const t1 = thresholds.auto;
+  const head = [`≥ ${t1.toFixed(2)}`, `${t0.toFixed(2)}–${t1.toFixed(2)}`, `< ${t0.toFixed(2)}`];
+  return (
+    <section className="policy policy--summary" aria-label="Policy" style={{ marginTop: 6, marginBottom: 8 }}>
+      <div
+        className="policy__grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '78px repeat(3,minmax(0,1fr))',
+          background: C.panel,
+          border: `1px solid ${C.line}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ background: C['bg-2'], height: 32 }} />
+        {head.map((h) => (
+          <div
+            key={h}
+            className="policy__head"
+            style={{
+              background: C['bg-2'],
+              height: 32,
+              display: 'grid',
+              placeItems: 'center',
+              ...mono(10, C.muted),
+              borderLeft: `1px solid ${C.line}`,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+            }}
+          >
+            {h}
+          </div>
+        ))}
+        {IMPACTS.map((imp) => (
+          <PolicyRow key={imp} imp={imp} compact />
+        ))}
+      </div>
+      <HardExclusions items={LOCKED_LABELS} compact />
+    </section>
+  );
+}
+
 /**
  * Hard exclusions (wave1-decisions #24): always "you", whatever the grid says. Locked: not tunable.
  * Rendered under the PolicyGrid in the grid's own row style.
  */
-export function HardExclusions({ items }: { items: readonly string[] }) {
+export function HardExclusions({ items, compact }: { items: readonly string[]; compact?: boolean }) {
   const c = C.coral;
   return (
     <div
       className="policy__locked"
       style={{
         display: 'grid',
-        gridTemplateColumns: '150px minmax(0,1fr)',
+        gridTemplateColumns: compact ? '1fr' : '150px minmax(0,1fr)',
         background: C.panel,
         border: `1px solid ${C.line}`,
         borderRadius: 12,
@@ -790,17 +868,27 @@ export function HardExclusions({ items }: { items: readonly string[] }) {
         marginTop: 16,
       }}
     >
-      <div style={{ minHeight: 68, display: 'flex', alignItems: 'center', padding: '0 20px' }}>
-        <span style={{ border: `1px solid ${c}`, color: c, borderRadius: 999, padding: '4px 12px', ...eyebrow(c) }}>always</span>
+      <div style={{ minHeight: compact ? 40 : 68, display: 'flex', alignItems: 'center', padding: compact ? '0 10px' : '0 20px' }}>
+        <span
+          style={{
+            border: `1px solid ${c}`,
+            color: c,
+            borderRadius: 999,
+            padding: compact ? '3px 8px' : '4px 12px',
+            ...eyebrow(c, compact ? 10 : undefined),
+          }}
+        >
+          always
+        </span>
       </div>
       <div
         style={{
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'center',
-          gap: 8,
-          padding: '14px 20px',
-          borderLeft: `1px solid ${C.line}`,
+          gap: compact ? 6 : 8,
+          padding: compact ? '10px' : '14px 20px',
+          ...(compact ? { borderTop: `1px solid ${C.line}` } : { borderLeft: `1px solid ${C.line}` }),
           background: CELL_BG.you,
         }}
       >
@@ -816,8 +904,8 @@ export function HardExclusions({ items }: { items: readonly string[] }) {
               gap: 8,
               border: `1px solid ${C['line-2']}`,
               borderRadius: 999,
-              padding: '6px 12px 6px 10px',
-              fontSize: 13,
+              padding: compact ? '4px 10px 4px 8px' : '6px 12px 6px 10px',
+              fontSize: compact ? 12 : 13,
             }}
           >
             <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={C.muted} strokeWidth="1.4">

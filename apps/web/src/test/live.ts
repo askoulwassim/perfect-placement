@@ -37,6 +37,8 @@ export interface Live {
   calls: FetchCall[];
   /** The fake Ask runner (its launch specs). */
   ask: FakeAskLauncher;
+  /** Restart `pp up`'s Ask side: fresh in-memory threads over the same vault (#69). */
+  restartAsk(): void;
   /** Run an op as another actor (the agent finishing a run, a schedule), bypassing HTTP. `over`: e.g. the agent's confidence. */
   as(actor: Actor, name: string, input: unknown, over?: Partial<OpContext>): Promise<OpOutcome<unknown>>;
   now: () => Date;
@@ -60,7 +62,8 @@ export function openLive(opts: LiveOptions = {}): Live {
   const clock = tickingClock(FIXTURE_NOW);
   const calls: FetchCall[] = [];
   const askLauncher = fakeAskLauncher(opts.askScript ?? (() => 'missing'));
-  const askThreads = new ops.AskThreads();
+  const threads = () => new ops.AskThreads({ store: ops.dbAskThreadStore(engine.db), now: clock });
+  let askThreads = threads();
   const fake = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (/\/api\/ask$/.test(url) && init?.method === 'POST') {
@@ -95,6 +98,9 @@ export function openLive(opts: LiveOptions = {}): Live {
     client: createHttpClient('/api', fake),
     calls,
     ask: askLauncher,
+    restartAsk: () => {
+      askThreads = threads();
+    },
     as: (actor, name, input, over) => engine.runOp(name, input, { ...over, actor, now: clock }),
     now: () => new Date(FIXTURE_NOW),
     close: () => engine.cleanup(),

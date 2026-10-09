@@ -237,4 +237,7 @@ INSERT INTO run (id, op, started_at, finished_at, status, summary_json, log_path
 
 -- onboard_session (1)
 INSERT INTO onboard_session (id, started_at, updated_at, step, scope_json, draft_json, sources_json, answered_json, calibration_json, version_id, interview_json) VALUES ('ob_0001', '2026-10-07T20:00:00.000Z', '2026-10-07T21:00:00.000Z', 'calibrate', '["domain","growth"]', '{"domain":{"ranked":["AI tooling","data infrastructure","developer platforms"]},"growth":{"scope_ceiling":"VP product","trajectory":"up"}}', '{"domain":["profile","interview"],"growth":["profile","interview"]}', '["domain.ranked","growth.scope_ceiling"]', '{"sample_ids":["cal_01","cal_02","cal_03"],"choices":{"cal_01":"yes"}}', NULL, '{}');
+
+-- ask_thread (1)
+INSERT INTO ask_thread (id, created_at, updated_at, runner, session_id, turns_json) VALUES ('ask_01jz0000000000000000000001', '2026-10-07T18:00:00.000Z', '2026-10-07T18:00:00.000Z', 'claude', 'sess-fixture-0001', '[{"user":"Which active roles are going stale?","reply":"root = Reply([t])\nt = Text(\"Two active roles look stale\")"},{"user":"Score my inbox roles","reply":"root = Reply([t])\nt = Text(\"Score run started for your inbox\")"}]');
 COMMIT;

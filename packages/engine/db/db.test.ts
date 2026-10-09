@@ -18,12 +18,12 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const migration = (prefix: string) =>
   readFileSync(join(MIGRATIONS_DIR, listMigrations().find((f) => f.startsWith(prefix)) as string), 'utf8');
 
+/** The fixture seed for a db before 008: no Ask threads (#69). */
+const seedBefore008 = () => readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(/^INSERT INTO ask_thread .*$/gm, '');
+
 /** The fixture seed for a db before 007: onboarding sessions without `interview_json` (#22). */
 const seedBefore007 = () =>
-  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
-    /^(INSERT INTO onboard_session \([^)]*?), interview_json\) VALUES (.*), '[^']*'\);$/gm,
-    '$1) VALUES $2);',
-  );
+  seedBefore008().replace(/^(INSERT INTO onboard_session \([^)]*?), interview_json\) VALUES (.*), '[^']*'\);$/gm, '$1) VALUES $2);');
 
 /** The fixture seed for a db before 006: contact rows without `email_source` / `email_confidence` (#37). */
 const seedBefore006 = () =>
@@ -286,5 +286,26 @@ describe('migration 007 (onboard_session interview plan, #22)', () => {
     expect(db6.pragma('foreign_key_check')).toEqual([]);
     expect(db6.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 7 });
     db6.close();
+  });
+});
+
+describe('migration 008 (ask_thread, #69)', () => {
+  it('adds ask_thread empty, keeps every other row, and checks the runner', () => {
+    const db7 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007']) db7.exec(migration(v));
+    db7.exec(seedBefore008());
+    const before = db7.prepare('SELECT * FROM onboard_session ORDER BY id').all();
+    db7.exec(migration('008'));
+    expect(db7.prepare('SELECT * FROM onboard_session ORDER BY id').all()).toEqual(before);
+    expect(db7.prepare('SELECT count(*) n FROM ask_thread').get()).toEqual({ n: 0 });
+    const ins = db7.prepare(`INSERT INTO ask_thread (id, created_at, updated_at, runner) VALUES (?, 'x', 'x', ?)`);
+    expect(() => ins.run('ask_a', 'claude')).not.toThrow();
+    expect(() => ins.run('ask_b', 'gpt')).toThrow(/CHECK/);
+    expect(db7.prepare(`SELECT turns_json, session_id FROM ask_thread WHERE id = 'ask_a'`).get()).toEqual({
+      turns_json: '[]',
+      session_id: null,
+    });
+    expect(db7.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 8 });
+    db7.close();
   });
 });

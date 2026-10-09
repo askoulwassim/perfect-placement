@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, describe, expect, it } from 'vitest';
 import { composeReply } from '../genui/src';
 import { App } from './App';
+import { ASK_THREAD_KEY } from './screens/Ask';
 import { type Live, type LiveOptions, openLive } from './test/live';
 
 /*
@@ -433,6 +434,19 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).textContent).toBe('Review 1 diff'));
   });
 
+  it('You: with diffs pending the primary stays Review N diff and Recalibrate is a secondary action (#66)', async () => {
+    const { container } = await boot('#/you');
+    await waitFor(() => expect(primary(container).textContent).toMatch(/^Review \d+ diff$/));
+    const recal = $(container, '.recalibrate');
+    expect(recal.textContent).toBe('Recalibrate');
+    expect(recal.getAttribute('data-op')).toBe('onboard.start');
+    expect(recal.classList.contains('btn--primary')).toBe(false);
+    assertButtons(container);
+    fireEvent.click(recal);
+    await waitFor(() => expect(window.location.hash).toBe('#/you/calibrate'));
+    expect(live?.calls.find((c) => c.name === 'onboard.start')?.body).toEqual({ calibrate: true });
+  });
+
   it('You setup resumes the saved session at Calibrate', async () => {
     await boot('#/you/setup');
     await screen.findByText('1 / 12');
@@ -565,6 +579,7 @@ describe('click paths', () => {
     });
     await waitFor(() => expect(primary(container).textContent).toBe('Recalibrate'));
     expect(primary(container).getAttribute('data-op')).toBe('onboard.start');
+    expect(container.querySelector('.recalibrate')).toBeNull();
     fireEvent.click(primary(container));
     await waitFor(() => expect(window.location.hash).toBe('#/you/calibrate'));
     // The bars start from the current profile's weights (the engine test checks they equal its rubric).
@@ -742,6 +757,33 @@ describe('click paths', () => {
     fireEvent.click(runLink);
     await waitFor(() => expect(window.location.hash).toBe(`#/runs/${runId}`));
     assertButtons(container);
+  });
+
+  it('Ask: reopening the app after a pp up restart resumes the thread; New thread starts fresh (#69)', async () => {
+    const { unmount } = await boot('#/now', undefined, { askScript: () => claudeScoreTranscript() });
+    const send = async (text: string, turns: number) => {
+      const input = await screen.findByRole('textbox', { name: 'Ask' });
+      fireEvent.change(input, { target: { value: text } });
+      fireEvent.submit(input.closest('form') as HTMLFormElement);
+      await waitFor(() => expect(document.querySelectorAll('.ask__turn[data-state="done"]')).toHaveLength(turns), { timeout: 4000 });
+    };
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    await send('Score my inbox roles', 1);
+    const thread = window.localStorage.getItem(ASK_THREAD_KEY);
+    expect(thread).toMatch(/^ask_/);
+    unmount();
+    (live as Live).restartAsk();
+    render(<App client={(live as Live).client} now={now} pollMs={20} />);
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    await send('and now?', 1);
+    const args = live?.ask.specs[1]?.args ?? [];
+    expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+    expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBe(thread);
+    fireEvent.click($(document.body, '.ask__new'));
+    await waitFor(() => expect(window.localStorage.getItem(ASK_THREAD_KEY)).toBeNull());
+    await send('fresh', 1);
+    expect(live?.ask.specs[2]?.args).not.toContain('--resume');
+    expect(window.localStorage.getItem(ASK_THREAD_KEY)).not.toBe(thread);
   });
 
   it('Ask: a missing runner shows clearly; New thread starts fresh', async () => {

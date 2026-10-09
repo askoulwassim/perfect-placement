@@ -14,6 +14,8 @@ import { go } from '../router';
  * UI (genui/, OpenUI Lang, the app's own cards); tool calls show as compact lines; runs the agent starts
  * link to run status and are watched like any other run. The thread lives in App, so closing Ask keeps
  * the conversation; New thread starts fresh. Suggestions only prefill a message, or run their primary op.
+ * The thread id is also kept in this browser (#69): reopening the app continues the same agent thread,
+ * which `pp up` restores from the vault.
  */
 
 export type AskStep =
@@ -36,6 +38,29 @@ export interface AskSession {
 }
 
 export const NEW_ASK: AskSession = { threadId: null, turns: [] };
+
+/** Where the current Ask thread id is kept between app opens (#69). */
+export const ASK_THREAD_KEY = 'pp.ask.thread';
+
+/** The Ask session to open with: the remembered thread, if storage allows. */
+export function initialAsk(): AskSession {
+  try {
+    const id = window.localStorage.getItem(ASK_THREAD_KEY);
+    return id ? { threadId: id, turns: [] } : NEW_ASK;
+  } catch {
+    return NEW_ASK;
+  }
+}
+
+/** Remember (or forget, on New thread) the current thread id. Storage may be unavailable: then it is not kept. */
+export function rememberAskThread(id: string | null): void {
+  try {
+    if (id) window.localStorage.setItem(ASK_THREAD_KEY, id);
+    else window.localStorage.removeItem(ASK_THREAD_KEY);
+  } catch {
+    // private mode or blocked storage: the thread lasts until the app closes
+  }
+}
 
 type Sugg = { text: string; op: 'local' | 'runs.start'; needsRole?: boolean };
 const SUGG: readonly Sugg[] = [

@@ -132,6 +132,10 @@ describe('getting started', () => {
     expect(done({})).toEqual([]);
     expect(done({ profile: true })).toEqual(['profile']);
     expect(done({ flags: { policy: true, review: false, done: false } })).toEqual(['policy']);
+    // Desktop: Policy opens Settings. Phone (no Settings): it opens in the card (#65).
+    expect(guideSteps(base)[1]).toMatchObject({ id: 'policy', route: { screen: 'settings' } });
+    expect(guideSteps(base)[1]?.inline).toBeUndefined();
+    expect(guideSteps({ ...base, mobile: true })[1]).toMatchObject({ id: 'policy', inline: true, route: { screen: 'now' } });
     // A scout started: step 3; it ended: step 4. A failed one leaves step 4 open, marked Failed.
     expect(done({ scouts: [run('rn_a', 'running')] })).toEqual(['scout']);
     expect(guideSteps({ ...base, scouts: [run('rn_a', 'running')] })[3]?.state).toBe('Scouting');
@@ -222,6 +226,42 @@ describe('getting started', () => {
       await nav('#/river');
       await waitFor(() => expect(screenLabel(container)).toBe('River'));
       expect(document.querySelector('[data-cue]')).toBeNull();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
+  it('mobile: Policy opens a read-only summary in the card (grid + hard exclusions) and that completes the step (#65)', async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ ...real(q), matches: q.includes('max-width') })) as typeof window.matchMedia;
+    try {
+      const { container } = boot('#/now', unguided);
+      await waitFor(() => expect(screenLabel(container)).toBe('Now · mobile'));
+      await waitFor(() => expect(step('policy')?.getAttribute('aria-current')).toBe('step'));
+      const policy = step('policy') as HTMLElement;
+      expect(policy.getAttribute('data-op')).toBe('local');
+      expect(policy.getAttribute('aria-expanded')).toBe('false');
+      fireEvent.click(policy);
+      const summary = await waitFor(() => {
+        const el = document.querySelector('.guide .policy--summary');
+        if (!el) throw new Error('summary');
+        return el;
+      });
+      expect(window.location.hash).toBe('#/now');
+      expect(summary.querySelectorAll('[data-outcome]')).toHaveLength(9);
+      expect(Array.from(summary.querySelectorAll('.policy__lock')).map((e) => e.textContent)).toEqual([
+        'Submit application',
+        'Send email',
+        'Delete anything',
+        'Dealbreakers',
+        'Comp floor',
+      ]);
+      // Read-only: nothing to drag, type or click.
+      expect(summary.querySelectorAll('button, input, [role="slider"]')).toHaveLength(0);
+      expect(cue('policy')).toBeNull();
+      await waitFor(async () => expect((await savedGuide())?.policy).toBe(true));
+      await waitFor(() => expect(doneSteps()).toContain('policy'));
+      expect(step('review')?.getAttribute('aria-current')).toBe('step');
     } finally {
       window.matchMedia = real;
     }

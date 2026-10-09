@@ -11,7 +11,8 @@ import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp
  *   POST /api/ops/:name   runOp(name, <JSON body = op input>, { actor: 'human' }) -> OpOutcome JSON
  *   GET  /api/ops         op list
  *   GET  /api/health
- *   POST /api/ask         Ask (#39): one agent turn (config.runner + pp MCP), streamed as SSE AskChatEvents
+ *   POST /api/ask         Ask (#39): one agent turn (config.runner + pp MCP), streamed as SSE AskChatEvents;
+ *                         threads kept in the vault's ask_thread table (#69), so `thread_id` survives a restart
  *   POST /mcp             MCP Streamable HTTP (actor agent), same engine
  *   GET  /*               apps/web/dist with SPA fallback
  * The web dev server (Vite) runs on 5178 and calls this API cross-origin (loopback origins only).
@@ -165,7 +166,8 @@ export function up(opts: UpOptions): Promise<Running> {
   if (!LOOPBACK_HOSTS.has(host)) return Promise.reject(new Error(`pp up binds to loopback only, not ${host}`));
   const webDir = opts.webDir === undefined ? defaultWebDir() : opts.webDir;
   const mounts = [...(opts.mounts ?? [])];
-  const askThreads = new ops.AskThreads();
+  // Ask threads persist in the vault (#69): a restart resumes them by id; idle ones are pruned.
+  const askThreads = new ops.AskThreads({ store: ops.dbAskThreadStore(engine.db) });
   const askLauncher = opts.askLauncher ?? ops.createAskSpawner();
   if (opts.mcp !== false) {
     const handle = createMcpHttpHandler({ runOp: engine.runOp, ...(opts.toolNames ? { toolNames: opts.toolNames } : {}) });

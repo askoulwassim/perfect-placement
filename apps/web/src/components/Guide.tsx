@@ -1,12 +1,13 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp, useOp } from '../client/context';
 import { currentStep, type GuideStep, guideSteps } from '../lib/guide';
 import { go, href } from '../router';
 import { Btn } from './Btn';
+import { PolicySummary } from './shell';
 import { C, eyebrow, mono, X } from './theme';
 
 /** The Getting started steps from real state, or null while any input is still unknown. */
-export function useGuideSteps(): GuideStep[] | null {
+export function useGuideSteps(mobile = false): GuideStep[] | null {
   const { guide, runs } = useApp();
   // Nothing to read once the path is finished (or before the flags are known).
   const on = !!guide && !guide.done;
@@ -27,17 +28,20 @@ export function useGuideSteps(): GuideStep[] | null {
       counts: sum.data.counts,
       topRole: top.data?.items[0]?.role.id ?? null,
       needsYou: sum.data.needs_you,
+      mobile,
     });
-  }, [known, guide, runs, profile.data, sum.data, scoutRuns.data, top.data]);
+  }, [known, guide, runs, profile.data, sum.data, scoutRuns.data, top.data, mobile]);
 }
 
 /**
  * Getting started (#24): the ordered path on Now until every step is done, then gone for good
- * (`config.ui.guide.done`). Each step opens its screen, where one sentence explains it.
+ * (`config.ui.guide.done`). Each step opens its screen, where one sentence explains it. On the phone,
+ * Policy opens a read-only summary in the card instead (#65); opening it completes the step.
  */
 export function GuideCard({ mobile }: { mobile?: boolean }) {
-  const { guide, markGuide, setGuideCue } = useApp();
-  const steps = useGuideSteps();
+  const { guide, markGuide, setGuideCue, thresholds } = useApp();
+  const steps = useGuideSteps(!!mobile);
+  const [policyOpen, setPolicyOpen] = useState(false);
   const finished = !!steps && steps.every((s) => s.done);
   useEffect(() => {
     if (finished && guide && !guide.done) markGuide({ done: true });
@@ -45,6 +49,11 @@ export function GuideCard({ mobile }: { mobile?: boolean }) {
   if (!steps || !guide || guide.done || finished) return null;
   const cur = currentStep(steps);
   const open = (s: GuideStep) => {
+    if (s.inline) {
+      setPolicyOpen(!policyOpen);
+      markGuide({ policy: true });
+      return;
+    }
     setGuideCue({ step: s.id, at: href(s.route) });
     go(s.route);
   };
@@ -82,7 +91,8 @@ export function GuideCard({ mobile }: { mobile?: boolean }) {
           return (
             <li key={s.id}>
               <Btn
-                op={null}
+                op={s.inline ? 'local' : null}
+                aria-expanded={s.inline ? policyOpen : undefined}
                 data-step={s.id}
                 data-done={s.done ? 'true' : 'false'}
                 aria-current={now ? 'step' : undefined}
@@ -123,6 +133,7 @@ export function GuideCard({ mobile }: { mobile?: boolean }) {
                 <span style={{ flex: 1, minWidth: 0, textDecoration: s.done ? 'line-through' : 'none' }}>{s.label}</span>
                 {now && s.state && <span style={mono(11, s.state === 'Failed' ? C.coral : C.emerald)}>{s.state}</span>}
               </Btn>
+              {s.inline && policyOpen && <PolicySummary thresholds={thresholds} />}
             </li>
           );
         })}

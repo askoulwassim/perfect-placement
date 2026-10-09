@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
+  ASK_THREAD_MAX_TURNS,
+  ASK_THREAD_TTL_DAYS,
   type AskChatContext,
   type AskChatErrorCode,
   type AskChatEvent,
@@ -12,6 +14,8 @@ import {
   type RUNNER_COMMANDS,
   type RunnerConfig,
 } from '@perfect-placement/contracts';
+import type { AskThreadStore } from '../db/ask-threads.js';
+import { newId } from './ids.js';
 import { MCP_SERVER_NAME, type McpServerSpec, type RunnerFile, type WebTool } from './runner.js';
 
 /*
@@ -519,33 +523,100 @@ export function createAskSpawner(): AskLauncher {
 
 export interface AskThread {
   id: string;
+  createdAt: string;
   runner: RunnerCommand;
   sessionId: string | null;
   turns: AskTurn[];
   busy: boolean;
 }
 
-/** Ask threads, in memory for the life of `pp up` (a restart starts fresh threads). */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Ask threads: in memory for the life of `pp up` (at most `max`), and with a store also in the vault, so
+ * a restart resumes a thread by id (#69). Threads idle for ASK_THREAD_TTL_DAYS are pruned on open and on
+ * every new thread.
+ */
 export class AskThreads {
   private readonly map = new Map<string, AskThread>();
-  private n = 0;
-  constructor(private readonly max = 50) {}
+  private readonly max: number;
+  private readonly store: AskThreadStore | undefined;
+  private readonly now: () => Date;
+
+  constructor(opts: { max?: number; store?: AskThreadStore; now?: () => Date } = {}) {
+    this.max = opts.max ?? 50;
+    this.store = opts.store;
+    this.now = opts.now ?? (() => new Date());
+    this.prune();
+  }
 
   get(id: string | undefined): AskThread | undefined {
-    return id ? this.map.get(id) : undefined;
+    if (!id) return undefined;
+    const hit = this.map.get(id);
+    if (hit) return hit;
+    const row = this.store?.load(id);
+    if (!row) return undefined;
+    const t: AskThread = {
+      id: row.id,
+      createdAt: row.created_at,
+      runner: row.runner,
+      sessionId: row.session_id,
+      turns: row.turns_json.map((x) => ({ ...x })),
+      busy: false,
+    };
+    this.remember(t);
+    return t;
   }
 
   create(runner: RunnerCommand): AskThread {
-    const id = `ask_${Date.now().toString(36)}${(++this.n).toString(36)}`;
-    const t: AskThread = { id, runner, sessionId: null, turns: [], busy: false };
-    this.map.set(id, t);
+    this.prune();
+    const at = this.now();
+    const t: AskThread = {
+      id: newId('ask_thread', at),
+      createdAt: at.toISOString(),
+      runner,
+      sessionId: null,
+      turns: [],
+      busy: false,
+    };
+    this.remember(t);
+    this.save(t);
+    return t;
+  }
+
+  /** Keep a finished turn (the newest ASK_THREAD_MAX_TURNS) and the session id, then persist. */
+  record(t: AskThread, turn: AskTurn, sessionId: string | null): void {
+    if (sessionId) t.sessionId = sessionId;
+    t.turns.push(turn);
+    if (t.turns.length > ASK_THREAD_MAX_TURNS) t.turns.splice(0, t.turns.length - ASK_THREAD_MAX_TURNS);
+    this.save(t);
+  }
+
+  private save(t: AskThread): void {
+    this.store?.save({
+      id: t.id,
+      created_at: t.createdAt,
+      updated_at: this.now().toISOString(),
+      runner: t.runner,
+      session_id: t.sessionId,
+      turns_json: t.turns,
+    });
+  }
+
+  private prune(): void {
+    this.store?.prune(new Date(this.now().getTime() - ASK_THREAD_TTL_DAYS * DAY_MS).toISOString());
+  }
+
+  private remember(t: AskThread): void {
+    this.map.set(t.id, t);
     while (this.map.size > this.max) {
       const oldest = this.map.keys().next().value as string;
       this.map.delete(oldest);
     }
-    return t;
   }
 }
+
+export { type AskThreadStore, dbAskThreadStore } from '../db/ask-threads.js';
 
 export interface AskDeps {
   home: string;
@@ -595,11 +666,7 @@ export async function* runAsk(raw: unknown, deps: AskDeps): AsyncGenerator<AskCh
     const exit = await proc.exit;
     if (deps.signal?.aborted) return;
     const last = parser.end(exit.code, exit.stderr);
-    if (last.type === 'done') {
-      if (parser.sessionId) thread.sessionId = parser.sessionId;
-      thread.turns.push({ user: req.message, reply: parser.reply.trim() });
-      if (thread.turns.length > ASK_REPLAY_TURNS * 2) thread.turns.splice(0, thread.turns.length - ASK_REPLAY_TURNS * 2);
-    }
+    if (last.type === 'done') deps.threads.record(thread, { user: req.message, reply: parser.reply.trim() }, parser.sessionId);
     yield last;
   } finally {
     thread.busy = false;

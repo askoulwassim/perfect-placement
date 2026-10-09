@@ -6,6 +6,8 @@ import { activeLabel, isActive } from './runs';
  * Getting started (#24, #43; supersedes the per-screen cues of wave1-decisions #27): one ordered path
  * on Now, each step done from real state, never from clicks on the guide. Automatic and one-time: when
  * every step is done the vault keeps `config.ui.guide.done` and the card never shows again. No setting.
+ * Policy is done once the policy has been seen: Settings on desktop, the card's read-only summary on the
+ * phone, which has no Settings screen (#65).
  */
 
 export const GUIDE_STEPS = ['profile', 'policy', 'scout', 'roles', 'review', 'role'] as const;
@@ -55,6 +57,8 @@ export interface GuideInput {
   topRole: string | null;
   /** Needs you count (Review opens Needs you when there is something there). */
   needsYou: number;
+  /** Phone layout: no Settings screen, so Policy opens a read-only summary in the card (#65). */
+  mobile?: boolean;
 }
 
 export interface GuideStep {
@@ -66,6 +70,8 @@ export interface GuideStep {
   route: Route;
   /** The screen the step's cue shows on. */
   screen: Route['screen'];
+  /** Opens in the card instead of a screen (mobile Policy: the summary; opening it is the step). */
+  inline?: boolean;
 }
 
 /** Roles scored = any role past the inbox. */
@@ -84,7 +90,9 @@ export function guideSteps(i: GuideInput): GuideStep[] {
   const runs: Route = latest ? { screen: 'runs', runId: latest.id } : { screen: 'runs' };
   const steps: Omit<GuideStep, 'label'>[] = [
     { id: 'profile', done: i.profile, state: null, route: { screen: 'you' }, screen: 'you' },
-    { id: 'policy', done: i.flags.policy, state: null, route: { screen: 'settings' }, screen: 'settings' },
+    i.mobile
+      ? { id: 'policy', done: i.flags.policy, state: null, route: { screen: 'now' }, screen: 'now', inline: true }
+      : { id: 'policy', done: i.flags.policy, state: null, route: { screen: 'settings' }, screen: 'settings' },
     { id: 'scout', done: scouts.length > 0, state: null, route: { screen: 'river' }, screen: 'river' },
     { id: 'roles', done: finished, state: rolesState, route: runs, screen: 'runs' },
     { id: 'review', done: scored && i.flags.review, state: null, route: review, screen: review.screen },

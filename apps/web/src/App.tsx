@@ -11,7 +11,7 @@ import { STEP_CUE, STEP_TARGET, scoredCount } from './lib/guide';
 import { activeLabel, isActive, runLabel } from './lib/runs';
 import { useMobile } from './lib/useMobile';
 import { go, href, type Route, replaceRoute, useRoute } from './router';
-import { Ask, type AskSession, NEW_ASK } from './screens/Ask';
+import { Ask, type AskSession, initialAsk, rememberAskThread } from './screens/Ask';
 import { NeedsYou } from './screens/NeedsYou';
 import { Now } from './screens/Now';
 import { OutreachScreen } from './screens/Outreach';
@@ -73,7 +73,8 @@ function Shell() {
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
   const [askOpen, setAskOpen] = useState(false);
-  const [askSession, setAskSession] = useState<AskSession>(NEW_ASK);
+  const [askSession, setAskSession] = useState<AskSession>(initialAsk);
+  useEffect(() => rememberAskThread(askSession.threadId), [askSession.threadId]);
   const [lastRole, setLastRole] = useState<string | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
 

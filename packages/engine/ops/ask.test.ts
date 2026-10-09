@@ -1,4 +1,4 @@
-import type { AskChatEvent } from '@perfect-placement/contracts';
+import { ASK_THREAD_MAX_TURNS, type AskChatEvent } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   claudeLoggedOutTranscript,
@@ -17,6 +17,7 @@ import {
   askAgentPrompt,
   buildAskSpec,
   classifyAskFailure,
+  dbAskThreadStore,
   findRun,
   opOfTool,
   replayPrompt,
@@ -170,6 +171,75 @@ describe('runAsk (fake runner, recorded transcripts)', () => {
     expect(busy).toEqual([{ type: 'error', code: 'busy', message: expect.any(String) }]);
     release(claudeScoreTranscript());
     expect((await pending).at(-1)).toEqual({ type: 'done' });
+  });
+});
+
+describe('Ask threads in the vault (#69)', () => {
+  let engine: FixtureEngine | null = null;
+  afterEach(() => {
+    engine?.cleanup();
+    engine = null;
+  });
+
+  it('a restart resumes a thread by id (Claude session, Codex replay), caps its turns and prunes idle ones', async () => {
+    engine = openFixtureEngine();
+    const db = engine.db;
+    let now = new Date('2026-10-08T12:00:00.000Z');
+    const clock = () => now;
+    const launcher = fakeAskLauncher(() => claudeScoreTranscript());
+    const first = await collect(
+      runAsk({ message: 'Score my inbox roles' }, deps(launcher, undefined, new AskThreads({ store: dbAskThreadStore(db), now: clock }))),
+    );
+    const id = (first[0] as { thread_id: string }).thread_id;
+    expect(id).toMatch(/^ask_/);
+    const row = db.prepare('SELECT * FROM ask_thread WHERE id = ?').get(id) as Record<string, string>;
+    expect(row.runner).toBe('claude');
+    expect(row.session_id).toBe('sess-0001');
+    expect(JSON.parse(row.turns_json)).toEqual([{ user: 'Score my inbox roles', reply: expect.stringContaining('root = Reply') }]);
+
+    // `pp up` restarted: new memory, same vault.
+    const again = await collect(
+      runAsk(
+        { thread_id: id, message: 'and now?' },
+        deps(launcher, undefined, new AskThreads({ store: dbAskThreadStore(db), now: clock })),
+      ),
+    );
+    expect(again[0]).toMatchObject({ type: 'thread', thread_id: id });
+    const args = launcher.specs[1]?.args ?? [];
+    expect(args[args.indexOf('--resume') + 1]).toBe('sess-0001');
+    expect(
+      JSON.parse((db.prepare('SELECT turns_json FROM ask_thread WHERE id = ?').get(id) as { turns_json: string }).turns_json),
+    ).toHaveLength(2);
+
+    // Codex replays the restored turns; the newest ASK_THREAD_MAX_TURNS are kept.
+    const codex = fakeAskLauncher(() => codexTranscript());
+    const cThreads = () => new AskThreads({ store: dbAskThreadStore(db), now: clock });
+    const c0 = await collect(runAsk({ message: 'turn 0' }, deps(codex, { command: 'codex' }, cThreads())));
+    const cid = (c0[0] as { thread_id: string }).thread_id;
+    for (let i = 1; i <= ASK_THREAD_MAX_TURNS + 2; i++)
+      await collect(runAsk({ thread_id: cid, message: `turn ${i}` }, deps(codex, { command: 'codex' }, cThreads())));
+    expect(codex.specs.at(-1)?.args.at(-1)).toContain(`User: turn ${ASK_THREAD_MAX_TURNS + 1}`);
+    const turns = JSON.parse((db.prepare('SELECT turns_json FROM ask_thread WHERE id = ?').get(cid) as { turns_json: string }).turns_json);
+    expect(turns).toHaveLength(ASK_THREAD_MAX_TURNS);
+    expect(turns[0].user).toBe('turn 3');
+
+    // A runner change starts a new thread; an unknown id starts one too.
+    const swapped = await collect(runAsk({ thread_id: cid, message: 'hi' }, deps(launcher, undefined, cThreads())));
+    expect((swapped[0] as { thread_id: string }).thread_id).not.toBe(cid);
+
+    // 31 days idle: pruned on the next open; recent ones stay.
+    now = new Date('2026-11-08T13:00:00.000Z');
+    db.prepare('UPDATE ask_thread SET updated_at = ? WHERE id = ?').run('2026-10-30T00:00:00.000Z', cid);
+    new AskThreads({ store: dbAskThreadStore(db), now: clock });
+    const left = (db.prepare('SELECT id FROM ask_thread').all() as { id: string }[]).map((r) => r.id);
+    expect(left).toEqual([cid]);
+    const gone = await collect(
+      runAsk(
+        { thread_id: id, message: 'still there?' },
+        deps(launcher, undefined, new AskThreads({ store: dbAskThreadStore(db), now: clock })),
+      ),
+    );
+    expect((gone[0] as { thread_id: string }).thread_id).not.toBe(id);
   });
 });
 
