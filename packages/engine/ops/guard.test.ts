@@ -51,6 +51,8 @@ const FS_ALLOWED = [
   'packages/contracts/scripts/',
   // pp setup / pp kev: agent client configs (outside the vault, backed up first) and Kev runtime
   // files under $PP_HOME/kev/ (clone, pid, log). Never vault data: config goes through config.update.
+  // pp uninstall: the reverse (pp entries, launchers, schedule jobs); --purge deletes the whole vault
+  // after a verified backup, a machine-level action outside ops by design.
   'packages/cli/src/system/',
 ];
 const LANES = [

@@ -4,7 +4,7 @@
  * (`<file>.bak-<timestamp>`) before it is changed; an identical entry is left alone (idempotent);
  * unparseable files are refused, never overwritten. Formats: packages/mcp/README.md "Client config".
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { ops } from '@perfect-placement/engine';
@@ -70,7 +70,7 @@ export function detectClients(d: SystemDeps): Record<ClientId, boolean> {
   };
 }
 
-const stamp = (d: Pick<SystemDeps, 'now'>) => d.now().toISOString().replace(/[:.]/g, '-');
+export const stamp = (d: Pick<SystemDeps, 'now'>) => d.now().toISOString().replace(/[:.]/g, '-');
 
 /** Copy `file` to `<file>.bak-<timestamp>` (if it exists). */
 export function backup(file: string, d: Pick<SystemDeps, 'now'>): string | undefined {
@@ -337,4 +337,184 @@ export function nodePathChecks(
       ? { name: 'mcp_node', ok: false, detail: `${bad.join('; ')}; rerun pp setup` }
       : { name: 'mcp_node', ok: true, detail: `${registered.length} agent config${registered.length === 1 ? '' : 's'}` },
   ];
+}
+
+/*
+ * Uninstall (`pp uninstall`): the reverse of registration. Same rules: only the `pp` entry goes, other
+ * servers and keys are kept, the file is backed up first, a file without `pp` is never written,
+ * an unparseable file is left as is. Detection is read only.
+ */
+
+export interface ClientRemoval {
+  client: ClientId;
+  status: 'removed' | 'absent' | 'failed';
+  target: string;
+  backup?: string;
+  detail?: string;
+}
+
+/** Write `text` next to `file` and rename it over, keeping the file's mode. */
+function replaceFile(file: string, text: string): void {
+  const tmp = `${file}.pp-tmp-${process.pid}`;
+  writeFileSync(tmp, text, { mode: statSync(file).mode & 0o777 });
+  renameSync(tmp, file);
+}
+
+type JsonDoc = { ok: true; doc: Record<string, unknown> | null } | { ok: false; detail: string };
+
+function readJsonDoc(file: string): JsonDoc {
+  if (!existsSync(file)) return { ok: true, doc: null };
+  const raw = readFileSync(file, 'utf8');
+  if (!raw.trim()) return { ok: true, doc: null };
+  try {
+    const doc = JSON.parse(raw) as unknown;
+    if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return { ok: false, detail: 'not a JSON object, left as is' };
+    return { ok: true, doc: doc as Record<string, unknown> };
+  } catch (e) {
+    return { ok: false, detail: `not valid JSON, left as is (${(e as Error).message})` };
+  }
+}
+
+const serversOf = (doc: Record<string, unknown> | null) => {
+  const s = doc?.mcpServers;
+  return typeof s === 'object' && s !== null && !Array.isArray(s) ? (s as Record<string, unknown>) : null;
+};
+
+/** Does this `{ mcpServers }` JSON file hold a `pp` entry? (`~/.claude.json` user scope, Cursor, Claude Desktop.) */
+export function jsonHasPp(file: string): { has: boolean; detail?: string } {
+  const r = readJsonDoc(file);
+  if (!r.ok) return { has: false, detail: r.detail };
+  return { has: serversOf(r.doc)?.[SERVER_KEY] !== undefined };
+}
+
+/** Remove `mcpServers.pp` from a JSON config, keeping every other key (backup first). */
+export function unregisterJsonClient(client: ClientId, file: string, d: Pick<SystemDeps, 'now'>): ClientRemoval {
+  const r = readJsonDoc(file);
+  if (!r.ok) return { client, status: 'failed', target: file, detail: r.detail };
+  const servers = serversOf(r.doc);
+  if (!r.doc || !servers || servers[SERVER_KEY] === undefined) return { client, status: 'absent', target: file };
+  const { [SERVER_KEY]: _gone, ...rest } = servers;
+  const bak = backup(file, d);
+  replaceFile(file, `${JSON.stringify({ ...r.doc, mcpServers: rest }, null, 2)}\n`);
+  return { client, status: 'removed', target: file, ...(bak ? { backup: bak } : {}) };
+}
+
+/** Header-less dotted forms of the pp table: `mcp_servers.pp = {...}` / `mcp_servers.pp.x = ..` at the root, `pp = {...}` in [mcp_servers]. */
+const ROOT_DOTTED = /^\s*mcp_servers\s*\.\s*(pp|"pp"|'pp')\s*[.=]/;
+const IN_SERVERS_DOTTED = /^\s*(pp|"pp"|'pp')\s*[.=]/;
+const isServersTable = (name: string) => name.replace(/\s+/g, '') === 'mcp_servers';
+
+/** Codex config.toml without the `[mcp_servers.pp]` table (and its sub-tables / one-line dotted forms). Everything else byte for byte. */
+export function removeCodexToml(text: string): string {
+  const out: string[] = [];
+  let skipping = false;
+  let table: string | null = null;
+  let removed = false;
+  for (const line of text.split('\n')) {
+    const h = HEADER.exec(line);
+    if (h) {
+      table = h[1] as string;
+      if (isPpTable(table)) {
+        // Drop the blank lines that separated the removed table from what came before.
+        while (out.length && (out.at(-1) as string).trim() === '') out.pop();
+        skipping = true;
+        removed = true;
+        continue;
+      }
+      if (skipping && out.length) out.push('');
+      skipping = false;
+    }
+    if (skipping) continue;
+    if (!h && ((table === null && ROOT_DOTTED.test(line)) || (table !== null && isServersTable(table) && IN_SERVERS_DOTTED.test(line)))) {
+      removed = true;
+      continue;
+    }
+    out.push(line);
+  }
+  if (!removed) return text;
+  const s = out.join('\n').replace(/\n+$/, '');
+  return s ? `${s}\n` : '';
+}
+
+export function codexHasPp(file: string): boolean {
+  if (!existsSync(file)) return false;
+  const text = readFileSync(file, 'utf8');
+  return removeCodexToml(text) !== text;
+}
+
+export function unregisterCodex(file: string, d: Pick<SystemDeps, 'now'>): ClientRemoval {
+  if (!existsSync(file)) return { client: 'codex', status: 'absent', target: file };
+  const before = readFileSync(file, 'utf8');
+  const after = removeCodexToml(before);
+  if (after === before) return { client: 'codex', status: 'absent', target: file };
+  const bak = backup(file, d);
+  replaceFile(file, after);
+  return { client: 'codex', status: 'removed', target: file, ...(bak ? { backup: bak } : {}) };
+}
+
+export const claudeJsonPath = (d: Pick<SystemDeps, 'home'>) => join(d.home, '.claude.json');
+export const claudeRemoveArgs = ['mcp', 'remove', '--scope', 'user', SERVER_KEY];
+
+/**
+ * Claude Code: `claude mcp remove --scope user pp` when `claude` is on PATH (it owns ~/.claude.json),
+ * else the `mcpServers.pp` key is removed from ~/.claude.json directly. Backed up first either way.
+ */
+export function unregisterClaudeCode(d: SystemDeps): ClientRemoval {
+  const file = claudeJsonPath(d);
+  const found = jsonHasPp(file);
+  if (!found.has)
+    return found.detail
+      ? { client: 'claude-code', status: 'failed', target: file, detail: found.detail }
+      : { client: 'claude-code', status: 'absent', target: file };
+  const claude = d.which('claude');
+  if (!claude) return unregisterJsonClient('claude-code', file, d);
+  const bak = backup(file, d);
+  const cmd = `claude ${claudeRemoveArgs.join(' ')}`;
+  const r = d.capture(claude, claudeRemoveArgs);
+  if (r.code !== 0)
+    return {
+      client: 'claude-code',
+      status: 'failed',
+      target: cmd,
+      detail: (r.stderr || r.stdout).trim() || `exit ${r.code}`,
+      ...(bak ? { backup: bak } : {}),
+    };
+  return { client: 'claude-code', status: 'removed', target: cmd, ...(bak ? { backup: bak } : {}) };
+}
+
+/** Where each client keeps the pp entry, and whether it is there now (read only). */
+export function clientPpState(client: ClientId, d: SystemDeps): { file: string | null; has: boolean; detail?: string } {
+  switch (client) {
+    case 'claude-code': {
+      const file = claudeJsonPath(d);
+      return { file, ...jsonHasPp(file) };
+    }
+    case 'codex': {
+      const file = codexConfigPath(d);
+      return { file, has: codexHasPp(file) };
+    }
+    case 'cursor': {
+      const file = cursorConfigPath(d);
+      return { file, ...jsonHasPp(file) };
+    }
+    case 'claude-desktop': {
+      const file = claudeDesktopConfigPath(d);
+      return file ? { file, ...jsonHasPp(file) } : { file: null, has: false };
+    }
+  }
+}
+
+export function unregisterClient(client: ClientId, d: SystemDeps): ClientRemoval {
+  switch (client) {
+    case 'claude-code':
+      return unregisterClaudeCode(d);
+    case 'codex':
+      return unregisterCodex(codexConfigPath(d), d);
+    case 'cursor':
+      return unregisterJsonClient('cursor', cursorConfigPath(d), d);
+    case 'claude-desktop': {
+      const file = claudeDesktopConfigPath(d);
+      return file ? unregisterJsonClient('claude-desktop', file, d) : { client, status: 'absent', target: 'claude-desktop' };
+    }
+  }
 }

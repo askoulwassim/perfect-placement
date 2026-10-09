@@ -231,15 +231,22 @@ export interface SyncResult {
   lines: string[];
 }
 
+/** The job files of one schedule that exist on disk (plist; or systemd service + timer). Read only. */
+export function installedJobFiles(d: Pick<SystemDeps, 'platform' | 'which' | 'home' | 'env'>, key: ScheduleKey): string[] {
+  const file = jobFile(d, key);
+  if (!file) return [];
+  const all = jobManager(d) === 'systemd' ? [file, file.replace(/\.service$/, '.timer')] : [file];
+  return all.filter((f) => existsSync(f));
+}
+
 function removeJob(d: SystemDeps, key: ScheduleKey, lines: string[]): boolean {
   const m = jobManager(d);
-  const file = jobFile(d, key);
-  if (!file || !existsSync(file)) return false;
+  const files = installedJobFiles(d, key);
+  if (!files.length) return false;
   if (m === 'launchd') d.capture('launchctl', ['bootout', `gui/${d.uid}/${jobLabel(key)}`]);
   if (m === 'systemd') d.capture('systemctl', ['--user', 'disable', '--now', `${unitName(key)}.timer`]);
-  rmSync(file, { force: true });
-  if (m === 'systemd') rmSync(file.replace(/\.service$/, '.timer'), { force: true });
-  lines.push(`schedules: ${key}: removed ${file}`);
+  for (const f of files) rmSync(f, { force: true });
+  lines.push(`schedules: ${key}: removed ${files.join(', ')}`);
   return true;
 }
 

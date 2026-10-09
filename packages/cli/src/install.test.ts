@@ -80,7 +80,7 @@ describe('install.sh --check', () => {
   });
 
   it.skipIf(whichIn('shellcheck', process.env.PATH) === null)('is shellcheck-clean', () => {
-    const r = spawnSync('shellcheck', ['-s', 'sh', INSTALL], { encoding: 'utf8' });
+    const r = spawnSync('shellcheck', ['-s', 'sh', INSTALL, join(dirname(INSTALL), 'uninstall.sh')], { encoding: 'utf8' });
     expect(r.stdout + r.stderr).toBe('');
     expect(r.status).toBe(0);
   });

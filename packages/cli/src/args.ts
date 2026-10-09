@@ -22,6 +22,9 @@ const BOOLEAN_FLAGS = new Set([
   'no-schedules',
   'no-catch-up',
   'no-wait',
+  'purge',
+  'no-backup',
+  'force',
 ]);
 
 export function parseArgs(argv: readonly string[]): Args {

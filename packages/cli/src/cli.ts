@@ -8,6 +8,7 @@ import { kevCommand, kevForUp, sysOf } from './commands/kev.js';
 import { runCommand, schedulesCommand, servicesWithJobs } from './commands/schedules.js';
 import { setupCommand } from './commands/setup.js';
 import { fresh, inbox, op, score, scout } from './commands/skills.js';
+import { uninstallCommand } from './commands/uninstall.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
@@ -28,6 +29,7 @@ export const COMMANDS = [
   'run',
   'schedules',
   'op',
+  'uninstall',
 ] as const;
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
@@ -49,7 +51,11 @@ const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
                                            (--schedule: actor schedule; what the OS jobs run)
   schedules install|remove|status [--json] OS jobs for config.schedules (launchd, systemd user timers)
   op       <name> [<json>|--input <json>|--in f]  any op
-  doctor   [--json]                        system.doctor`;
+  doctor   [--json]                        system.doctor
+  uninstall [--purge [--no-backup] [--force]] [--yes] [--dry-run] [--bin-dir <dir>]
+                                           undo setup: stop pp's Kev, schedule jobs, the pp MCP entry in each agent
+                                           (backup first), the pp / pp-mcp launchers; keeps the vault unless --purge
+                                           (vault after a tar.gz backup, Kev's model files); plan first, asks`;
 
 /** Resolves when SIGINT / SIGTERM arrives (overridable in tests). */
 export type WaitForStop = () => Promise<void>;
@@ -81,6 +87,8 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
         return await setupCommand(args, home, io);
       case 'kev':
         return await kevCommand(args, home, io);
+      case 'uninstall':
+        return await uninstallCommand(args, home, io);
       case 'schedules':
         return await schedulesCommand(args, home, io);
       case 'doctor': {

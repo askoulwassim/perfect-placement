@@ -16,6 +16,7 @@ pp drain                                      launch queued runs once
 pp run     <skill> [--schedule] [--role <id>] [--no-wait]  queue a run, drain until it and what it triggers finish
 pp schedules install|remove|status [--json]   OS jobs for config.schedules
 pp op      <name> ['<json>' | --input <json> | --in f]   any op
+pp uninstall [--purge [--no-backup] [--force]] [--yes] [--dry-run] [--bin-dir DIR]   undo setup (keeps the vault unless --purge)
 ```
 
 Common flags: `--home <dir>` (else `PP_HOME`, else `~/.perfect-placement`), `--actor agent|human|schedule` (default `agent` for `pp op` and the skill commands), `--dry-run`. `--in -` reads stdin.
@@ -60,3 +61,7 @@ node packages/cli/dist/index.js up --fixtures            # http://127.0.0.1:5177
 - `pp up` catches up: a schedule that is on, ran before, and fired since its last run started (machine off, no job) is queued once at start (`--no-catch-up` skips). A schedule that never ran waits for its job or a Run button.
 - `pp doctor` (`schedule_jobs`): fails when installed jobs do not match `config.schedules` (stale, missing next to installed ones, or left over for a schedule turned off). No jobs at all passes with a hint (declined in setup).
 - Each job file carries a `pp-schedule <base64>` fingerprint (key, spec, vault, node, cli): status compares files only, never asks launchd or systemd. Tests use a temp HOME and a fake `capture`; nothing runs `launchctl`, `systemctl` or `crontab`.
+
+## `pp uninstall`
+
+`src/commands/uninstall.ts` (plan, prompt, summary) over `src/system/uninstall.ts` (`planUninstall`: read only, one item per thing found, each with a `run`), `src/system/clients.ts` (`unregister*`: only the `pp` entry, `.bak-<timestamp>` first, unparseable files left alone), `src/system/schedules.ts` (`removeJobs`), `src/system/hf-cache.ts` (Kev dirs `models--jaredpalmer--kev-*`, plus the base each pins in its `training_config.json` / `provenance.json` / `adapter_config.json`: only that snapshot, and only blobs no other snapshot references) and `src/system/backup.ts` (tar.gz written with zlib, 0600, read back before the vault is deleted). `./uninstall.sh` at the repo root finds node like `install.sh` and builds the CLI if `dist` is missing. Tests: `src/commands/uninstall.test.ts`, `src/system/uninstall-parts.test.ts` (temp HOME, fake `claude` / `launchctl` / `systemctl` / `crontab`, synthetic HF cache).
