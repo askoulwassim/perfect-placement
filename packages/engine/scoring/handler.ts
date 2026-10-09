@@ -99,6 +99,8 @@ export function rolesScoreHandler(rawInput: OpInput<'roles.score'> | unknown, ct
   if (!parsed.success) throw new ScoringError('invalid_input', 'roles.score: invalid input', parsed.error.issues);
   const input = parsed.data;
   const { store, config } = deps;
+  // The op judges missing criteria through the resolver first (ops/lanes/scoring.ts); mechanics need all nine.
+  if (!input.criteria) throw new ScoringError('invalid_input', 'roles.score: criteria are judged before the handler runs');
 
   const role = store.getRole(input.role_id);
   if (!role) throw new ScoringError('not_found', `role ${input.role_id} not found`);

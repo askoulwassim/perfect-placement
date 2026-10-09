@@ -5,6 +5,7 @@ import { probColor } from '../components/theme';
 import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, type Person } from './people';
+import { sourcesOf } from './role';
 import {
   activeLabel,
   duration,
@@ -169,5 +170,23 @@ describe('runs (#21)', () => {
   it('shows duration', () => {
     expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');
     expect(duration(run({}), new Date('2026-10-08T11:05:00.000Z'))).toBe('1h 5m');
+  });
+});
+
+describe('sourcesOf (#40)', () => {
+  const base = { c1: 4, c2: 4, c3: 5, c4: 4, c5: 4, c6: 4, c7: 4, c8: 4, c9: 4 } as const;
+  it('reads the source and confidence per criterion and marks Kev splits', () => {
+    const criteria_source = Object.fromEntries(
+      ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'].map((c) => [c, { backend: c === 'c6' ? 'human' : 'agent', p: 0.75 }]),
+    );
+    const s = { ...base, facts_json: { criteria_source, disagreements: [{ criterion: 'c3', agent: 5, kev: 2 }] } };
+    const v = sourcesOf(s as never);
+    expect(v).toHaveLength(9);
+    expect(v[0]).toEqual({ id: 'C1', label: 'Agent', pct: 75, kev: null });
+    expect(v[2]).toMatchObject({ id: 'C3', kev: 2 });
+    expect(v[5]?.label).toBe('You');
+  });
+  it('is empty for scores from before #40', () => {
+    expect(sourcesOf({ ...base, facts_json: {} } as never)).toEqual([]);
   });
 });

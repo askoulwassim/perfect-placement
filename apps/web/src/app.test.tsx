@@ -463,6 +463,26 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
+  it('Role: each criterion shows who judged it and how sure (#40)', async () => {
+    const id = 'notion_product-lead-data-platform';
+    const { container } = await boot(`#/role/${id}`, (l) =>
+      l.as('agent', 'roles.score', {
+        role_id: id,
+        criteria: { c1: 5, c2: 4, c3: 4, c4: 5, c5: 4, c6: 4, c7: 4, c8: 4, c9: 5 },
+        criteria_p: { c1: 0.9 },
+        facts: { workplace: 'remote', remote_ok: true },
+      }),
+    );
+    const chips = await waitFor(() => {
+      const c = Array.from(container.querySelectorAll('.criterion-sources [data-source]'));
+      if (c.length !== 9) throw new Error('chips');
+      return c;
+    });
+    expect(chips[0]?.textContent).toBe('C1Agent90%');
+    expect(chips.every((c) => c.getAttribute('data-source') === 'Agent')).toBe(true);
+    assertButtons(container);
+  });
+
   it('Settings: policy grid #24 with locked exclusions; threshold drag and schedule toggle save via config.update', async () => {
     const { container } = await boot('#/settings');
     const cells = await waitFor(() => {
@@ -474,9 +494,13 @@ describe('click paths', () => {
     const locked = Array.from(container.querySelectorAll('.policy__lock')).map((e) => e.textContent);
     expect(locked).toEqual(['Submit application', 'Send email', 'Delete anything', 'Dealbreakers', 'Comp floor']);
     expect(container.querySelectorAll('.policy__locked button, .policy__locked input').length).toBe(0);
+    // The live fixture engine has no Kev install (#40): "Not installed" with the install command.
     await waitFor(() =>
-      expect(Array.from(container.querySelectorAll('.backend')).map((b) => b.textContent?.slice(0, 5))).toEqual(['KevLO', 'Agent']),
+      expect(Array.from(container.querySelectorAll('.backend')).map((b) => b.textContent?.slice(0, 5))).toEqual(['Kevpp', 'Agent']),
     );
+    const kevCard = $(container, '.backend[data-status="not_installed"]');
+    expect(kevCard.textContent).toContain('pp kev install');
+    expect(kevCard.textContent).toContain('Not installed');
 
     const auto = await screen.findByRole('slider', { name: 'Auto' });
     fireEvent.keyDown(auto, { key: 'ArrowRight' });

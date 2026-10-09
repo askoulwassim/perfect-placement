@@ -413,3 +413,37 @@ describe('record (externally judged answers)', () => {
     expect(store.get(res.decisionId)).toMatchObject({ status: 'pending', policy_outcome: 'human' });
   });
 });
+
+describe('consult and record second opinions (#40)', () => {
+  const SCORE_Q: AskRequest = {
+    decision: 'roles.criterion',
+    impact: 'low',
+    state: { title: 'PM' },
+    subject: { type: 'role', id: 'notion_staff-pm' },
+    questions: [{ id: 'c1', type: 'score', instructions: 'Decisions', min: 1, max: 5 }],
+  };
+
+  it('consult asks one backend and logs nothing; undefined when it fails or answers out of range', async () => {
+    const kev = stub('kev', () => ({ value: 4, p: 0.8 }));
+    const r = resolver({ kev, agent: stub('agent', () => ({ value: 2, p: 0.9 })) });
+    expect(await r.consult('kev', SCORE_Q)).toMatchObject({ backend: 'kev', answers: [{ id: 'c1', value: 4, p: 0.8 }] });
+    expect(await resolver({ kev: stub('kev', 'down') }).consult('kev', SCORE_Q)).toBeUndefined();
+    expect(await resolver({ kev: stub('kev', () => ({ value: 9, p: 0.8 })) }).consult('kev', SCORE_Q)).toBeUndefined();
+    expect(await resolver({}).consult('kev', SCORE_Q)).toBeUndefined();
+    expect(h.db.prepare('SELECT count(*) n FROM decision').get()).toMatchObject({ n: 0 });
+  });
+
+  it('record keeps a second answer and extra fields in answer_json', async () => {
+    const res = await resolver({}).record(
+      { ...SCORE_Q, question: SCORE_Q.questions[0] as Record<string, unknown>, answer: { id: 'c1', value: 5, p: 0.75 }, backend: 'agent' },
+      { second: { backend: 'kev', value: 2, p: 0.8 }, extra: { disagree: true } },
+    );
+    expect(store.get(res.decisionId)?.answer_json).toEqual({
+      id: 'c1',
+      value: 5,
+      p: 0.75,
+      second: { backend: 'kev', value: 2, p: 0.8 },
+      disagree: true,
+    });
+  });
+});

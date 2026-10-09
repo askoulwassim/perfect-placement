@@ -19,6 +19,8 @@ export interface EngineServices {
   sleep?: (ms: number) => Promise<void>;
   /** Extra or replacement resolver backends (tests: a fake Kev). Merged over the config-built map. */
   backends?: BackendMap;
+  /** Is Kev installed in PP_HOME? Default: `$PP_HOME/kev/installed.json` exists (`system.backends` not_installed vs down). */
+  kevInstalled?: (home: string) => boolean;
   /** Environment for backend keys (KEV_API_KEY, JEV_API_KEY, ANTHROPIC_API_KEY). Default: process.env. */
   env?: Record<string, string | undefined>;
   /**

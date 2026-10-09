@@ -114,8 +114,13 @@ describe('pp up (in-process smoke)', () => {
     await expect(up({ engine, port: 0, host: '0.0.0.0', webDir: null })).rejects.toThrow(/loopback/);
   });
 
-  it('--kev only checks reachability', async () => {
-    expect((await checkKev(engine)).ok).toBe(false); // the fixture engine's Kev is a fake that is down
+  it('--kev only checks reachability; system.backends tells not installed from down (#40)', async () => {
+    const r = await checkKev(engine); // the fixture engine's Kev is a fake that is down, and PP_HOME has no Kev
+    expect(r.ok).toBe(false);
+    expect(r.line).toContain('kev: not installed (run pp kev install)');
+    mkdirSync(join(engine.home, 'kev'), { recursive: true });
+    writeFileSync(join(engine.home, 'kev', 'installed.json'), '{}');
+    expect((await checkKev(engine)).line).toMatch(/^kev: unreachable at /);
   });
 });
 

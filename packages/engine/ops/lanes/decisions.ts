@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { OpOutcome, PolicyConfig, RunOp } from '@perfect-placement/contracts';
 import { backendsFromConfig, createDecisionOps, type DecisionStore } from '@perfect-placement/resolver';
 import { doctor } from '../../db/doctor.js';
@@ -48,8 +50,14 @@ const MODE = { rule: 'local', kev: 'local', agent: 'session', jev: 'hosted', llm
 /** Above this a reachable backend reads as slow on the Settings card. */
 const SLOW_MS = 1500;
 
-/** Backend cards for Settings: rule, Kev and the agent session always; Jev and the API adapter only when enabled. */
-export async function backendStatus(config: PolicyConfig, services: EngineServices) {
+/** Kev's install marker in PP_HOME (written by `pp kev install`). */
+export const kevInstalledAt = (home: string) => existsSync(join(home, 'kev', 'installed.json'));
+
+/**
+ * Backend cards for Settings: rule, Kev and the agent session always; Jev and the API adapter only when enabled.
+ * Kev that does not answer reads `not_installed` when PP_HOME has no Kev install (with `home`), else `down`.
+ */
+export async function backendStatus(config: PolicyConfig, services: EngineServices, home?: string) {
   const map = {
     ...backendsFromConfig(config, { ...(services.env ? { env: services.env } : {}), agent: {} }),
     ...(services.backends ?? {}),
@@ -65,7 +73,8 @@ export async function backendStatus(config: PolicyConfig, services: EngineServic
         health = { ok: false };
       }
       const latencyMs = health.latencyMs ?? null;
-      const status = !health.ok ? 'down' : latencyMs !== null && latencyMs > SLOW_MS ? 'slow' : 'ok';
+      const installed = name !== 'kev' || home === undefined || (services.kevInstalled ?? kevInstalledAt)(home);
+      const status = !health.ok ? (installed ? 'down' : 'not_installed') : latencyMs !== null && latencyMs > SLOW_MS ? 'slow' : 'ok';
       return { name, mode: MODE[name], status, latencyMs } as const;
     }),
   );
@@ -73,7 +82,7 @@ export async function backendStatus(config: PolicyConfig, services: EngineServic
 
 export const systemBackends = defineHandler('system.backends', {
   async run(_input, h) {
-    return { items: await backendStatus(h.config, h.services) };
+    return { items: await backendStatus(h.config, h.services, h.home) };
   },
 });
 

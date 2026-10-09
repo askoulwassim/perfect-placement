@@ -71,6 +71,10 @@ export interface AskOptions {
   hardHuman?: HardHumanSubject;
   /** `record` only: queue for a human whatever the p (no confidence was supplied). */
   forceHuman?: boolean;
+  /** `record` only: a second backend's answer to the same question (kept as `answer_json.second`). */
+  second?: { backend: Backend; value: Answer['value']; p: number };
+  /** `record` only: extra fields kept in `answer_json` (e.g. a disagreement flag). */
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -102,6 +106,11 @@ export interface ResolverInstance extends Resolver {
   record(req: RecordRequest, opts?: AskOptions): Promise<RecordResult>;
   /** Backend order this request would try (for Settings + tests). */
   route(req: AskRequest): Backend[];
+  /**
+   * Ask one named backend without logging a decision (a second opinion on answers judged elsewhere).
+   * Undefined when that backend is absent, fails or answers out of range.
+   */
+  consult(backend: Exclude<Backend, 'human'>, req: AskRequest): Promise<(BackendResult & { backend: Backend }) | undefined>;
 }
 
 export function createResolver(deps: ResolverDeps): ResolverInstance {
@@ -298,7 +307,13 @@ export function createResolver(deps: ResolverDeps): ResolverInstance {
       subject_id: subject.id,
       question_json: req.question,
       backend: req.backend,
-      answer_json: { id: req.answer.id, value: req.answer.value, p: req.answer.p },
+      answer_json: {
+        id: req.answer.id,
+        value: req.answer.value,
+        p: req.answer.p,
+        ...(opts.second ? { second: opts.second } : {}),
+        ...(opts.extra ?? {}),
+      },
       p: req.answer.p,
       impact,
       policy_outcome: outcome,
@@ -327,9 +342,16 @@ export function createResolver(deps: ResolverDeps): ResolverInstance {
     return { decisionId: d.id, outcome: d.policy_outcome };
   }
 
+  async function consult(name: Exclude<Backend, 'human'>, input: AskRequest) {
+    const req = AskRequest.parse({ ...input, backend: name });
+    const res = await tryBackend(name, req);
+    return res ? { ...res, backend: name } : undefined;
+  }
+
   return {
     ask,
     record,
+    consult,
     route,
     decide: (answer: Answer, impact: Impact, thresholds: Thresholds) => decideGrid(answer, impact, thresholds),
   };

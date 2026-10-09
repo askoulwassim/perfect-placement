@@ -52,7 +52,7 @@ export async function rescoreRoles(
     const criteria = Object.fromEntries(CRITERIA.map((c) => [c, s[c]])) as Record<Criterion, number>;
     const o = await h.runOp(
       'roles.score',
-      { role_id: id, criteria, facts, profile_version_id: versionId },
+      { role_id: id, criteria, facts, profile_version_id: versionId, rescore: true },
       { ...ctx, decisionId: undefined },
     );
     if (o.status === 'ok') done.push(id);

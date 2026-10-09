@@ -32,7 +32,7 @@ import {
   Workplace,
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
-import { CriterionScore, Id, IsoTimestamp, VaultPath } from '../primitives.js';
+import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
 import { Ack, defineOp, Page } from './define.js';
 
@@ -400,11 +400,19 @@ export const scoutWatchlistScan = defineOp({
 
 export const rolesScore = defineOp({
   name: 'roles.score',
-  description: 'Write a score row from judged criteria; set active, held or archived.',
+  description:
+    'Score a role; set active, held or archived. Without criteria the resolver judges C1..C9 (Kev, blind for C1 C2 C3 C4 C9); agent criteria get a Kev second opinion.',
   input: z.object({
     role_id: Id,
-    criteria: z.record(Criterion, CriterionScore),
-    facts: z.record(z.string(), z.unknown()),
+    /** Agent-judged C1..C9. Omit to let the resolver judge them (rule -> Kev -> agent -> human). */
+    criteria: z.record(Criterion, CriterionScore).optional(),
+    facts: z.record(z.string(), z.unknown()).default({}),
+    /** The agent's p per supplied criterion (default: ctx.confidence, else 0.75). `confidence` is the MCP tool argument. */
+    criteria_p: z.partialRecord(Criterion, Probability).optional(),
+    /** Extra brand strings to mask for the blind criteria (products, founders, ticker). */
+    brand_terms: z.array(z.string()).optional(),
+    /** Criteria carried over from the previous score (profile rescore): no new decisions. */
+    rescore: z.boolean().optional(),
     /** Rationale per criterion, kept in the role markdown, not the db. */
     notes: z.partialRecord(Criterion, z.string()).optional(),
     /** Score under this profile version (Learn loop rescoring). Default: latest. */
@@ -1008,7 +1016,8 @@ export const systemBackends = defineOp({
       z.object({
         name: z.enum(['rule', ...ROUTABLE_BACKENDS]),
         mode: z.enum(['hosted', 'local', 'session']),
-        status: z.enum(['ok', 'slow', 'down']),
+        /** `not_installed`: Kev is not in PP_HOME and does not answer (`pp kev install`). */
+        status: z.enum(['ok', 'slow', 'down', 'not_installed']),
         latencyMs: z.number().nonnegative().nullable(),
       }),
     ),

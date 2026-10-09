@@ -3,13 +3,13 @@ import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
 import { AffinityChip, STATUS_LABEL, StatusChip } from '../components/controls';
 import { FreshnessRing, RoleTile } from '../components/glyphs';
-import { ScoreRadar, StageRail } from '../components/meters';
+import { CriterionSources, ScoreRadar, StageRail } from '../components/meters';
 import { BestPathPill, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
 import { C, display, eyebrow, mono, tab } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
 import { bestPath, initials } from '../lib/people';
-import { criteriaOf, freshOf } from '../lib/role';
+import { criteriaOf, freshOf, sourcesOf } from '../lib/role';
 import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
 import { type DocLine, docLines, tile } from '../lib/view';
@@ -187,6 +187,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
         <div style={{ width: 260, height: 260, margin: '18px auto 26px' }}>
           {score && <ScoreRadar criteria={criteriaOf(score)} size={300} />}
         </div>
+        {score && <CriterionSources items={sourcesOf(score)} />}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {facts.map(([k, v]) => (
             <span
@@ -262,6 +263,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
           <div style={{ width: '100%', maxWidth: 330, aspectRatio: '1', margin: '30px auto 0' }}>
             {score && <ScoreRadar criteria={criteriaOf(score)} size={320} />}
           </div>
+          {score && <CriterionSources items={sourcesOf(score)} />}
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 16 }}>Facts</div>

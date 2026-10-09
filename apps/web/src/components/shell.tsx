@@ -568,11 +568,12 @@ export function BackendCard({
 }: {
   name: string;
   mode: string;
-  status: 'ok' | 'slow' | 'down';
+  status: 'ok' | 'slow' | 'down' | 'not_installed';
   latencyMs: number | null;
 }) {
-  const dot = status === 'ok' ? C.emerald : status === 'slow' ? C.gold : C.coral;
-  const ring = status === 'ok' ? X.em15 : status === 'slow' ? X.gold16 : X.coral14;
+  const missing = status === 'not_installed';
+  const dot = status === 'ok' ? C.emerald : status === 'slow' ? C.gold : missing ? C.muted : C.coral;
+  const ring = status === 'ok' ? X.em15 : status === 'slow' ? X.gold16 : missing ? 'transparent' : X.coral14;
   return (
     <div
       className="backend"
@@ -590,12 +591,16 @@ export function BackendCard({
       <span style={{ width: 12, height: 12, borderRadius: '50%', background: dot, boxShadow: `0 0 0 4px ${ring}` }} />
       <div style={{ flex: 1 }}>
         <div style={display(24, 700, 'normal')}>{name}</div>
-        <div style={{ ...mono(11, C.muted), letterSpacing: '.08em' }}>{mode.toUpperCase()}</div>
+        <div style={{ ...mono(11, C.muted), letterSpacing: '.08em' }}>{missing ? 'pp kev install' : mode.toUpperCase()}</div>
       </div>
-      <div style={{ ...display(30, 800, 'normal'), ...tab }}>
-        {latencyMs ?? '—'}
-        <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
-      </div>
+      {missing ? (
+        <div style={{ ...mono(12, C.muted), letterSpacing: '.06em' }}>Not installed</div>
+      ) : (
+        <div style={{ ...display(30, 800, 'normal'), ...tab }}>
+          {latencyMs ?? '—'}
+          <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
+        </div>
+      )}
     </div>
   );
 }
