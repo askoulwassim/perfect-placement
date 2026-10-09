@@ -13,7 +13,7 @@ You supply judgment (who is in the JD, who you read on LinkedIn, the draft text)
 
 1. **Check the role is picked.** `roles.get { role_id }`. Status must be `on-deck` or later (not archived). `people.find` refuses anything else.
 2. **Collect hints (judgment).** Read the JD (`roles/<role_id>.md`) and, if useful, the company team page. List people named there: name, headline, URL or email if shown. Do not search for personal emails (the email step below looks for work addresses only).
-3. **Read LinkedIn (judgment, read-only, #82).** Only when the prompt's LinkedIn line says it is on (`config.linkedin.mode: "live"`) and only for this picked role. Use Claude in Chrome's read and navigate tools (listed under Tools); nothing that clicks, types or runs script is granted. Open a new tab, then, waiting the stated delay (`min_delay_s` to 2x) before every page, read in this order and stop at the page cap (`max_pages_per_run`) or the profile budget the prompt states:
+3. **Read LinkedIn (judgment, read-only, #82).** Only when the prompt's LinkedIn line says it is on (`config.linkedin.mode: "live"`) and only for this picked role. Use Claude in Chrome's read and navigate tools (listed under Tools); nothing that clicks, types or runs script is granted. Start with `tabs_context_mcp` and reuse the tab this Chrome session created (`navigate` it); create one with `tabs_create_mcp` only if none is usable, so no empty extra tab is left. Then, waiting the stated delay (`min_delay_s` to 2x) before every page, read in this order and stop at the page cap (`max_pages_per_run`) or the profile budget the prompt states:
    - **Your 1st-degree connections at the company:** `https://www.linkedin.com/search/results/people/?keywords=<Company>&network=["F"]`.
    - **The company People page,** filtered by the role title's keywords: `https://www.linkedin.com/company/<linkedin-slug>/people/?keywords=<title keywords>`.
    - **Mutuals** for the top 2nd-degree candidates (at most `max_mutual_expansions`): the "N mutual connections" link on their card (a `/search/results/people/` URL).
@@ -54,6 +54,10 @@ You supply judgment (who is in the JD, who you read on LinkedIn, the draft text)
    Bridge drafts are addressed to the mutual, not the target. A direct note to a 2nd-degree target is a `cold_hiring` note to them (no mention of the mutual needed).
 9. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask, signoff? }`. `contact_id` is the target; the engine files the draft under the person it is addressed to (a bridge intro under the mutual, with `about_contact_id` = the target), one draft per recipient. Agent-written drafts pass the same `checkDraft` as engine-written ones: it refuses rule breaks with the exact issue (`em_dash`, `too_long`, `too_many_sentences`, `ungrounded_number`, `flattery`, `empty`); fix and call again.
 10. **To Gmail.** For each saved draft, follow "Gmail draft step" below in this same run (`mcp__claude_ai_Gmail__create_draft` is granted to every `connect` run). It creates a Gmail **draft** and stops. The user opens Gmail and sends. A draft whose recipient's address is a guess waiting in Needs you (`outreach.get`'s `to.decision_id` is set) gets **no** Gmail draft now (#99): leave it saved in the vault; once the address is confirmed the engine queues the Gmail draft step for it with To filled.
+
+## Chrome tabs
+
+At the end of a run that used Chrome (done or failed, #107): close every tab you opened or used with `tabs_close_mcp`, never a tab the user already had open, and report them on the finish: `runs.finish { run_id, status, tabs: { opened: [<every tab id you used>], closed: [<ids you closed>], left_open: [] } }`. The run log lists them. A connect run leaves no tab open.
 
 ## No usable contact
 
@@ -96,8 +100,9 @@ A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops
 - `mcp__claude_ai_Gmail__get_thread`: read a thread (addresses, signatures).
 - `mcp__claude_ai_Gmail__get_message`: read one message.
 - `mcp__claude_ai_Gmail__create_draft`: create the Gmail **draft** (Gmail draft step). Never send.
-- `mcp__claude-in-chrome__tabs_context_mcp`: see the open Chrome tabs (LinkedIn read, step 3).
-- `mcp__claude-in-chrome__tabs_create_mcp`: open a new tab for the LinkedIn read.
+- `mcp__claude-in-chrome__tabs_context_mcp`: see the open Chrome tabs and reuse the session's tab (LinkedIn read, step 3).
+- `mcp__claude-in-chrome__tabs_create_mcp`: open a tab for the LinkedIn read, only if the session has no usable tab.
+- `mcp__claude-in-chrome__tabs_close_mcp`: close the tabs this run opened or used, at the end (never the user's tabs).
 - `mcp__claude-in-chrome__navigate`: open an allowlisted LinkedIn people page.
 - `mcp__claude-in-chrome__get_page_text`: read the people cards as text.
 - `mcp__claude-in-chrome__read_page`: read the page's structure when the text is not enough.

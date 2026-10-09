@@ -1782,6 +1782,23 @@ export const runsDispatch = defineOp({
  * it also applies the pipeline rules (config `pipeline`): the runs it queues are listed in
  * `summary_json.triggered`.
  */
+/** Added (#107): a Claude in Chrome tab id (`tabs_context_mcp`, `tabs_create_mcp`). */
+export const ChromeTabId = z.number().int().nonnegative();
+export type ChromeTabId = z.infer<typeof ChromeTabId>;
+
+/**
+ * Added (#107): the Chrome tabs a run used, as it reported them on `runs.finish` (kept as `summary_json.tabs`).
+ * `opened`: every tab the run used (the session's tab it reused, or one it created); `closed`: the ones it closed
+ * (`tabs_close_mcp`); `left_open`: only the fill assist's portal tab (`portal`), for the human to submit.
+ */
+export const RunTabs = z.object({
+  opened: z.array(ChromeTabId).default([]),
+  closed: z.array(ChromeTabId).default([]),
+  left_open: z.array(ChromeTabId).default([]),
+  portal: ChromeTabId.optional(),
+});
+export type RunTabs = z.infer<typeof RunTabs>;
+
 export const runsFinish = defineOp({
   name: 'runs.finish',
   description: 'Close a skill run started with runs.start.',
@@ -1790,6 +1807,12 @@ export const runsFinish = defineOp({
     status: RunStatus.exclude(['queued', 'running']),
     summary: z.record(z.string(), z.unknown()).optional(),
     note: z.string().optional(),
+    /**
+     * Added (#107): the Chrome tabs this run used and closed (`connect`, `fill`, `voice` only). Stored as
+     * `summary_json.tabs`; a `summary.tabs` object is read the same way. Only a fill assist run may leave a tab
+     * open, and only its `portal` tab.
+     */
+    tabs: RunTabs.optional(),
   }),
   output: z.object({ run: Run }),
   impact: 'low',

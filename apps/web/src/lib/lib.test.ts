@@ -14,6 +14,7 @@ import {
   retryInput,
   runCounts,
   runOutcome,
+  runTabs,
   runToast,
   scoreInput,
   scoreRunFor,
@@ -173,6 +174,19 @@ describe('runs (#21)', () => {
     expect(triggeredBy(chained)).toEqual({ id: 'rn_s', label: 'Scout' });
     expect(triggeredBy(run({}))).toBeNull();
     expect(runCounts(chained)).toBe('2 scored');
+  });
+  it('Chrome tabs (#107): short counts, never counted as an outcome', () => {
+    const r = run({
+      op: 'fill',
+      status: 'ok',
+      summary_json: { skill: 'fill', tabs: { opened: [4, 5], closed: [5], left_open: [4], portal: 4 } },
+    });
+    expect(runTabs(r)).toBe('2 opened · 1 closed · 1 left open');
+    expect(runTabs(run({ op: 'connect', summary_json: { tabs: { opened: [7], closed: [7], left_open: [] } } }))).toBe(
+      '1 opened · 1 closed',
+    );
+    expect(runTabs(run({}))).toBeNull();
+    expect(runCounts(r)).toBeNull();
   });
   it('shows duration', () => {
     expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');

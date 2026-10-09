@@ -185,12 +185,23 @@ export const CHROME_PREFIX = 'mcp__claude-in-chrome__';
 /**
  * The Claude in Chrome tools a run may use to read a page: `connect` reads LinkedIn (#82, wave1-decisions #4, #6),
  * `fill` reads the application portal's questions on every tab and step (#81). Open a tab, navigate to a URL,
- * read its text or accessibility tree, find an element. No click, type, form input, script, upload or shortcut:
+ * read its text or accessibility tree, find an element, close the run's own tabs (#107). No click, type, form input, script, upload or shortcut:
  * nothing that can send, connect, follow, like, fill a field or submit.
  */
-export const CHROME_READ_TOOLS = ['tabs_context_mcp', 'tabs_create_mcp', 'navigate', 'get_page_text', 'read_page', 'find'].map(
-  (t) => `${CHROME_PREFIX}${t}`,
-);
+export const CHROME_READ_TOOLS = [
+  'tabs_context_mcp',
+  'tabs_create_mcp',
+  'tabs_close_mcp',
+  'navigate',
+  'get_page_text',
+  'read_page',
+  'find',
+].map((t) => `${CHROME_PREFIX}${t}`);
+/**
+ * The tab tools (#107), part of `CHROME_READ_TOOLS`: see the session's tabs and reuse its tab (`tabs_context_mcp`),
+ * create one only if none is usable (`tabs_create_mcp`), close the run's own tabs at the end (`tabs_close_mcp`).
+ */
+export const CHROME_TAB_TOOLS = ['tabs_context_mcp', 'tabs_create_mcp', 'tabs_close_mcp'].map((t) => `${CHROME_PREFIX}${t}`);
 /**
  * Claude in Chrome tools that act on a page (or batch actions), denied to every run that could load them:
  * `computer` clicks and types (its screenshot action rides on it, so it goes too). With no safe click
@@ -341,6 +352,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
     ...(c.skill === 'fill' ? ['', fillLine(c.questions, c.assist === true)] : []),
+    ...(extra.some((t) => t.startsWith(CHROME_PREFIX)) ? ['', tabsLine(c.skill === 'fill' && c.assist === true)] : []),
     ...(c.voice ? ['', voiceLine(c.voice)] : []),
     '',
     skill,
@@ -362,13 +374,26 @@ export function linkedinLine(l: NonNullable<PromptContext['linkedin']>): string 
 export function fillLine(questions?: string, assist = false): string {
   const read = questions
     ? `Questions: the user pasted this portal's questions (vault.read { path: "${questions}" }). Answer exactly those; do not read the portal for questions.`
-    : `Portal (${assist ? 'read first' : 'read-only'} via Claude in Chrome): open the apply page in a new tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type${assist ? '' : ', fill a field, upload'} or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.`;
+    : `Portal (${assist ? 'read first' : 'read-only'} via Claude in Chrome): open the apply page in the session's tab and read every tab and step by navigating to its URL (find the tab and step links). Never click, type${assist ? '' : ', fill a field, upload'} or submit. If the questions stay unreadable, finish with status "error" and note "portal questions unreadable" so the user can paste them.`;
   return assist ? `${read}\n${FILL_ASSIST_LINE}` : read;
+}
+
+/**
+ * The Chrome tabs line of a Chrome run's prompt (#107): reuse the session's tab, never leave an empty extra one,
+ * close only the tabs the run used, report them on runs.finish. The fill assist leaves its portal tab open.
+ */
+export function tabsLine(assist = false): string {
+  return [
+    'Chrome tabs: first call tabs_context_mcp and reuse the tab this session created (navigate it); call tabs_create_mcp only if no tab is usable, so no empty extra tab is left. Never touch, navigate or close a tab the user already had open.',
+    assist
+      ? 'At the end (done or failed), leave the portal tab open for the user to submit and close every other tab you opened or used with tabs_close_mcp. Report them in runs.finish: tabs: { opened: [<every tab id you used>], closed: [<ids you closed>], left_open: [<portal tab id>], portal: <portal tab id> }.'
+      : 'At the end (done or failed), close every tab you opened or used with tabs_close_mcp. Report them in runs.finish: tabs: { opened: [<every tab id you used>], closed: [<ids you closed>], left_open: [] }.',
+  ].join('\n');
 }
 
 /** The fill assist line (#106): the user clicked Open and fill and is watching. */
 export const FILL_ASSIST_LINE =
-  'Fill assist (the user clicked Open and fill): after apply.fill, call apply.render_documents { role_id, formats: ["pdf"] }; in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload using each file\'s abs_path, and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
+  'Fill assist (the user clicked Open and fill): after apply.fill, call apply.render_documents { role_id, formats: ["pdf"] }; in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload using each file\'s abs_path, and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the portal tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
 
 /** The sources line of a `voice` prompt (#76): Gmail sent mail read-only, LinkedIn posts only when live, caps. */
 export function voiceLine(v: NonNullable<PromptContext['voice']>): string {

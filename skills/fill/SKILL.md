@@ -23,7 +23,7 @@ After tailor, while the role is `draft-ready`. Read the real questions; never an
 
 Questions often sit on other tabs or steps of the same page (Application, Questions, Voluntary disclosures). Read them all; while reading, never act on the page.
 
-1. Open the apply page in a new tab (`tabs_create_mcp`, then `navigate` to the portal URL: the role's `portal_url`, else its posting URL and its Apply link).
+1. Start with `tabs_context_mcp` and reuse the tab this Chrome session created: `navigate` it to the portal URL (the role's `portal_url`, else its posting URL and its Apply link). Create a tab with `tabs_create_mcp` only if none is usable, so no empty extra tab is left.
 2. Read it with `get_page_text` and `read_page` (the accessibility tree often holds hidden tab panels too).
 3. Find every tab and step link with `find` ("Application tab", "Next step") and `navigate` to each URL (`#questions`, `?step=2`, `/application`). There is no click tool: a tab or step with no URL of its own stays unread.
 4. Never click, type, fill a field, upload, run script or submit while reading. You may only read and navigate. (The fill assist, below, fills fields and uploads files afterwards, and only when the prompt says so.)
@@ -38,7 +38,7 @@ Questions often sit on other tabs or steps of the same page (Application, Questi
    - `written`: real questions ("Why us?", "Have you maintained an open source project?"). Draft from Story + CONTEXT (JD, dossier) in Voice: specific stories and metrics, 80 to 150 words, hook, reframe, close. Set `confidence` (0 to 1) for how well Story supports it.
 3. Flag (`needs_human: true` + a one-line `reason`) **only** a legal or personal question that no saved default covers (criminal record, non-compete, a former-employee question) or something only the user can say. Do not flag standard questions, identity fields or grounded drafts: the op flags what it cannot answer, every unsupported fact (each also becomes a keep / remove / edit decision in Needs you) and any answer below the policy's confidence threshold.
 4. `apply.fill { role_id, portal_url, answers: [{ question, kind, field?, country?, answer?, confidence?, needs_human?, reason? }] }`. The op writes `applications/<role_id>/answers.md` grouped **Needs you / Written / Standard / Portal fills** and advances the application to the submit stage. Report `counts` and every needs-you `reason`.
-5. `runs.finish { run_id, status: "ok" }`.
+5. Close every tab you opened or used with `tabs_close_mcp` (never the user's tabs), then `runs.finish { run_id, status: "ok", tabs: { opened: [<tab ids used>], closed: [<ids closed>], left_open: [] } }` (#107; `tabs` only when Chrome was used, also on a failed run). With the fill assist, step 7 below instead.
 
 **Never submit.** Without the fill assist, never fill a field in the portal: only read its questions. Applications end at Open portal; the user submits.
 
@@ -51,8 +51,8 @@ Only when the prompt has a **Fill assist** line (the user clicked **Open and fil
 3. Upload: the resume field gets the resume PDF, a cover letter field the cover letter PDF, with `file_upload` (the field's ref from `find` / `read_page`, `paths: [abs_path]`). No cover letter field: skip it.
 4. Fill: each answer field from the saved Answers (`vault.read` the role's `answers` path, that file is in the vault, skill files are never in the vault; Needs you answers that are still empty are skipped), plus the Portal fills (name, email, phone, links) from the same file, with `form_input` (ref from `find` / `read_page`). Select and radio fields: the option that matches the answer. A field with no saved answer, a demographic or legal question with no saved default, or anything you are unsure of: leave it empty and list it in `skipped` with a one-line reason.
 5. Steps on other pages (a Next button with no URL): you have no click tool. Fill what is on the current page and list the rest in `skipped` ("on step 2").
-6. **Stop before Submit.** Never click, press a key, run script or submit; never `form_input` on a Submit, Apply, Send, Next or Finish control. Leave the tab open where the user can review.
-7. Report: `apply.fill_done { role_id, filled: [<field labels>], uploaded: ["resume", "cover_letter"], skipped: [{ label, reason }] }` (it refuses a submit-like label), then `runs.finish { run_id, status: "ok", summary: { filled, uploaded, skipped } }`. The Role screen's primary becomes **Open portal**; the user reviews and submits. After they submit, the inbox skill moves the role to `applied` from the confirmation email.
+6. **Stop before Submit.** Never click, press a key, run script or submit; never `form_input` on a Submit, Apply, Send, Next or Finish control. Leave the portal tab open where the user can review; close any other tab you opened or used with `tabs_close_mcp`.
+7. Report: `apply.fill_done { role_id, filled: [<field labels>], uploaded: ["resume", "cover_letter"], skipped: [{ label, reason }] }` (it refuses a submit-like label), then `runs.finish { run_id, status: "ok", summary: { filled, uploaded, skipped }, tabs: { opened: [<tab ids used>], closed: [<ids closed>], left_open: [<portal tab id>], portal: <portal tab id> } }` (only the portal tab may stay open, #107). The Role screen's primary becomes **Open portal**; the user reviews and submits. After they submit, the inbox skill moves the role to `applied` from the confirmation email.
 
 A tool missing (Codex, Cursor, or a denied Chrome tool): do not work around it; finish as error with the tool named, the Answers stay saved.
 
@@ -66,8 +66,9 @@ A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops
 
 - `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
 - `WebFetch`: read a plain posting page (a JD or apply link) without the browser.
-- `mcp__claude-in-chrome__tabs_context_mcp`: see the open tabs.
-- `mcp__claude-in-chrome__tabs_create_mcp`: open the portal in a new tab.
+- `mcp__claude-in-chrome__tabs_context_mcp`: see the open tabs and reuse the session's tab.
+- `mcp__claude-in-chrome__tabs_create_mcp`: open a tab for the portal, only if the session has no usable tab.
+- `mcp__claude-in-chrome__tabs_close_mcp`: close the tabs this run opened or used, at the end (fill assist: all but the portal tab; never the user's tabs).
 - `mcp__claude-in-chrome__navigate`: go to the portal and to each tab or step URL.
 - `mcp__claude-in-chrome__get_page_text`: read a page's text.
 - `mcp__claude-in-chrome__read_page`: read the accessibility tree (hidden tab panels included).

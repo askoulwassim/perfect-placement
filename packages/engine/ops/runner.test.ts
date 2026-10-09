@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKILLS, type Skill } from '@perfect-placement/contracts';
+import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ctxAt, type FixtureEngine, fakeLauncher, okOut, openFixtureEngine } from '../testing/index.js';
 import {
@@ -8,6 +9,7 @@ import {
   buildRunnerSpec,
   CHROME_PREFIX,
   CHROME_READ_TOOLS,
+  CHROME_TAB_TOOLS,
   CHROME_WRITE_TOOLS,
   chromeDeniedTools,
   connectDeniedTools,
@@ -34,6 +36,7 @@ import {
   skillAllowedTools,
   skillPrompt,
   stableNodePath,
+  tabsLine,
   usesChrome,
 } from './runner.js';
 
@@ -99,7 +102,9 @@ describe('runner command lines', () => {
     const allowed = flag(args, '--allowedTools')?.split(',') ?? [];
     const denied = flag(args, '--disallowedTools')?.split(',') ?? [];
     expect(allowed.filter((t) => t.startsWith(CHROME_PREFIX)).sort()).toEqual(
-      ['find', 'get_page_text', 'navigate', 'read_page', 'tabs_context_mcp', 'tabs_create_mcp'].map((t) => `${CHROME_PREFIX}${t}`).sort(),
+      ['find', 'get_page_text', 'navigate', 'read_page', 'tabs_context_mcp', 'tabs_create_mcp', 'tabs_close_mcp']
+        .map((t) => `${CHROME_PREFIX}${t}`)
+        .sort(),
     );
     for (const t of ['computer', 'form_input', 'javascript_tool', 'browser_batch', 'file_upload', 'upload_image', 'shortcuts_execute'])
       expect(denied).toContain(`${CHROME_PREFIX}${t}`);
@@ -725,5 +730,87 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     okOut(await e.runOp('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-1' }, ctxAt('human')));
     expect(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'conflict' });
     expect(e.launcher.specs).toHaveLength(0);
+  });
+});
+
+describe('Chrome tabs (#107)', () => {
+  const CHROME: Skill[] = ['connect', 'fill', 'voice'];
+
+  it('connect, fill and voice may see, create and close tabs; no other skill gets a tab tool', () => {
+    expect(CHROME_TAB_TOOLS).toEqual(['tabs_context_mcp', 'tabs_create_mcp', 'tabs_close_mcp'].map((t) => `${CHROME_PREFIX}${t}`));
+    for (const skill of SKILLS) {
+      const allowed = skillAllowedTools(skill);
+      for (const t of CHROME_TAB_TOOLS) expect(allowed.includes(t), `${skill}: ${t}`).toBe(CHROME.includes(skill));
+      if (CHROME.includes(skill)) {
+        const args = spec('claude', skill).args;
+        const claude = flag(args, '--allowedTools')?.split(',') ?? [];
+        for (const t of CHROME_TAB_TOOLS) expect(claude).toContain(t);
+        expect(flag(args, '--disallowedTools')?.split(',') ?? []).not.toContain(`${CHROME_PREFIX}tabs_close_mcp`);
+      }
+    }
+  });
+
+  it('the prompt of a Chrome run says: reuse the session tab, close only its own tabs, report them', () => {
+    const fill = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1' });
+    expect(fill).toContain(tabsLine(false));
+    expect(tabsLine(false)).toContain('reuse the tab this session created');
+    expect(tabsLine(false)).toContain('left_open: []');
+    const assist = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1', assist: true });
+    expect(assist).toContain(tabsLine(true));
+    expect(tabsLine(true)).toContain('leave the portal tab open');
+    // No Chrome this run, no tabs line.
+    expect(skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'inbox' })).not.toContain('Chrome tabs:');
+    const off = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'voice', voice: { linkedin: false, max_pages: 5 } });
+    expect(off).not.toContain('Chrome tabs:');
+    const on = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'voice', voice: { linkedin: true, max_pages: 5 } });
+    expect(on).toContain(tabsLine(false));
+  });
+
+  const human = ctxAt('human');
+  const startRun = async (input: Record<string, unknown>) => okOut(await e.runOp('runs.start', input, human)).run;
+  const finish = (run_id: string, extra: Record<string, unknown>) =>
+    e.runOp('runs.finish', { run_id, status: 'ok', ...extra }, ctxAt('agent'));
+
+  it('runs.finish stores the tabs in the summary and lists them in the run log', async () => {
+    e = openFixtureEngine();
+    const run = await startRun({ skill: 'connect', role_id: FIXTURE_ROLE_IDS.stripeOnDeck });
+    const out = okOut(await finish(run.id, { tabs: { opened: [11, 12], closed: [11, 12] } }));
+    expect(out.run.summary_json.tabs).toEqual({ opened: [11, 12], closed: [11, 12], left_open: [] });
+    const got = okOut(await e.runOp('runs.get', { run_id: run.id }, human));
+    expect(got.run.summary_json.tabs).toEqual({ opened: [11, 12], closed: [11, 12], left_open: [] });
+    expect(got.log_md).toContain('Tabs: opened 11, 12; closed 11, 12');
+    // Reported inside summary works too.
+    const v = await startRun({ skill: 'voice' });
+    const o2 = okOut(await finish(v.id, { summary: { samples: 0, tabs: { opened: [3], closed: [3] } } }));
+    expect(o2.run.summary_json.tabs).toEqual({ opened: [3], closed: [3], left_open: [] });
+  });
+
+  it("refuses tabs from a non-Chrome run, closing a tab it did not use, or leaving one open outside the fill assist's portal", async () => {
+    e = openFixtureEngine();
+    const inbox = await startRun({ skill: 'inbox' });
+    expect((await finish(inbox.id, { tabs: { opened: [1], closed: [1] } })).status).toBe('error');
+    const c = await startRun({ skill: 'connect', role_id: FIXTURE_ROLE_IDS.stripeOnDeck });
+    // A tab the run did not report as used (the user's): refused.
+    expect((await finish(c.id, { tabs: { opened: [1], closed: [1, 99] } })).status).toBe('error');
+    // A connect run never leaves a tab open.
+    expect((await finish(c.id, { tabs: { opened: [1], left_open: [1], portal: 1 } })).status).toBe('error');
+    // A fill run without assist neither.
+    const f = await startRun({ skill: 'fill', role_id: FIXTURE_ROLE_IDS.vercelDraft });
+    expect((await finish(f.id, { tabs: { opened: [5], left_open: [5], portal: 5 } })).status).toBe('error');
+    okOut(await finish(c.id, { tabs: { opened: [1], closed: [1] } }));
+    okOut(await finish(f.id, { tabs: { opened: [5], closed: [5] } }));
+  });
+
+  it('the fill assist may leave its portal tab open, and only that one', async () => {
+    e = openFixtureEngine();
+    const run = await startRun({ skill: 'fill', role_id: FIXTURE_ROLE_IDS.linearDraft, assist: true });
+    expect(run.summary_json.assist).toBe(true);
+    // Two tabs left open, or a left-open tab that is not the portal: refused.
+    expect((await finish(run.id, { tabs: { opened: [7, 8], left_open: [7, 8], portal: 7 } })).status).toBe('error');
+    expect((await finish(run.id, { tabs: { opened: [7, 8], closed: [7], left_open: [8], portal: 7 } })).status).toBe('error');
+    expect((await finish(run.id, { tabs: { opened: [7], left_open: [7] } })).status).toBe('error');
+    const out = okOut(await finish(run.id, { tabs: { opened: [7, 8], closed: [8], left_open: [7], portal: 7 } }));
+    expect(out.run.summary_json.tabs).toEqual({ opened: [7, 8], closed: [8], left_open: [7], portal: 7 });
+    expect(okOut(await e.runOp('runs.get', { run_id: run.id }, human)).log_md).toContain('left open 7 (portal)');
   });
 });

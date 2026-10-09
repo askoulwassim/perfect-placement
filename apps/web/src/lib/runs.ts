@@ -6,7 +6,7 @@ import { humanize } from './format';
  * A run row: `op` = the skill; `summary_json` = { skill, role_id?, company_id? (research), contact_id?,
  * outreach_id?, actor, runner, queued_at?, launched_at?, triggered_by? + triggered_by_skill? (the run
  * that queued it, #30), triggered? (runs it queued), ...what the skill reported (counts), error?,
- * denied_tools?, runner_log? }.
+ * denied_tools?, runner_log?, tabs? (Chrome tabs opened / closed / left open, #107) }.
  */
 
 export const SKILL_LABEL: Record<Skill, string> = {
@@ -52,6 +52,7 @@ export interface RunSummary {
   error?: string;
   denied_tools?: string[];
   runner_log?: string;
+  tabs?: { opened?: number[]; closed?: number[]; left_open?: number[]; portal?: number };
   [k: string]: unknown;
 }
 export const summaryOf = (r: Run): RunSummary => (r.summary_json ?? {}) as RunSummary;
@@ -80,6 +81,8 @@ const META = new Set([
   'triggered_by_skill',
   'triggered',
   'schedule',
+  'assist',
+  'tabs',
 ]);
 
 /** What changed, from the numbers the skill reported: "12 added · 3 duplicates". Null when it reported none. */
@@ -98,6 +101,15 @@ export function runCounts(r: Run, max = 2): string | null {
   nums.sort((a, b) => rank(a[0]) - rank(b[0]));
   const parts = nums.slice(0, max).map(([k, v]) => `${v} ${k.replace(/_/g, ' ')}`);
   return parts.length ? parts.join(' · ') : null;
+}
+
+/** The Chrome tabs a run used (#107): "2 opened · 1 closed · 1 left open". Null when it reported none. */
+export function runTabs(r: Run): string | null {
+  const t = summaryOf(r).tabs;
+  if (!t || typeof t !== 'object') return null;
+  const n = (a: unknown) => (Array.isArray(a) ? a.length : 0);
+  const parts = [`${n(t.opened)} opened`, `${n(t.closed)} closed`, ...(n(t.left_open) ? [`${n(t.left_open)} left open`] : [])];
+  return parts.join(' · ');
 }
 
 /** The one-line reason a run failed. */

@@ -814,3 +814,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: the user wants a download of the tailored resume, and Fill to open the application, upload the resume and fill the answers, stopping before Submit (#106).
 - Shim: none for callers (new fields optional or default null; the read-only fill run is unchanged). Deps added to `@perfect-placement/engine`: `pdfkit`, `docx` (pure JS, no install scripts; `onlyBuiltDependencies` unchanged).
 - Status: accepted
+
+## Chrome tabs
+
+### `runs.finish { tabs }`, `RunTabs`, `ChromeTabId`; Chrome skills get `tabs_close_mcp` (#107)
+- Lane: r3/04-chrome-tabs (B, runs, D)
+- Date: 2026-10-09
+- Contract: registry new `ChromeTabId` (non-negative integer) and `RunTabs` (`opened`, `closed`, `left_open`: tab ids, default []; `portal` optional), `runsFinish.input.tabs` (optional RunTabs, stored as `summary_json.tabs`; a `summary.tabs` object is read the same way). Not contracts: engine runner `CHROME_READ_TOOLS` adds `tabs_close_mcp`, new `CHROME_TAB_TOOLS` (`tabs_context_mcp`, `tabs_create_mcp`, `tabs_close_mcp`), `tabsLine(assist)` in the prompt of every run that has Chrome tools; handler `runTabsOf`, `tabsLogLine`; web `runTabs` and a **Tabs** fact on the run detail.
+- Change: every Claude in Chrome run (`connect`, `fill`, `voice`) starts with `tabs_context_mcp` and reuses the tab the session created (navigates it), creating one with `tabs_create_mcp` only when none is usable, so no empty extra tab is left. At the end, done or failed, it closes only the tabs it opened or used with `tabs_close_mcp` (never the user's pre-existing tabs) and reports them on `runs.finish { tabs: { opened, closed, left_open } }`. The fill assist leaves its portal tab open (`left_open: [portal]`, `portal` set) for the human to submit and closes any others. `runs.finish` refuses (`invalid_input`) tabs from a skill with no Chrome tools, a closed or left-open id the run did not list in `opened`, an id both closed and left open, and any left-open tab except a fill assist run's single `portal` tab. The run log gets a line "Tabs: opened 12, 13; closed 13; left open 12 (portal)"; Runs > a run shows **Tabs** ("2 opened · 1 closed · 1 left open"). `tabs_close_mcp` is added to `SKILL_TOOLS` for connect, fill and voice (through `CHROME_READ_TOOLS`) and to their SKILL.md `## Tools` (drift test); no other skill gets a tab tool. `skills/connect` (step 3, new Chrome tabs section, RUNBOOK), `skills/fill` (Reading the portal, steps, Fill assist) and `skills/voice` (steps 3, 7) say so.
+- Why: a Chrome session left its first tab empty and opened another one for the work, and runs never closed their tabs (#107).
+- Shim: none for callers (`tabs` optional; a run that reports no tabs finishes as before).
+- Status: accepted

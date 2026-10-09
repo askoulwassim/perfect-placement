@@ -1,4 +1,4 @@
-import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, vaultPath } from '@perfect-placement/contracts';
 import { draftRecipient } from '../../people/email.js';
 import { gmailRecipient } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
@@ -18,6 +18,7 @@ import {
   gmailDraftPrompt,
   gmailToPrompt,
   type RunnerExit,
+  SKILL_TOOLS,
   skillPrompt,
 } from '../runner.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
@@ -273,6 +274,39 @@ function launchRun(run: Run, h: HandlerContext): void {
   });
 }
 
+/** Skills whose runs use Claude in Chrome (#107: they report the tabs they used and closed). */
+const CHROME_SKILLS: readonly Skill[] = SKILLS.filter((s) => (SKILL_TOOLS[s].chrome?.length ?? 0) > 0);
+
+/**
+ * The tabs a Chrome run reported on `runs.finish` (#107), checked: only `connect`, `fill` and `voice` report
+ * tabs; `closed` and `left_open` are tabs it used (`opened`), never both; only a fill assist run may leave a
+ * tab open, and only its `portal` tab. Undefined when the run reported none.
+ */
+export function runTabsOf(run: Run, raw: unknown): RunTabs | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const p = RunTabs.safeParse(raw);
+  if (!p.success) throw new OpError('invalid_input', `tabs: ${p.error.issues[0]?.message ?? 'invalid'}`);
+  const t = p.data;
+  if (!CHROME_SKILLS.includes(run.op as Skill)) throw new OpError('invalid_input', `tabs: ${run.op} runs use no Chrome tabs`);
+  const used = new Set(t.opened);
+  const stray = [...t.closed, ...t.left_open].filter((id) => !used.has(id));
+  if (stray.length) throw new OpError('invalid_input', `tabs: ${stray.join(', ')} not opened by this run (never close the user's tabs)`);
+  if (t.closed.some((id) => t.left_open.includes(id))) throw new OpError('invalid_input', 'tabs: a tab is both closed and left open');
+  if (t.left_open.length) {
+    const assist = run.op === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
+    if (!assist || t.portal === undefined || t.left_open.length !== 1 || t.left_open[0] !== t.portal)
+      throw new OpError('invalid_input', 'tabs: only the fill assist may leave a tab open, and only its portal tab');
+  }
+  return t;
+}
+
+/** The run log's tabs line (#107): "Tabs: opened 12, 13; closed 13; left open 12 (portal)". */
+export function tabsLogLine(t: RunTabs): string {
+  const ids = (a: number[]) => (a.length ? a.join(', ') : 'none');
+  const left = t.left_open.length ? `; left open ${t.left_open.map((id) => (id === t.portal ? `${id} (portal)` : id)).join(', ')}` : '';
+  return `Tabs: opened ${ids(t.opened)}; closed ${ids(t.closed)}${left}`;
+}
+
 /**
  * runs.finish closes a queued or running run, then applies the pipeline rules (config `pipeline`,
  * #30): the runs they start are queued with `triggered_by` = this run and listed in its
@@ -292,16 +326,22 @@ export const runsFinish = defineHandler('runs.finish', {
       adds = linked.length || isQueueRun(run) ? linked : scoutRunAdds(h.db, run, false);
       mix = achievedMix(adds, h.config.scout);
     }
+    const tabs = runTabsOf(run, input.tabs ?? input.summary?.tabs);
     const patch = {
       finished_at: iso,
       status: input.status,
-      summary_json: { ...run.summary_json, ...(input.summary ?? {}), ...(mix ? { source_mix: mix } : {}) } as Record<string, unknown>,
+      summary_json: {
+        ...run.summary_json,
+        ...(input.summary ?? {}),
+        ...(mix ? { source_mix: mix } : {}),
+        ...(tabs ? { tabs } : {}),
+      } as Record<string, unknown>,
     };
     update(h.db, 'run', run.id, patch);
     if (run.log_path)
       h.vault.append(
         run.log_path,
-        `\n## Finished\n\n${iso}: ${input.status}${mix ? `\n\n${mixLine(mix)}` : ''}${input.note ? `\n\n${input.note.trim()}` : ''}\n`,
+        `\n## Finished\n\n${iso}: ${input.status}${mix ? `\n\n${mixLine(mix)}` : ''}${tabs ? `\n\n${tabsLogLine(tabs)}` : ''}${input.note ? `\n\n${input.note.trim()}` : ''}\n`,
       );
     h.emit('run_finished', 'run', run.id, { status: input.status, skill: run.op });
 
