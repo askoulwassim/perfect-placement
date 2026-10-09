@@ -1,4 +1,4 @@
-import type { Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
+import type { ConnectFallback, Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
 
 export interface Person {
   contact: Contact;
@@ -97,3 +97,10 @@ export function linkedinState(runs: readonly Run[], roleId: string): LinkedInSta
   const key = !last ? 'not_run' : (s.linkedin_reason ?? (s.linkedin_mode === 'off' ? 'off' : 'dry_run'));
   return { read: false, label: 'LinkedIn not read', reason: LINKEDIN_REASON_LABEL[key] ?? 'Not read' };
 }
+
+/** Which no-contact fallback Connect used for a role (#78), one or two words. */
+export const FALLBACK_LABEL: Record<ConnectFallback, string> = {
+  team_inbox: 'Hiring team',
+  cold_leader: 'Cold leader',
+  skipped: 'Skipped',
+};

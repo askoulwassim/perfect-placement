@@ -1109,6 +1109,44 @@ describe('run status (#21)', () => {
     expect(container.querySelector('button[data-op="roles.archive"]')).toBeNull();
   });
 
+  it('Role: Skip on the Connect stage moves the application to Fill and shows Skipped (#78)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+    const skip = () => $<HTMLButtonElement>(container, 'button[data-op="apply.skip_connect"]');
+    await waitFor(() => expect(skip().textContent).toBe('Skip'));
+    assertButtons(container);
+    fireEvent.click(skip());
+    await waitFor(() => expect(toast().textContent).toBe('Connect skipped'));
+    expect(live?.calls.filter((c) => c.name === 'apply.skip_connect').map((c) => c.body)).toEqual([
+      { role_id: R.linearDraft, reason: 'user' },
+    ]);
+    await waitFor(() => expect($(container, '[data-fallback="skipped"]').textContent).toBe('Skipped'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
+  it('People: shows the Hiring team fallback when no contact was found (#78)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      // Synthetic: no contacts for the role and a placeholder company domain.
+      l.engine.db.prepare('DELETE FROM outreach WHERE role_id = ?').run(R.linearDraft);
+      l.engine.db.prepare('DELETE FROM contact_link WHERE role_id = ?').run(R.linearDraft);
+      l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
+      return l.as('agent', 'people.fallback', {
+        role_id: R.linearDraft,
+        team_inbox: [{ email: 'recruiting@linear.example', source: 'careers' }],
+      });
+    });
+    await waitFor(() => expect($(container, '[data-fallback="team_inbox"]').textContent).toBe('Hiring team'));
+    expect($(container, 'button[data-op="apply.skip_connect"]').textContent).toBe('Skip');
+    assertButtons(container);
+  });
+
+  it('Role: no Skip off the Connect stage', async () => {
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Research'));
+    expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
   it('River: an inbox tile passes from its menu (#77)', async () => {
     const { container } = await boot('#/river', quiet);
     const inbox = () => $(container, '.river-col[data-status="inbox"]');

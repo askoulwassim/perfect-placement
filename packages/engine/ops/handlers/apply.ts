@@ -1,11 +1,13 @@
 import { vaultPath } from '@perfect-placement/contracts';
+import { recordConnectFallback, skipConnect } from '../../people/queries.js';
 import { checkFacts, type FactClaim } from '../../profile/facts.js';
 import { OpError } from '../errors.js';
+import { newId } from '../ids.js';
 import { select, update } from '../rows.js';
 import { defineHandler } from '../runtime.js';
 import { renderMarkdown } from '../vault.js';
 import { type DocClaim, factSources, queueFactChecks, roleContext } from './claims.js';
-import { applicationFor, getCompany, getRole, laterStage, moveRole, upsertApplication } from './shared.js';
+import { appendRoleLog, applicationFor, getCompany, getRole, laterStage, moveRole, upsertApplication } from './shared.js';
 
 // ------------------------------------------------------- companies.dossier.write
 
@@ -122,5 +124,34 @@ export const applyMarkSubmitted = defineHandler('apply.mark_submitted', {
     h.emit('application_submitted', 'role', role.id, { application_id: application.id, applied_at: application.applied_at });
     if (!already) role = moveRole(h, role, 'applied', { via: 'submit' });
     return { role, application };
+  },
+});
+
+// ------------------------------------------------------- apply.skip_connect
+
+/**
+ * #78: skip Connect so a role never stalls (no usable contact, or the user's call). The application
+ * moves `connect` -> `fill`; the skip is recorded (roles.get `connect`) with its reason. Past Connect:
+ * a no-op. An archived or not-yet-tailored role is refused.
+ */
+export const applySkipConnect = defineHandler('apply.skip_connect', {
+  run(input, h) {
+    const role = getRole(h.db, input.role_id);
+    if (role.status === 'archived') throw new OpError('forbidden_transition', `${role.id} is archived`);
+    const r = skipConnect(h.repos, role, () => newId('application', h.ctx.now()));
+    if ('error' in r) throw new OpError('conflict', r.error);
+    if (r.skipped) {
+      recordConnectFallback(h.repos, {
+        id: newId('run', h.ctx.now()),
+        op: 'apply.skip_connect',
+        at: h.nowIso(),
+        role_id: role.id,
+        fallback: 'skipped',
+        reason: input.reason,
+        contact_id: null,
+      });
+      appendRoleLog(h, role, `Connect skipped (${input.reason})`);
+    }
+    return r;
   },
 });

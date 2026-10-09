@@ -139,6 +139,7 @@ function readOp(
         application: fx.applications.find((a) => a.role_id === role.id) ?? null,
         contacts: peopleFor(role),
         md_body: read(role.md_path),
+        connect: null,
       });
     }
     case 'companies.get': {

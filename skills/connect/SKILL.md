@@ -31,7 +31,7 @@ You supply judgment (who is in the JD, who you read on LinkedIn, the draft text)
    | 2nd degree | `bridge`: note to the mutual + forwardable blurb | same |
    | Cold | `cold_hiring`: their problem, one proof, one ask | `cold_other`: skip unless the user asks |
 
-6. **Pick the best path.** Draft for the top contact per tier, in order warm_hiring, warm_other, bridge, cold_hiring. Usually one to four drafts per role. Skip `cold_other` unless asked.
+6. **Pick the best path.** Draft for the top contact per tier, in order warm_hiring, warm_other, bridge, cold_hiring. Usually one to four drafts per role. Skip `cold_other` unless asked. No usable contact (none found, or every one is `cold_other`): follow "No usable contact" below; the role must never stall in Connect.
 7. **Email (judgment: what you saw; code: the guess).** For each contact you will draft to (bridge: the mutual), find addresses, read-only:
    - **Gmail** (read-only here: `mcp__claude_ai_Gmail__search_threads`, `mcp__claude_ai_Gmail__get_thread`, `mcp__claude_ai_Gmail__get_message`): threads with the person (`from:` / `to:` their name) and signatures; also any addresses at the company domain (`@<domain>`), which teach the company's format.
    - **Public pages**: the JD, the company team page, talks, GitHub, a personal site.
@@ -51,6 +51,18 @@ You supply judgment (who is in the JD, who you read on LinkedIn, the draft text)
    Bridge drafts are addressed to the mutual, not the target.
 9. **Save.** `outreach.draft { contact_id, role_id, tier, subject, hook, proof, ask, signoff? }`. Agent-written drafts pass the same `checkDraft` as engine-written ones: it refuses rule breaks with the exact issue (`em_dash`, `too_long`, `too_many_sentences`, `ungrounded_number`, `flattery`, `empty`); fix and call again.
 10. **To Gmail.** For each saved draft, follow "Gmail draft step" below in this same run (`mcp__claude_ai_Gmail__create_draft` is granted to every `connect` run). It creates a Gmail **draft** and stops. The user opens Gmail and sends.
+
+## No usable contact
+
+When `people.find` returns nobody usable, Connect falls back automatically (#78). You find (judgment); `people.fallback` picks (code), in this order:
+
+1. **Hiring team or recruiting address.** Search the JD, the careers page, the dossier (`companies/<slug>/dossier.md`) and the company site for a team mailbox (`recruiting@`, `talent@`, `jobs@`, `careers@`, `hiring@`) or a named recruiter with a work address. Public pages only; never a personal address.
+2. **The likely hiring leader.** From the dossier: who this role most likely reports to (e.g. the CPO or VP Product), with headline and LinkedIn URL if the dossier has it.
+3. Call `people.fallback { role_id, team_inbox: [{ email, name?, source: "jd" | "careers" | "dossier" | "company_site", url? }], leader?: { name, headline?, linkedin_url? }, domain?, email_hints?, reason? }` with everything you found (or nothing). The engine also scans the JD and dossier for team mailboxes, keeps only addresses at the company domain, and then:
+   - **`team_inbox`**: a contact "Hiring team" (or the named recruiter), `email_source: public`, linked `cold_hiring`. Draft to it.
+   - **`cold_leader`**: the leader as a `cold_hiring` contact; `people.find_email` guesses the address (flagged as a guess; an unsure one waits in Needs you, so the Gmail draft has no To until confirmed). Draft to them.
+   - **`skipped`**: nothing usable; the application moves from Connect to Fill. Stop: no draft. (`apply.skip_connect { role_id, reason }` does the same on its own; the UI's **Skip** calls it.)
+4. **Fallback draft (judgment).** The draft is a shortened version of the tailored **cover letter** (`applications/<role_id>/cover_letter.md`), in the user's voice: Hook = greeting ("Hi <Company> team," for a team inbox, else the first name) plus why this role; Proof = two or three first-person sentences from the cover letter; Ask = team inbox: pass it to the hiring manager; leader: a short call. The cover letter counts as a fact source next to STORY for these drafts only (it passed the tailor fact check); everything else in step 8 applies, and `outreach.draft` runs the same `checkDraft`. Then the Gmail draft step as usual.
 
 ## Gmail draft step
 

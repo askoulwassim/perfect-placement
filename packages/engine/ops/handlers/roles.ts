@@ -16,6 +16,7 @@ import {
 } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
+import { connectStateFor } from '../../people/queries.js';
 import { getComponent, getCurrentVersion } from '../../profile/versions.js';
 import { watchlistFrom } from '../../scoring/source-mix.js';
 import {
@@ -574,6 +575,7 @@ export const rolesGet = defineHandler('roles.get', {
       application: applicationFor(h.db, role.id),
       contacts,
       md_body: md === null ? null : stripFrontmatter(md),
+      connect: connectStateFor(h.repos, role.id),
     };
   },
 });

@@ -1,6 +1,7 @@
 // Lane H owns this folder: contacts, contact_link, tier classification, outreach drafts.
 import { classifyContact, linkContact } from './classify.js';
 import { findEmail } from './email.js';
+import { fallbackPeople } from './fallback.js';
 import { findPeople } from './find.js';
 import { draftOutreach, outreachSendHandler, outreachToGmailHandler } from './outreach.js';
 
@@ -12,6 +13,7 @@ export const handlers = {
   'people.link': linkContact,
   'people.classify': classifyContact,
   'people.find_email': findEmail,
+  'people.fallback': fallbackPeople,
   'outreach.draft': draftOutreach,
   'outreach.to_gmail': outreachToGmailHandler,
   'outreach.send': outreachSendHandler,
@@ -37,6 +39,7 @@ export {
   patternsOf,
   rankCandidates,
 } from './email.js';
+export { atDomain, fallbackPeople, pickTeamInbox, TEAM_INBOX_NAME, TEAM_MAILBOXES, teamMailboxRank } from './fallback.js';
 export { findPeople, PeopleFindInput, PersonHint } from './find.js';
 export {
   type ComposeInput,
@@ -49,7 +52,16 @@ export {
   renderOutreachMd,
   resolveDraft,
 } from './outreach.js';
-export { isPicked, linkedinReadsOn, PICKED_STATUSES } from './queries.js';
+export {
+  CONNECT_FALLBACK_OPS,
+  connectStateFor,
+  fallbackOf,
+  isPicked,
+  linkedinReadsOn,
+  PICKED_STATUSES,
+  recordConnectFallback,
+  skipConnect,
+} from './queries.js';
 export {
   BRIDGE_ASK_MAX,
   type CheckOptions,
@@ -64,9 +76,13 @@ export {
 } from './style.js';
 export {
   buildWriterPrompt,
+  COVER_MAX_CHARS,
+  coverExcerpt,
+  coverProof,
   DOSSIER_MAX_CHARS,
   type DraftContext,
   dossierHighlights,
+  FALLBACK_TEMPLATES,
   JD_MAX_CHARS,
   jdExcerpt,
   jdTheme,

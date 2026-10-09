@@ -13,6 +13,7 @@ import { draftRecipient } from './email.js';
 import {
   advanceConnectToFill,
   emitEvent,
+  fallbackOf,
   getCompany,
   getComponent,
   getContact,
@@ -29,6 +30,7 @@ import {
 import { checkDraft, composeBody, defaultSignoff } from './style.js';
 import {
   buildWriterPrompt,
+  coverExcerpt,
   type DraftContext,
   dossierHighlights,
   jdExcerpt,
@@ -41,6 +43,23 @@ import { type DraftText, err, type Handler, type PeopleDeps } from './types.js';
 const storyText = (deps: PeopleDeps): string => {
   const story = getComponent(deps, 'story');
   return story ? `${JSON.stringify(story.data)}\n${story.text}` : '';
+};
+
+/** The role's tailored cover letter body (apply.tailor fact-checked it against the resume and Story), or null. */
+function coverLetter(deps: PeopleDeps, roleId: string): string | null {
+  const app = deps.repos.application.list({ role_id: roleId })[0];
+  return vaultBody(deps, app?.package_paths_json.cover_letter ?? vaultPath.application(roleId, 'cover_letter'));
+}
+
+/**
+ * Facts about the user a draft may state: Story, plus the cover letter for a no-contact fallback draft
+ * (#78: a team inbox or cold leader draft is a shortened cover letter).
+ */
+const factsText = (deps: PeopleDeps, roleId: string, contactId: string): string => {
+  const story = storyText(deps);
+  if (!fallbackOf(deps.repos, roleId, contactId)) return story;
+  const cover = coverLetter(deps, roleId);
+  return cover ? `${story}\n${cover}` : story;
 };
 
 /** The default sign-off for this profile: Voice `signoff`, else "Thanks," + the Story name. */
@@ -127,7 +146,7 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
     ask: input.ask,
     signoff: input.signoff ?? profileSignoff(deps),
   };
-  const issues = checkDraft(text, storyText(deps), {
+  const issues = checkDraft(text, factsText(deps, input.role_id, input.contact_id), {
     bridge: input.tier === 'bridge',
     context: contextText(deps, input.role_id, contact.headline),
   });
@@ -189,7 +208,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const d = resolveDraft(deps, o, md);
   if ('error' in d) return err('not_found', d.error);
   const { text, recipient, body } = d;
-  const issues = checkDraft(text, storyText(deps), { bridge: o.tier === 'bridge', context: d.context });
+  const issues = checkDraft(text, factsText(deps, o.role_id, o.contact_id), { bridge: o.tier === 'bridge', context: d.context });
   if (issues.length)
     return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
 
@@ -277,8 +296,11 @@ export function draftContext(deps: PeopleDeps, contactId: string, roleId: string
   const story = getComponent(deps, 'story') ?? { data: {}, text: '' };
   const voice = getComponent(deps, 'voice') ?? { data: {}, text: '' };
   const ctx = roleContext(deps, roleId);
+  const fallback = fallbackOf(deps.repos, roleId, contactId);
   return {
     tier: link.tier as ContactTier,
+    fallback,
+    cover: fallback ? coverExcerpt(coverLetter(deps, roleId)) : null,
     contact: { name: contact.name, headline: contact.headline },
     via: via ? { name: via.name, headline: via.headline } : null,
     role: { title: role.title, jd: ctx.jd },

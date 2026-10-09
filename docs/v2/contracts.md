@@ -104,9 +104,11 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `apply.fill` | low | answers file: portal fills, standard answers from Application defaults, fact-checked written answers; needs-you only with a reason (#42) |
 | `apply.resolve_claim` | low | keep / remove / rewrite the line of an unsupported claim (the `apply.fact_check` action, #54) |
 | `apply.mark_submitted` | high | human only |
+| `apply.skip_connect` | low | application `connect` -> `fill` with a reason, so a role never stalls (#78) |
 | `people.find` | low | runs LinkedIn adapter (rate-limited) |
 | `people.link`, `people.classify` | low | |
 | `people.find_email` | low | known address or a ranked pattern guess with a confidence; unsure guesses queue a `people.email` decision (#37) |
+| `people.fallback` | low | no usable contact: hiring-team / recruiting address, else cold hiring leader (guessed email), else skip Connect (#78) |
 | `outreach.draft` | low | vault draft |
 | `outreach.to_gmail` | medium | creates a Gmail **draft**; To only when the address is confirmed or confident (#37) |
 | `outreach.send` | high | not implemented in v2; human sends from Gmail |

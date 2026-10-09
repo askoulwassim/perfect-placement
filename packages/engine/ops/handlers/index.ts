@@ -1,5 +1,5 @@
 import type { HandlerMap } from '../runtime.js';
-import { applyMarkSubmitted, applyTailor, companiesDossierWrite } from './apply.js';
+import { applyMarkSubmitted, applySkipConnect, applyTailor, companiesDossierWrite } from './apply.js';
 import { applyResolveClaim } from './claims.js';
 import { configGet, configUpdate } from './config.js';
 import { applyFill } from './fill.js';
@@ -24,6 +24,7 @@ export const LANE_B_HANDLERS: HandlerMap = {
   'apply.fill': applyFill,
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
+  'apply.skip_connect': applySkipConnect,
   'inbox.ingest': inboxIngest,
   'runs.list': runsList,
   'runs.get': runsGet,

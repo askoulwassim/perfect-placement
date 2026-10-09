@@ -6,7 +6,7 @@ import { AffinityChip, SecondaryButton, STATUS_LABEL, StatusChip } from '../comp
 import { FreshnessRing, RoleTile } from '../components/glyphs';
 import { InlineMarkdown, Markdown } from '../components/Markdown';
 import { CriterionSources, ScoreRadar, StageRail } from '../components/meters';
-import { BestPathPill, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
+import { BestPathPill, ConnectFallbackBar, ContactAvatar, TIER_ORDER, TIER_VIS } from '../components/people';
 import { C, display, eyebrow, mono, tab } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
@@ -85,6 +85,15 @@ export function RoleScreen({ roleId }: { roleId: string }) {
       </div>
     );
   };
+  // #78: Skip is always available on the Connect stage (the application moves to Fill); the fallback used shows.
+  const skipConnect =
+    stage === 2
+      ? async () => {
+          const o = await act('apply.skip_connect', { role_id: role.id, reason: 'user' });
+          if (o.status === 'ok') showToast('Connect skipped');
+        }
+      : null;
+  const fallbackBar = (m: boolean) => <ConnectFallbackBar mobile={m} fallback={data.connect?.fallback ?? null} onSkip={skipConnect} />;
   const fresh = freshOf(role, t);
   const freshColor = fresh === 'ok' ? C.emerald : fresh === 'unsure' ? C.gold : fresh === 'closed' ? C.coral : C['line-2'];
   const checked = role.last_checked_at ? ago(role.last_checked_at, t) : '—';
@@ -299,6 +308,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
           ))}
         </div>
         {bestPill(true)}
+        {fallbackBar(true)}
         {tabs(true)}
         <div
           className="doc-preview"
@@ -395,6 +405,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
             </Btn>
           </div>
           {bestPill(false)}
+          {fallbackBar(false)}
           {!contacts.length && slot(2, false)}
           {!!contacts.length &&
             TIER_ORDER.map((tier) => {

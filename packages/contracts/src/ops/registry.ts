@@ -17,6 +17,7 @@ import {
 import {
   ArchiveReason,
   Band,
+  ConnectFallback,
   ContactDegree,
   ContactRole,
   ContactTier,
@@ -647,6 +648,16 @@ export const rolesCheckFreshness = defineOp({
   owner: 'G',
 });
 
+/** Added (#78): which no-contact fallback Connect used for a role, and why. */
+export const ConnectState = z.object({
+  fallback: ConnectFallback,
+  reason: z.string().nullable(),
+  /** The fallback contact (team inbox or cold leader); null when skipped. */
+  contact_id: Id.nullable(),
+  at: IsoTimestamp,
+});
+export type ConnectState = z.infer<typeof ConnectState>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -661,6 +672,8 @@ export const rolesGet = defineOp({
     application: Application.nullable(),
     contacts: z.array(z.object({ contact: Contact, link: ContactLink })),
     md_body: z.string().nullable(),
+    /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
+    connect: ConnectState.nullable().default(null),
   }),
   impact: 'low',
   readOnly: true,
@@ -864,6 +877,20 @@ export const applyMarkSubmitted = defineOp({
   owner: 'B',
 });
 
+/**
+ * Added (#78): skip Connect for a role so it never stalls (no usable contact, or the user's call): the
+ * application moves from `connect` to `fill`. Already past Connect: a no-op (`skipped: false`).
+ */
+export const applySkipConnect = defineOp({
+  name: 'apply.skip_connect',
+  description: 'Skip Connect for a role (no usable contact, or the user chose to): the application moves from Connect to Fill.',
+  input: z.object({ role_id: Id, reason: z.string().min(1).max(200) }),
+  output: z.object({ application: Application, skipped: z.boolean() }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
 // ------------------------------------------------------------------ people (H)
 
 /**
@@ -1040,6 +1067,74 @@ export const peopleFindEmail = defineOp({
   }),
   impact: 'low',
   emits: [],
+  owner: 'H',
+});
+
+/** Added (#78): an address the agent found for the hiring team (JD, careers page, dossier, company site). */
+export const TeamInboxHint = z.object({
+  email: z.string().email(),
+  /** A named recruiter or talent partner; omitted for a team mailbox (`recruiting@`, `talent@`, `jobs@`). */
+  name: z.string().min(1).max(120).optional(),
+  source: z.enum(['jd', 'careers', 'dossier', 'company_site']),
+  url: z.string().url().optional(),
+});
+export type TeamInboxHint = z.infer<typeof TeamInboxHint>;
+
+/**
+ * Added (#78): the no-contact fallback for a picked role, chosen by the engine in order. With no usable
+ * contact (every link `cold_other`, or none): (1) a hiring-team or recruiting address (the agent's
+ * `team_inbox` hints plus team mailboxes in the JD and dossier, at the company domain) becomes a contact
+ * "Hiring team" (or the named recruiter), `email_source: public`, linked `cold_hiring`; else (2) the
+ * likely hiring leader from the dossier (`leader`) becomes a `cold_hiring` contact and `people.find_email`
+ * guesses the address (flagged; low confidence goes to Needs you); else (3) Connect is skipped and the
+ * application moves to Fill. A role that already has a usable contact returns `fallback: null`.
+ */
+export const peopleFallback = defineOp({
+  name: 'people.fallback',
+  description:
+    'No usable contact for a picked role: use a hiring-team or recruiting address, else a cold note to the likely hiring leader (guessed email), else skip Connect so the application moves to Fill.',
+  input: z.object({
+    role_id: Id,
+    team_inbox: z.array(TeamInboxHint).max(10).optional(),
+    /** The likely hiring leader from the dossier (e.g. the CPO or VP Product). */
+    leader: z
+      .object({
+        name: z.string().min(1).max(120),
+        headline: z.string().max(200).nullable().optional(),
+        linkedin_url: z.string().url().nullable().optional(),
+      })
+      .optional(),
+    /** The company's email domain when the company row has none. */
+    domain: z
+      .string()
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i)
+      .optional(),
+    /** Addresses seen at the company (teach the leader's address format), as for people.find_email. */
+    email_hints: peopleFindEmail.input.shape.hints,
+    /** Why there is no contact (recorded when Connect is skipped). Default "no contacts". */
+    reason: z.string().min(1).max(200).optional(),
+  }),
+  output: z.object({
+    fallback: ConnectFallback.nullable(),
+    contact: Contact.nullable(),
+    link: ContactLink.nullable(),
+    /** The leader's address (people.find_email); null for a team inbox or a skip. */
+    email: z
+      .object({
+        email: z.string().email().nullable(),
+        confidence: z.number().min(0).max(1).nullable(),
+        confirmed: z.boolean(),
+        decision_id: Id.nullable(),
+        outcome: PolicyOutcome.nullable(),
+        reason: z.string().nullable(),
+      })
+      .nullable(),
+    application: Application.nullable(),
+    /** Why this fallback (or none) was used. */
+    reason: z.string().nullable(),
+  }),
+  impact: 'low',
+  emits: ['contact_found'],
   owner: 'H',
 });
 
@@ -1488,10 +1583,12 @@ export const OPS = {
   'apply.fill': applyFill,
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
+  'apply.skip_connect': applySkipConnect,
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,
   'people.find_email': peopleFindEmail,
+  'people.fallback': peopleFallback,
   'contacts.get': contactsGet,
   'outreach.get': outreachGet,
   'outreach.list': outreachList,

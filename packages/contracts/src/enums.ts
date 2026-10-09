@@ -221,6 +221,15 @@ export const EMAIL_SOURCES = ['gmail', 'linkedin', 'public', 'pattern', 'provide
 export const EmailSource = z.enum(EMAIL_SOURCES);
 export type EmailSource = z.infer<typeof EmailSource>;
 
+/**
+ * Added (#78): the no-contact fallback Connect used for a role, in the order it tries them: a hiring-team
+ * or recruiting address (`team_inbox`), a cold note to the likely hiring leader (`cold_leader`), else
+ * Connect is skipped (`skipped`) and the application moves to Fill.
+ */
+export const CONNECT_FALLBACKS = ['team_inbox', 'cold_leader', 'skipped'] as const;
+export const ConnectFallback = z.enum(CONNECT_FALLBACKS);
+export type ConnectFallback = z.infer<typeof ConnectFallback>;
+
 export const OUTREACH_STATUSES = ['drafted', 'in_gmail', 'replied', 'ignored'] as const;
 export const OutreachStatus = z.enum(OUTREACH_STATUSES);
 export type OutreachStatus = z.infer<typeof OutreachStatus>;
