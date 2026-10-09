@@ -5,6 +5,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeReply } from '../genui/src';
 import { App } from './App';
+import { RIVER_SORT_KEY, sortLane } from './lib/river';
+import type { RoleView } from './lib/role';
 import { ASK_THREAD_KEY } from './screens/Ask';
 import { type Live, type LiveOptions, openLive } from './test/live';
 
@@ -647,6 +649,70 @@ describe('click paths', () => {
     await waitFor(() => expect($(container, '.held-chip').textContent).toBe('+2 held'));
     const held = $(container, '.river-col[data-status="held"]');
     expect(held.querySelectorAll('.river-tile').length).toBe(2);
+  });
+
+  describe('River lane sort (#104)', () => {
+    const laneIds = (container: HTMLElement, s: string) =>
+      Array.from(container.querySelectorAll(`.river-col[data-status="${s}"] .river-tile`)).map((e) => e.getAttribute('data-role'));
+    const expected = async (l: Live, s: string, sort: 'score' | 'newest') => {
+      const o = (await l.client.run('roles.list', { limit: 500 })) as { status: 'ok'; output: { items: RoleView[] } };
+      return sortLane(
+        o.output.items.filter((v) => v.role.status === s),
+        sort,
+      ).map((v) => v.role.id);
+    };
+
+    it('sorts each lane by score, keeps the held stack on the best tile, and the toggle switches and persists', async () => {
+      const { container, live: l, unmount } = await boot('#/river');
+      await waitFor(() => expect(laneIds(container, 'active').length).toBeGreaterThan(1));
+      const byScore = await expected(l, 'active', 'score');
+      expect(laneIds(container, 'active')).toEqual(byScore);
+      // The "+N held" chip sits on the first (best) tile of its company.
+      const chipTile = $(container, '.held-chip').closest('.river-tile');
+      const coTiles = Array.from(container.querySelectorAll('.river-col[data-status="active"] .river-tile'));
+      const items = ((await l.client.run('roles.list', { limit: 500 })) as { status: 'ok'; output: { items: RoleView[] } }).output.items;
+      const coOf = (id: string | null) => items.find((v) => v.role.id === id)?.company.id;
+      const chipCo = coOf(chipTile?.getAttribute('data-role') ?? null);
+      expect(coTiles.find((e) => coOf(e.getAttribute('data-role')) === chipCo)).toBe(chipTile);
+
+      const col = $(container, '.river-col[data-status="active"]');
+      const newest = $<HTMLButtonElement>(col, '.river-sort [data-sort="newest"]');
+      expect(newest.getAttribute('data-op')).toBe('local');
+      fireEvent.click(newest);
+      const byNewest = await expected(l, 'active', 'newest');
+      expect(byNewest).not.toEqual(byScore);
+      await waitFor(() => expect(laneIds(container, 'active')).toEqual(byNewest));
+      expect(newest.getAttribute('aria-pressed')).toBe('true');
+      expect(JSON.parse(window.localStorage.getItem(RIVER_SORT_KEY) ?? '{}')).toEqual({ active: 'newest' });
+      assertButtons(container);
+      unmount();
+      live?.close();
+
+      // A fresh open keeps the viewer's choice.
+      const again = await boot('#/river');
+      await waitFor(() => expect(laneIds(again.container, 'active')).toEqual(byNewest));
+      expect($(again.container, '.river-col[data-status="active"] [data-sort="newest"]').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('renders sorted lanes when storage throws', async () => {
+      const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      try {
+        const { container, live: l } = await boot('#/river');
+        await waitFor(() => expect(laneIds(container, 'active').length).toBeGreaterThan(1));
+        expect(laneIds(container, 'active')).toEqual(await expected(l, 'active', 'score'));
+        fireEvent.click($(container, '.river-col[data-status="active"] [data-sort="newest"]'));
+        const byNewest = await expected(l, 'active', 'newest');
+        await waitFor(() => expect(laneIds(container, 'active')).toEqual(byNewest));
+      } finally {
+        get.mockRestore();
+        set.mockRestore();
+      }
+    });
   });
 
   it('You: Domain -> Accept diff -> timeline gains a version', async () => {

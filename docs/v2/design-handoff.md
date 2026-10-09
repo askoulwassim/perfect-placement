@@ -47,7 +47,8 @@ Mobile (390): Now, Needs you, Role (plus River, You, Outreach) with a bottom Tab
 - Fourth glyph "auto after second opinion": two emerald dots (one at half opacity).
 - Probability bars use the policy thresholds for color; dragging thresholds in Settings recolors every bar.
 - Held is not a drop target; draft-ready -> applied bounces (the app never submits). Allowed drags: inbox<->active, active<->on-deck, on-deck<->draft-ready, applied<->interviews<->offers. (Encoded as `MANUAL_MOVES`.)
-- Company cap is drawn on the visible tile: a stacked tile with a gold "+N held" chip.
+- Company cap is drawn on the visible tile: a stacked tile with a gold "+N held" chip The chip sits on the company's best (highest scored) visible Active tile.
+- Lane order (#104): each lane sorts by latest score total (desc), unscored last by found date (newest first); ties by score, found date, then id. A per-lane Score / Newest toggle (local view state, `data-op="local"`) is remembered per viewer in localStorage (`pp.river.sort`); without storage the lanes still render in Score order. `roles.list` stays order-agnostic: the sort is the pure `sortLane` in `apps/web/src/lib/river.ts`.
 - Archived reasons show as count chips under the collapsed archived count.
 - A Terms diff can be resolved from Needs you or You; resolving in one clears both.
 - Stage by status: active/held -> Tailor next, draft-ready -> Connect next, on-deck/inbox -> Research next (Tailor once the company has a dossier; the application stage wins when one exists), applied -> done. On-deck is labelled **In progress** in River, Role and Now (#105): starting Research, Tailor or Connect on an active or held role picks it (-> on-deck, `role_picked`). Creating a Gmail draft marks Connect done.
