@@ -847,3 +847,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: "Is this posting still open?" gave no way to open the posting and verify (#102).
 - Shim: none for callers (`subject_role` optional; decisions about anything but a role, or a role that no longer exists, have none).
 - Status: accepted
+
+## Grouped auto stream
+
+### `decisions.queue.auto_groups` (`AutoGroup`), `decisions.undo_group` (#103)
+- Lane: r3/08-now-grouping (I, B, D)
+- Date: 2026-10-09
+- Contract: registry new `AutoGroup` (`id`, `kind`, `subject_type`, `subject_id` nullable, `run_id` nullable, `decision_ids` newest first, `count`, `backend` (a `Backend` or `mixed`), `first_ts`, `ts`, `undoable_ids`, `undone_count`, `total` nullable); `decisionsQueue.output.auto_groups: AutoGroup[]` (`recent_auto` unchanged); new op `decisions.undo_group { decision_ids: Id[1..500] }` -> `{ undone: Decision[], skipped: [{ decision_id, reason }] }` (low, `dynamicImpact`, emits `decision_undone`); new `auto-groups.ts`: `groupAutoDecisions(decisions, now, { runOf?, totalOf? })`, `AUTO_BATCH_KINDS` (`people.classify`, `freshness.closed`), `AUTO_GROUP_WINDOW_MS` (10 min), `isUndoableNow`. ui `AutoRow` props gain `count`, states `expanded`. Not contracts: resolver `DecisionOpsDeps.groupHints`, `undoOne`; engine `groupHints` (run from any event linked to the decision that carries `run_id`; a `roles.criterion` group's total = the role's first score at or after the group); the engine resolver's decision events carry `run_id` inside a skill run (`ctx.runId`); web `AutoRow` `count` / `expanded` / `onToggle` / `undoOp` / `nested`.
+- Change: the auto stream is grouped server-side so MCP and agents get it too. Key: kind, plus subject (except batch kinds), plus run; with no run id, kind (+ subject) and a chained 10-minute window. Mixed kinds never share a group. `backend` is the strict-majority backend, else `mixed`. `decisions.undo_group` runs each id through the same rules as `decisions.undo` (auto + undo only, so hard exclusions never qualify; inside the window; the inverse op keeps its own no-downgrade checks) and skips the rest with a reason; nothing undoable is a `conflict`. UI (not a contract): Now renders one row per group ("Scored 82 · Kev · 9 criteria", "Checked 12 · 2 closed", "Classified 6"), a count toggle (`local`) expands the members, the group Undo calls `decisions.undo_group` once with the undoable ids and is hidden when none is; single-decision groups render as before (`decisions.undo`).
+- Why: the Auto stream on Now showed one line per criterion, about nine per scored role (#103).
+- Shim: none for callers (`recent_auto` and `decisions.undo` unchanged; `auto_groups` and the op are additive).
+- Status: accepted

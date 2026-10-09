@@ -4,6 +4,7 @@ import {
   type Criterion,
   type Decision,
   formatMoneyRange,
+  groupAutoDecisions,
   nextFire,
   OPS,
   type OpName,
@@ -72,6 +73,15 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
   };
   return client;
 }
+
+/** #103: a roles.criterion group's total: the role's first score at or after the group's first decision. */
+const mockTotal = (g: { kind: string; subject_id: string | null; first_ts: string }) => {
+  if (g.kind !== 'roles.criterion' || !g.subject_id) return null;
+  const s = fx.scores
+    .filter((x) => x.role_id === g.subject_id && x.created_at >= g.first_ts)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  return s ? s.total : null;
+};
 
 /** #102: the engine's subject_role on role decisions (url, last check, freshness evidence). */
 function withSubjectRole(d: Decision): QueuedDecision {
@@ -188,12 +198,14 @@ function readOp(
 
     case 'decisions.queue': {
       const since = (i.include_auto_since as string | undefined) ?? new Date(at.getTime() - 86_400_000).toISOString();
+      const recent = fx.decisions
+        .filter((d) => d.policy_outcome !== 'human' && d.ts >= since && d.ts <= iso)
+        .sort((a, b) => b.ts.localeCompare(a.ts));
       return ok({
         pending: fx.decisions.filter((d) => d.status === 'pending' && d.policy_outcome === 'human').map(withSubjectRole),
-        recent_auto: fx.decisions
-          .filter((d) => d.policy_outcome !== 'human' && d.ts >= since && d.ts <= iso)
-          .sort((a, b) => b.ts.localeCompare(a.ts))
-          .map(withSubjectRole),
+        recent_auto: recent.map(withSubjectRole),
+        // #103: the engine's groups (fixtures carry no run ids, so the time window applies).
+        auto_groups: groupAutoDecisions(recent, at, { totalOf: mockTotal }),
       });
     }
     case 'runs.list': {

@@ -594,6 +594,54 @@ describe('click paths', () => {
     expect(container.querySelectorAll('.role-card__tag').length).toBeLessThanOrEqual(2);
   });
 
+  it('Now groups a score run into one row: count, total, expand, one group Undo (#103)', async () => {
+    const ROLE = 'notion_product-lead-data-platform';
+    let total = 0;
+    const { container, live: l } = await boot('#/now', async (lv) => {
+      const run = (await lv.as('agent', 'runs.start', { skill: 'score' })) as { status: 'ok'; output: { run: { id: string } } };
+      const FIVES = Object.fromEntries(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'].map((c) => [c, 5]));
+      const o = (await lv.as(
+        'agent',
+        'roles.score',
+        { role_id: ROLE, criteria: FIVES, facts: { workplace: 'remote', remote_ok: true } },
+        { runId: run.output.run.id },
+      )) as { status: 'ok'; output: { score: { total: number } } };
+      total = o.output.score.total;
+      // Setup: the nine criteria applied with an open undo window (auto + undo).
+      lv.engine.db
+        .prepare(`UPDATE decision SET policy_outcome = 'auto_undo', undo_until = ? WHERE kind = 'roles.criterion' AND subject_id = ?`)
+        .run('2026-10-09T12:00:00.000Z', ROLE);
+    });
+    const row = await waitFor(() => {
+      const r = Array.from(container.querySelectorAll('.auto-row')).find((x) => x.textContent?.includes('9 criteria'));
+      if (!r) throw new Error('no group row');
+      return r as HTMLElement;
+    });
+    expect(row.textContent).toContain(`Scored ${Math.round(total)} · Agent · 9 criteria`);
+    expect(row.textContent).toContain('Notion');
+    // One row for the run, not nine.
+    expect(Array.from(container.querySelectorAll('.auto-row')).filter((x) => x.textContent?.includes('Notion')).length).toBe(1);
+    const toggle = $(row, '.auto-row__toggle');
+    expect(toggle.getAttribute('data-op')).toBe('local');
+    expect(toggle.textContent).toContain('9');
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(Array.from(container.querySelectorAll('.auto-row')).filter((x) => x.textContent?.includes('Notion')).length).toBe(10),
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    assertButtons(container);
+
+    const undo = $(row, '.auto-row__undo');
+    expect(undo.getAttribute('data-op')).toBe('decisions.undo_group');
+    const before = writes().length;
+    fireEvent.click(undo);
+    await waitFor(() => expect(writes().slice(before)).toEqual(['decisions.undo_group']));
+    const call = l.calls.find((c) => c.name === 'decisions.undo_group');
+    expect((call as { body: { decision_ids: string[] } }).body.decision_ids).toHaveLength(9);
+    await waitFor(() => expect(row.querySelector('.auto-row__undo')).toBeNull());
+    expect(row.textContent).toContain('undone');
+  });
+
   it('River has a Held column and stacks held roles on the capped company tile', async () => {
     const { container } = await boot('#/river');
     await waitFor(() => expect($(container, '.held-chip').textContent).toBe('+2 held'));

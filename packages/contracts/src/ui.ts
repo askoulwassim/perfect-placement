@@ -28,7 +28,8 @@ export const COMPONENTS = {
   ProbabilityBar: { props: ['p', 'thresholds'] },
   HeroRing: { props: ['count', 'fill'] },
   CountTile: { props: ['icon', 'value', 'color'] },
-  AutoRow: { props: ['glyph', 'object', 'action', 'time', 'undoable'], states: ['default', 'hover', 'undone'] },
+  /** #103: a group row (one role per score run, one batch per run) carries `count` and expands to its members. */
+  AutoRow: { props: ['glyph', 'object', 'action', 'time', 'undoable', 'count'], states: ['default', 'hover', 'undone', 'expanded'] },
   RoleCard: { props: ['role'], states: ['default', 'hover'] },
   RiverColumn: { props: ['status', 'roles', 'extraCount', 'zoom: tiles|dots'], states: ['idle', 'drop-allowed', 'source'] },
   RiverTile: { props: ['role', 'stackCount'], states: ['default', 'dimmed', 'dragging', 'bounce', 'stacked'] },

@@ -17,6 +17,7 @@ import {
 } from '../entities.js';
 import {
   ArchiveReason,
+  Backend,
   Band,
   ConnectFallback,
   ConnectPath,
@@ -24,6 +25,7 @@ import {
   ContactRole,
   ContactTier,
   Criterion,
+  DecisionKind,
   DecisionStatus,
   EmailCheckResult,
   EmailDomainCheck,
@@ -38,6 +40,7 @@ import {
   RoleStatus,
   RunStatus,
   Skill,
+  SubjectType,
   Workplace,
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
@@ -1670,14 +1673,39 @@ export type DecisionSubjectRole = z.infer<typeof DecisionSubjectRole>;
 export const QueuedDecision = Decision.extend({ subject_role: DecisionSubjectRole.optional() });
 export type QueuedDecision = z.infer<typeof QueuedDecision>;
 
+/**
+ * Added (#103): one row of the auto stream. Members share kind and run (or, with no run id, kind and a
+ * time window), and subject unless the kind is a batch kind (AUTO_BATCH_KINDS), where subject_id is null
+ * when members span subjects. `decision_ids` newest first; `undoable_ids` the members `decisions.undo_group`
+ * would undo now. `backend`: the backend that answered most members (a strict majority), else `mixed`.
+ * `total`: for a `roles.criterion` group, the role's score total from that scoring, else null.
+ */
+export const AutoGroup = z.object({
+  id: z.string(),
+  kind: DecisionKind,
+  subject_type: SubjectType,
+  subject_id: z.string().nullable(),
+  run_id: Id.nullable(),
+  decision_ids: z.array(Id),
+  count: z.number().int().positive(),
+  backend: z.union([Backend, z.literal('mixed')]),
+  first_ts: IsoTimestamp,
+  ts: IsoTimestamp,
+  undoable_ids: z.array(Id),
+  undone_count: z.number().int().nonnegative(),
+  total: z.number().nullable(),
+});
+export type AutoGroup = z.infer<typeof AutoGroup>;
+
 export const decisionsQueue = defineOp({
   name: 'decisions.queue',
-  description: 'The Needs-you queue plus recent auto decisions. Role decisions carry subject_role (url, last check).',
+  description:
+    'The Needs-you queue plus recent auto decisions. Role decisions carry subject_role (url, last check). auto_groups: recent_auto grouped per subject and run (one row per role per score run).',
   input: z.object({
     status: z.array(DecisionStatus).optional(),
     include_auto_since: IsoTimestamp.optional(),
   }),
-  output: z.object({ pending: z.array(QueuedDecision), recent_auto: z.array(QueuedDecision) }),
+  output: z.object({ pending: z.array(QueuedDecision), recent_auto: z.array(QueuedDecision), auto_groups: z.array(AutoGroup) }),
   impact: 'low',
   readOnly: true,
   emits: [],
@@ -1704,6 +1732,21 @@ export const decisionsUndo = defineOp({
   description: 'Undo an auto + undo decision inside its window.',
   input: z.object({ decision_id: Id }),
   output: z.object({ decision: Decision }),
+  impact: 'low',
+  dynamicImpact: true,
+  emits: ['decision_undone'],
+  owner: 'I',
+});
+
+/** Added (#103): undo every undoable member of an auto-stream group in one call; the rest are skipped with a reason. */
+export const decisionsUndoGroup = defineOp({
+  name: 'decisions.undo_group',
+  description: 'Undo several auto + undo decisions (an auto-stream group) inside their windows. Skips the ones that cannot be undone.',
+  input: z.object({ decision_ids: z.array(Id).min(1).max(500) }),
+  output: z.object({
+    undone: z.array(Decision),
+    skipped: z.array(z.object({ decision_id: Id, reason: z.string() })),
+  }),
   impact: 'low',
   dynamicImpact: true,
   emits: ['decision_undone'],
@@ -2004,6 +2047,7 @@ export const OPS = {
   'decisions.queue': decisionsQueue,
   'decisions.resolve': decisionsResolve,
   'decisions.undo': decisionsUndo,
+  'decisions.undo_group': decisionsUndoGroup,
   'runs.list': runsList,
   'runs.get': runsGet,
   'runs.start': runsStart,

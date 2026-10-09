@@ -377,6 +377,11 @@ export function AutoRow({
   undone,
   onUndo,
   mobile,
+  count,
+  expanded,
+  onToggle,
+  undoOp = 'decisions.undo',
+  nested,
 }: {
   glyph: WhoKind;
   left?: number;
@@ -387,12 +392,19 @@ export function AutoRow({
   undone?: boolean;
   onUndo?: () => void;
   mobile?: boolean;
+  /** #103: a group row (several decisions of one run); the toggle expands its members. */
+  count?: number;
+  expanded?: boolean;
+  onToggle?: () => void;
+  undoOp?: 'decisions.undo' | 'decisions.undo_group';
+  /** A member row under an expanded group. */
+  nested?: boolean;
 }) {
   const canUndo = undoable && !undone;
   // Desktop rows reveal Undo on row hover via CSS (styles.css); mobile always shows it (#101).
   const undoBtn = (visible: boolean) => (
     <Btn
-      op="decisions.undo"
+      op={undoOp}
       className={visible ? 'auto-row__undo is-shown' : 'auto-row__undo'}
       onClick={onUndo}
       style={{
@@ -409,22 +421,56 @@ export function AutoRow({
       Undo
     </Btn>
   );
+  const toggle = count !== undefined && count > 1 && onToggle && (
+    <Btn
+      op="local"
+      className="auto-row__toggle"
+      aria-expanded={!!expanded}
+      aria-label={expanded ? 'Collapse' : 'Expand'}
+      onClick={onToggle}
+      style={{
+        background: 'transparent',
+        border: `1px solid ${C['line-2']}`,
+        color: C.muted,
+        borderRadius: 8,
+        height: mobile ? 30 : 26,
+        minWidth: 40,
+        padding: '0 8px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        ...mono(11, C.muted),
+      }}
+      hover={{ borderColor: C['emerald-2'], color: C.emerald }}
+    >
+      <span aria-hidden="true">{expanded ? '\u25BE' : '\u25B8'}</span>
+      <span style={tab}>{count}</span>
+    </Btn>
+  );
   if (mobile)
     return (
-      <div className="auto-row" style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44, opacity: undone ? 0.45 : 1 }}>
+      <div
+        className="auto-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, opacity: undone ? 0.45 : 1, paddingLeft: nested ? 22 : 0 }}
+      >
         <WhoDecidesGlyph kind={glyph} left={left} />
-        <span style={{ fontSize: 13, fontWeight: 500, flex: 1, minWidth: 0, ...ellipsis }}>{object}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, ...ellipsis }}>{object}</div>
+          {count !== undefined && <div style={{ ...mono(11, C.muted), ...ellipsis }}>{undone ? 'undone' : action}</div>}
+        </div>
+        {toggle}
         {canUndo && undoBtn(true)}
         <span style={mono(11, C.dim)}>{time}</span>
       </div>
     );
   return (
-    <HoverRow undone={undone}>
+    <HoverRow undone={undone} nested={nested}>
       <>
         <WhoDecidesGlyph kind={glyph} left={left} />
-        <div style={{ fontSize: 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
-        <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap' }}>{undone ? 'undone' : action}</div>
+        <div style={{ fontSize: nested ? 13 : 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
+        <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap', minWidth: 0, ...ellipsis }}>{undone ? 'undone' : action}</div>
         <div style={{ flex: 1 }} />
+        {toggle}
         {canUndo && undoBtn(false)}
         <div style={{ ...mono(12, C.dim), ...tab, width: 40, textAlign: 'right' }}>{time}</div>
       </>
@@ -433,7 +479,7 @@ export function AutoRow({
 }
 
 /** A desktop activity row: its hover background is CSS (`.auto-row--hover` in styles.css), not JS state (#101). */
-function HoverRow({ undone, children }: { undone?: boolean; children: ReactNode }) {
+function HoverRow({ undone, nested, children }: { undone?: boolean; nested?: boolean; children: ReactNode }) {
   return (
     <div
       className={`auto-row auto-row--hover ${undone ? 'is-undone' : ''}`}
@@ -441,8 +487,8 @@ function HoverRow({ undone, children }: { undone?: boolean; children: ReactNode 
         display: 'flex',
         alignItems: 'center',
         gap: 14,
-        height: 46,
-        padding: '0 14px',
+        height: nested ? 38 : 46,
+        padding: nested ? '0 14px 0 40px' : '0 14px',
         borderRadius: 10,
         background: 'transparent',
         opacity: undone ? 0.45 : 1,

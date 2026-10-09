@@ -1,5 +1,5 @@
 import { LANE_B_HANDLERS } from './handlers/index.js';
-import { decisionsQueue, decisionsResolve, decisionsUndo, systemBackends, systemDoctor } from './lanes/decisions.js';
+import { decisionsQueue, decisionsResolve, decisionsUndo, decisionsUndoGroup, systemBackends, systemDoctor } from './lanes/decisions.js';
 import { rolesCheckFreshness } from './lanes/freshness.js';
 import { LANE_H_HANDLERS } from './lanes/people.js';
 import { LANE_E_HANDLERS } from './lanes/profile.js';
@@ -20,6 +20,7 @@ export const ALL_HANDLERS: HandlerMap = {
   'decisions.queue': decisionsQueue,
   'decisions.resolve': decisionsResolve,
   'decisions.undo': decisionsUndo,
+  'decisions.undo_group': decisionsUndoGroup,
   'system.backends': systemBackends,
   'system.doctor': systemDoctor,
 };

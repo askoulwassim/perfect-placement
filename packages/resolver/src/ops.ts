@@ -1,8 +1,11 @@
 import {
+  type AutoGroupHints,
   type Decision,
   type EventType,
+  groupAutoDecisions,
   OPS,
   type OpContext,
+  type OpErrorCode,
   type OpOutcome,
   type OpOutput,
   type RunOp,
@@ -21,9 +24,11 @@ import type { DecisionStore } from './store.js';
 export interface DecisionOpsDeps {
   store: DecisionStore;
   runOp: RunOp;
+  /** #103: run ids and score totals for the auto-stream groups (the engine reads them from its db). */
+  groupHints?: AutoGroupHints;
 }
 
-type Handler<N extends 'decisions.queue' | 'decisions.resolve' | 'decisions.undo'> = (
+type Handler<N extends 'decisions.queue' | 'decisions.resolve' | 'decisions.undo' | 'decisions.undo_group'> = (
   input: unknown,
   ctx: OpContext,
 ) => Promise<OpOutcome<OpOutput<N>>>;
@@ -32,6 +37,7 @@ export interface DecisionOps {
   'decisions.queue': Handler<'decisions.queue'>;
   'decisions.resolve': Handler<'decisions.resolve'>;
   'decisions.undo': Handler<'decisions.undo'>;
+  'decisions.undo_group': Handler<'decisions.undo_group'>;
 }
 
 const DAY_MS = 86_400_000;
@@ -60,7 +66,8 @@ export function createDecisionOps(deps: DecisionOpsDeps): DecisionOps {
     const since = parsed.data.include_auto_since ?? new Date(ctx.now().getTime() - DAY_MS).toISOString();
     const pending = store.list({ statuses: parsed.data.status ?? ['pending'], outcomes: ['human'] });
     const recent_auto = store.list({ excludeOutcomes: ['human'], since });
-    return { status: 'ok', output: { pending, recent_auto }, eventIds: [] };
+    const auto_groups = groupAutoDecisions(recent_auto, ctx.now(), deps.groupHints);
+    return { status: 'ok', output: { pending, recent_auto, auto_groups }, eventIds: [] };
   };
 
   const resolve: Handler<'decisions.resolve'> = async (raw, ctx) => {
@@ -111,14 +118,14 @@ export function createDecisionOps(deps: DecisionOpsDeps): DecisionOps {
     return { status: 'ok', output: { decision: updated, op_status: opStatus }, eventIds };
   };
 
-  const undo: Handler<'decisions.undo'> = async (raw, ctx) => {
-    const parsed = OPS['decisions.undo'].input.safeParse(raw);
-    if (!parsed.success) return { status: 'error', code: 'invalid_input', message: 'invalid input', issues: parsed.error.issues };
-    const d = store.get(parsed.data.decision_id);
-    if (!d) return { status: 'error', code: 'not_found', message: `decision ${parsed.data.decision_id} not found` };
+  /** Undo one decision: the inverse op (if any) through runOp, then mark it undone. */
+  async function undoOne(
+    d: Decision,
+    ctx: OpContext,
+  ): Promise<{ ok: true; decision: Decision; eventId: string } | { ok: false; code: OpErrorCode; message: string }> {
     if (!canUndo(d, ctx.now())) {
       return {
-        status: 'error',
+        ok: false,
         code: 'conflict',
         message: d.policy_outcome !== 'auto_undo' ? 'not an auto + undo decision' : 'undo window closed or already undone',
       };
@@ -127,13 +134,50 @@ export function createDecisionOps(deps: DecisionOpsDeps): DecisionOps {
     if (act?.undo) {
       const out = await deps.runOp(act.undo.op, act.undo.input, { ...ctx, decisionId: d.id });
       if (out.status !== 'ok') {
-        return { status: 'error', code: out.status === 'error' ? out.code : 'conflict', message: `undo op ${act.undo.op} did not run` };
+        return { ok: false, code: out.status === 'error' ? out.code : 'conflict', message: `undo op ${act.undo.op} did not run` };
       }
     }
     const updated = store.update(d.id, { status: 'undone', resolved_at: ctx.now().toISOString() });
-    const ev = emit('decision_undone', updated, ctx, { undo_op: act?.undo?.op ?? null });
-    return { status: 'ok', output: { decision: updated }, eventIds: [ev] };
+    const eventId = emit('decision_undone', updated, ctx, { undo_op: act?.undo?.op ?? null });
+    return { ok: true, decision: updated, eventId };
+  }
+
+  const undo: Handler<'decisions.undo'> = async (raw, ctx) => {
+    const parsed = OPS['decisions.undo'].input.safeParse(raw);
+    if (!parsed.success) return { status: 'error', code: 'invalid_input', message: 'invalid input', issues: parsed.error.issues };
+    const d = store.get(parsed.data.decision_id);
+    if (!d) return { status: 'error', code: 'not_found', message: `decision ${parsed.data.decision_id} not found` };
+    const r = await undoOne(d, ctx);
+    if (!r.ok) return { status: 'error', code: r.code, message: r.message };
+    return { status: 'ok', output: { decision: r.decision }, eventIds: [r.eventId] };
   };
 
-  return { 'decisions.queue': queue, 'decisions.resolve': resolve, 'decisions.undo': undo };
+  /**
+   * #103: undo a group's members in one call. Each goes through the same rules as `decisions.undo`
+   * (auto + undo only, so hard exclusions never qualify; the inverse op keeps its own no-downgrade checks);
+   * the ones that cannot be undone are skipped with a reason. Nothing undone at all is a conflict.
+   */
+  const undoGroup: Handler<'decisions.undo_group'> = async (raw, ctx) => {
+    const parsed = OPS['decisions.undo_group'].input.safeParse(raw);
+    if (!parsed.success) return { status: 'error', code: 'invalid_input', message: 'invalid input', issues: parsed.error.issues };
+    const undone: Decision[] = [];
+    const skipped: { decision_id: string; reason: string }[] = [];
+    const eventIds: string[] = [];
+    for (const id of new Set(parsed.data.decision_ids)) {
+      const d = store.get(id);
+      if (!d) {
+        skipped.push({ decision_id: id, reason: 'not found' });
+        continue;
+      }
+      const r = await undoOne(d, ctx);
+      if (r.ok) {
+        undone.push(r.decision);
+        eventIds.push(r.eventId);
+      } else skipped.push({ decision_id: id, reason: r.message });
+    }
+    if (!undone.length) return { status: 'error', code: 'conflict', message: 'nothing in the group can be undone' };
+    return { status: 'ok', output: { undone, skipped }, eventIds };
+  };
+
+  return { 'decisions.queue': queue, 'decisions.resolve': resolve, 'decisions.undo': undo, 'decisions.undo_group': undoGroup };
 }

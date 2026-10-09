@@ -1,6 +1,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Decision, DecisionSubjectRole, OpOutcome, PolicyConfig, QueuedDecision, RunOp } from '@perfect-placement/contracts';
+import type {
+  AutoGroupHints,
+  Decision,
+  DecisionSubjectRole,
+  OpOutcome,
+  PolicyConfig,
+  QueuedDecision,
+  RunOp,
+} from '@perfect-placement/contracts';
 import { backendsFromConfig, createDecisionOps, type DecisionStore } from '@perfect-placement/resolver';
 import { doctor } from '../../db/doctor.js';
 import { createDecisionStore } from '../decision-store.js';
@@ -26,7 +34,33 @@ function unwrap<O>(o: OpOutcome<O>) {
   throw new OpError(o.code, o.message, o.issues);
 }
 
-const ops = (h: HandlerContext) => createDecisionOps({ store: storeFor(h), runOp: h.runOp as RunOp });
+/**
+ * #103: the run a decision was made in (any event linked to it that carries `run_id`: its decision_made,
+ * or the action it ran inside a skill run), and a roles.criterion group's score total from that scoring.
+ */
+function groupHints(h: HandlerContext): AutoGroupHints {
+  const runQ = h.db.prepare(
+    `SELECT json_extract(payload_json, '$.run_id') AS run_id FROM event WHERE decision_id = ? AND json_extract(payload_json, '$.run_id') IS NOT NULL ORDER BY ts, id LIMIT 1`,
+  );
+  const totalQ = h.db.prepare('SELECT total FROM score WHERE role_id = ? AND created_at >= ? ORDER BY created_at, rowid LIMIT 1');
+  const runs = new Map<string, string | null>();
+  return {
+    runOf(d) {
+      if (!runs.has(d.id)) {
+        const r = runQ.get(d.id) as { run_id: unknown } | undefined;
+        runs.set(d.id, typeof r?.run_id === 'string' && r.run_id ? r.run_id : null);
+      }
+      return runs.get(d.id) ?? null;
+    },
+    totalOf(g) {
+      if (g.kind !== 'roles.criterion' || g.subject_type !== 'role' || !g.subject_id) return null;
+      const r = totalQ.get(g.subject_id, g.first_ts) as { total: number } | undefined;
+      return r ? r.total : null;
+    },
+  };
+}
+
+const ops = (h: HandlerContext) => createDecisionOps({ store: storeFor(h), runOp: h.runOp as RunOp, groupHints: groupHints(h) });
 
 type RoleRow = { id: string; url: string | null; last_checked_at: string | null };
 
@@ -76,7 +110,11 @@ export const decisionsQueue = defineHandler('decisions.queue', {
   async run(input, h) {
     const o = await ops(h)['decisions.queue'](input, h.ctx);
     if (o.status !== 'ok') return unwrap(o);
-    return { pending: withSubjectRole(h, o.output.pending), recent_auto: withSubjectRole(h, o.output.recent_auto) };
+    return {
+      pending: withSubjectRole(h, o.output.pending),
+      recent_auto: withSubjectRole(h, o.output.recent_auto),
+      auto_groups: o.output.auto_groups,
+    };
   },
 });
 
@@ -89,6 +127,12 @@ export const decisionsResolve = defineHandler('decisions.resolve', {
 export const decisionsUndo = defineHandler('decisions.undo', {
   async run(input, h) {
     return unwrap(await ops(h)['decisions.undo'](input, h.ctx));
+  },
+});
+
+export const decisionsUndoGroup = defineHandler('decisions.undo_group', {
+  async run(input, h) {
+    return unwrap(await ops(h)['decisions.undo_group'](input, h.ctx));
   },
 });
 

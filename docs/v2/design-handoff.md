@@ -43,6 +43,7 @@ Mobile (390): Now, Needs you, Role (plus River, You, Outreach) with a bottom Tab
 
 - Primary button sits in the header top-right on every screen, including Needs you. The card keeps Change and Skip plus A/C/S/arrow keys.
 - A Needs-you card about a role (freshness, dedupe, move, archive, fact check, inbox) shows **Open posting** next to Change and Skip when the role has a url: a plain external link (`<a target="_blank" rel="noopener noreferrer">`, not an op button), key `O` (#102). A freshness card adds a **Checked** row: when the posting was last checked and the evidence, short.
+- Now's Auto stream is grouped (#103): one AutoRow per role per score run ("Scored 82 · Kev · 9 criteria"), per run for contact classifications ("Contacts · Classified 6") and freshness ("Postings · Checked 12 · 2 closed"); no run id groups by kind and subject within 10 minutes. A count toggle (local) expands the member rows; the row's Undo (`decisions.undo_group`) undoes every undoable member and is hidden when none is.
 - Fourth glyph "auto after second opinion": two emerald dots (one at half opacity).
 - Probability bars use the policy thresholds for color; dragging thresholds in Settings recolors every bar.
 - Held is not a drop target; draft-ready -> applied bounces (the app never submits). Allowed drags: inbox<->active, active<->on-deck, on-deck<->draft-ready, applied<->interviews<->offers. (Encoded as `MANUAL_MOVES`.)

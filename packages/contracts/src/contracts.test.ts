@@ -67,6 +67,7 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'decisions.queue': 'low',
   'decisions.resolve': 'low',
   'decisions.undo': 'low',
+  'decisions.undo_group': 'low',
   'runs.list': 'low',
   'runs.get': 'low',
   'system.doctor': 'low',

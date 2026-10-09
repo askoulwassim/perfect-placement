@@ -181,10 +181,23 @@ export function createEngine(deps: EngineDeps): Engine {
     };
     // The agent backend is the calling session: only present when an agent is attached.
     if (!agentAttached) delete backends.agent;
+    const base = createDecisionStore(db);
+    // #103: a decision made inside a skill run links to it (its decision_made carries run_id), so Now can group by run.
+    const store = ctx.runId
+      ? {
+          ...base,
+          appendEvent: (e: Parameters<typeof base.appendEvent>[0]) =>
+            base.appendEvent(
+              e.payload_json && typeof e.payload_json === 'object' && !Array.isArray(e.payload_json) && !('run_id' in e.payload_json)
+                ? { ...e, payload_json: { ...e.payload_json, run_id: ctx.runId } }
+                : e,
+            ),
+        }
+      : base;
     return createResolver({
       config,
       backends,
-      store: createDecisionStore(db),
+      store,
       now: ctx.now,
       newId: () => newId('decision', ctx.now()),
       hardHuman: (r) => hardHumanHint(db, r),
