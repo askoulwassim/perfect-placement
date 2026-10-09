@@ -680,6 +680,92 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
+  it('Role: Open posting links to the role URL in a new tab (#34)', async () => {
+    const { container } = await boot(`#/role/${R.stripeOnDeck}`);
+    const link = await waitFor(() => $<HTMLAnchorElement>(container, 'a.open-posting'));
+    const got = await live?.client.run('roles.get', { role_id: R.stripeOnDeck });
+    const url = got?.status === 'ok' ? got.output.role.url : null;
+    expect(url).toBeTruthy();
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    expect(link.getAttribute('data-op')).toBe('nav');
+    expect(link.textContent).toContain('Open posting');
+    // The submit-stage primary stays the stage action; the link is separate.
+    expect(primary(container).textContent).toBe('Research');
+    // River: Cmd/Ctrl-click a tile opens the posting; a plain click opens the Role screen.
+    const opened: unknown[][] = [];
+    const orig = window.open;
+    window.open = ((...a: unknown[]) => {
+      opened.push(a);
+      return null;
+    }) as typeof window.open;
+    try {
+      await go('#/river');
+      const tile = await waitFor(() => $(container, `.river-tile[data-role="${R.stripeOnDeck}"]`));
+      fireEvent.click(tile, { metaKey: true });
+      expect(opened).toEqual([[url, '_blank', 'noopener']]);
+      expect(window.location.hash).toBe('#/river');
+      fireEvent.click(tile);
+      await waitFor(() => expect(window.location.hash).toBe(`#/role/${R.stripeOnDeck}`));
+    } finally {
+      window.open = orig;
+    }
+  });
+
+  it('Role: package documents render markdown; raw HTML never runs (#35)', async () => {
+    const resume =
+      '# Resume\n\nI ship **data products** with *taste*.\n\n- Built `pp` tooling\n- See [site](https://example.com) and [bad](javascript:alert)\n\n1. First\n2. Second\n\n> Quote line\n\n<script>window.__pwned = true</script>\n\n<img src="x" onerror="window.__pwned = true">';
+    const fit = '# Fit map\n\n| Claim | Source |\n| --- | --- |\n| Data products | Resume |';
+    const { container } = await boot(`#/role/${R.datadogActive}`, (l) =>
+      l.as('agent', 'apply.tailor', { role_id: R.datadogActive, resume_md: resume, cover_letter_md: 'Hi team.', fit_map_md: fit }),
+    );
+    fireEvent.click(await screen.findByRole('tab', { name: 'Resume' }));
+    const strong = await waitFor(() => $(container, 'strong'));
+    expect(strong.textContent).toBe('data products');
+    expect($(container, 'em').textContent).toBe('taste');
+    expect($(container, 'code').textContent).toBe('pp');
+    expect(container.querySelectorAll('ul li')).toHaveLength(2);
+    expect(container.querySelectorAll('ol li')).toHaveLength(2);
+    expect($(container, 'blockquote').textContent).toContain('Quote line');
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href]')).filter((a) => !a.classList.contains('open-posting'));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['https://example.com']);
+    expect(links[0]?.getAttribute('target')).toBe('_blank');
+    expect(links[0]?.getAttribute('rel')).toContain('noopener');
+    expect(container.querySelector('script, img')).toBeNull();
+    expect(container.textContent).toContain('<script>');
+    expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined();
+    fireEvent.click(screen.getByRole('tab', { name: 'Fit map' }));
+    const th = await waitFor(() => $(container, 'table th'));
+    expect(th.textContent).toBe('Claim');
+    expect($(container, 'table td').textContent).toBe('Data products');
+    assertButtons(container);
+  });
+
+  it('Role: an empty tab shows the stage that fills it and runs it (#36)', async () => {
+    const { container } = await boot(`#/role/${R.stripeOnDeck}`, (l) => l.as('agent', 'runs.finish', { run_id: 'rn_0003', status: 'ok' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Resume' }));
+    const slot = await waitFor(() => $(container, '.doc-preview .stage-slot'));
+    expect(slot.getAttribute('data-stage')).toBe('Tailor');
+    expect(slot.textContent).toContain('From Tailor');
+    const btn = within(slot).getByRole('button');
+    expect(btn.textContent).toBe('Tailor');
+    expect(btn.getAttribute('data-op')).toBe('runs.start');
+    expect(container.querySelectorAll('[role="tab"] .tab-dot')).toHaveLength(5);
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(within($(container, '.doc-preview .stage-slot')).getByRole('button').textContent).toMatch(/^(Tailoring|Queued)$/),
+    );
+    expect(live?.calls.filter((c) => c.name === 'runs.start').at(-1)?.body).toEqual({ skill: 'tailor', role_id: R.stripeOnDeck });
+    fireEvent.click(screen.getByRole('tab', { name: 'Answers' }));
+    await waitFor(() => expect($(container, '.doc-preview .stage-slot').getAttribute('data-stage')).toBe('Fill'));
+    // People is filled by Connect too; a tab with its document shows the document, not a slot.
+    expect($(container, '.stage-slot[data-stage="Connect"]').textContent).toContain('From Connect');
+    fireEvent.click(screen.getByRole('tab', { name: 'Dossier' }));
+    await waitFor(() => expect(container.querySelector('.doc-preview .stage-slot')).toBeNull());
+    assertButtons(container);
+  });
+
   it('Settings: policy grid #24 with locked exclusions; threshold drag and schedule toggle save via config.update', async () => {
     const { container } = await boot('#/settings');
     const cells = await waitFor(() => {

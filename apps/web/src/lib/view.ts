@@ -26,6 +26,7 @@ export const tile = (v: RoleView, now: Date, bands?: Bands): TileData => {
     co: v.company.name,
     fit,
     band: bandColor(fit, bands),
+    url: v.role.url,
   };
 };
 
@@ -51,48 +52,20 @@ export type DocLine =
   | { t: 'b'; w: string }
   | { t: 'c'; chips: string[] };
 
-/** Markdown -> prototype doc lines (heading, key, text, chips). Skeleton bars when no file yet. */
-export function docLines(md: string | null | undefined): DocLine[] {
-  if (!md)
-    return [
-      { t: 'k', text: '—' },
-      { t: 'b', w: '84%' },
-      { t: 'b', w: '62%' },
-      { t: 'b', w: '70%' },
-      { t: 'b', w: '44%' },
-    ];
-  const out: DocLine[] = [];
-  let bullets: string[] = [];
-  const flush = () => {
-    if (bullets.length) out.push(...bullets.map((text) => ({ t: 't' as const, text })));
-    bullets = [];
-  };
-  for (const raw of md.split('\n')) {
-    const line = raw.trim();
-    if (!line) {
-      flush();
-      continue;
-    }
-    const h = line.match(/^(#{1,3})\s+(.*)$/);
-    if (h) {
-      flush();
-      out.push(h[1] === '#' ? { t: 'h', text: h[2] as string } : { t: 'k', text: h[2] as string });
-    } else if (/^[-*]\s/.test(line)) bullets.push(line.replace(/^[-*]\s+/, ''));
-    else {
-      flush();
-      out.push({ t: 't', text: line });
-    }
-  }
-  flush();
-  return out;
-}
+/** Skeleton bars for a document that does not exist yet (documents themselves render as markdown, #35). */
+export const DOC_SKELETON: readonly DocLine[] = [
+  { t: 'b', w: '84%' },
+  { t: 'b', w: '62%' },
+  { t: 'b', w: '70%' },
+  { t: 'b', w: '44%' },
+];
 
 /**
  * The answers file (#42) as doc lines: groups (Needs you, Written, Standard, Portal fills) as headings,
  * each question as a key, a needs-you reason as a muted line, portal fills as chips.
  */
 export function answerLines(md: string | null | undefined): DocLine[] {
-  if (!md) return docLines(md);
+  if (!md) return [...DOC_SKELETON];
   const out: DocLine[] = [];
   let fills: string[] | null = null;
   for (const raw of md.split('\n')) {

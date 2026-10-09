@@ -1,5 +1,5 @@
 import type { ArchiveReason, RoleStatus } from '@perfect-placement/contracts';
-import type { DragEvent, ReactNode } from 'react';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
 import { Btn, useHover } from './Btn';
 import { ReasonChip, STATUS_HEX, STATUS_LABEL } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph, type WhoKind } from './glyphs';
@@ -13,6 +13,14 @@ export interface TileData {
   co: string;
   fit: number | null;
   band: string;
+  /** The job posting (#34): Cmd/Ctrl-click a tile, card or dot opens it in a new tab. */
+  url?: string | null;
+}
+
+/** Plain click opens the Role screen; Cmd/Ctrl-click opens the posting when there is one. */
+function openTile(e: MouseEvent, r: TileData, onOpen?: () => void) {
+  if ((e.metaKey || e.ctrlKey) && r.url) window.open(r.url, '_blank', 'noopener');
+  else onOpen?.();
 }
 
 // ------------------------------------------------------------ RoleCard (top picks)
@@ -24,7 +32,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
         op={null}
         className="role-card"
         data-role={r.id}
-        onClick={onOpen}
+        onClick={(e) => openTile(e, r, onOpen)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -53,7 +61,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
       op={null}
       className="role-card"
       data-role={r.id}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -109,7 +117,7 @@ export function RiverTile({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         position: 'relative',
         display: 'flex',
@@ -191,7 +199,7 @@ export function RiverDot({
       aria-label={`${r.co} ${r.title}`}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onClick={onOpen}
+      onClick={(e) => openTile(e, r, onOpen)}
       style={{
         width: 14,
         height: 14,
