@@ -422,13 +422,15 @@ export const IntakeCounts = z.object({
   duplicates: z.number().int(),
   skipped_dead: z.number().int(),
   skipped_aggregator: z.number().int(),
+  /** Not added: over the run's watchlist share or per-company limit (#67). */
+  skipped_cap: z.number().int().default(0),
 });
 export type IntakeCounts = z.infer<typeof IntakeCounts>;
 
 export const rolesAdd = defineOp({
   name: 'roles.add',
   description:
-    "Add candidate roles to inbox. Dedupes on url, ATS job id, company + title (fuzzy). Verifies each new posting URL: dead postings are skipped; aggregator links are resolved to the company's own ATS posting or skipped.",
+    "Add candidate roles to inbox. Dedupes on url, ATS job id, company + title (fuzzy). Verifies each new posting URL: dead postings are skipped; aggregator links are resolved to the company's own ATS posting or skipped. Within a scout run, source watchlist adds stop at ceil(scout.watchlist_share_max * scout.target_new_roles) and at scout.max_per_company per company (skipped watchlist_cap / company_cap): fill the rest with open-market roles.",
   input: z.object({
     candidates: z.array(RoleCandidate).min(1),
     /** Check each new candidate's URL before adding (#32). Default true. */
@@ -439,12 +441,35 @@ export const rolesAdd = defineOp({
     duplicates: z.array(z.object({ index: z.number().int(), existing_id: Id, match: z.enum(['url', 'ats_job_id', 'company_title']) })),
     /** Near matches that were added and queued as `roles.dedupe` decisions. */
     possible_duplicates: z.array(z.object({ index: z.number().int(), role_id: Id, existing_id: Id, decision_id: Id })).default([]),
-    /** Not added: the posting is gone (`dead`) or only an aggregator listed it (`aggregator`). */
-    skipped: z.array(z.object({ index: z.number().int(), reason: z.enum(['dead', 'aggregator']), detail: z.string() })).default([]),
+    /**
+     * Not added: the posting is gone (`dead`), only an aggregator listed it (`aggregator`), or (#67) the run's
+     * watchlist adds are at their share (`watchlist_cap`) or the company at `scout.max_per_company` (`company_cap`).
+     */
+    skipped: z
+      .array(
+        z.object({ index: z.number().int(), reason: z.enum(['dead', 'aggregator', 'watchlist_cap', 'company_cap']), detail: z.string() }),
+      )
+      .default([]),
     /** Aggregator hits stored under the company's own posting URL. */
     resolved: z.array(z.object({ index: z.number().int(), role_id: Id, from: z.string(), to: z.string() })).default([]),
     /** Counts per candidate `source`. */
     by_source: z.partialRecord(RoleSource, IntakeCounts).default({}),
+    /**
+     * The scout run's watchlist budget after this call (#67): `max` = ceil(share * target), `added` so far
+     * (this call included), `open_needed` = open-market adds still needed to reach `target`.
+     */
+    watchlist_budget: z
+      .object({
+        run_id: Id.nullable(),
+        target: z.number().int(),
+        max: z.number().int(),
+        added: z.number().int(),
+        remaining: z.number().int(),
+        max_per_company: z.number().int(),
+        open_added: z.number().int(),
+        open_needed: z.number().int(),
+      })
+      .optional(),
   }),
   impact: 'low',
   emits: ['role_added'],
@@ -454,7 +479,7 @@ export const rolesAdd = defineOp({
 export const scoutWatchlistScan = defineOp({
   name: 'scout.watchlist_scan',
   description:
-    "List every open role on each watchlist company's ATS board (Greenhouse, Lever, Ashby), drop clear title / seniority / work-mode misses and roles already in the pipeline, and return the rest as roles.add candidates. Companies without a readable board come back no_board (search the web for them).",
+    "List every open role on each watchlist company's ATS board (Greenhouse, Lever, Ashby), drop clear title / seniority / work-mode misses and roles already in the pipeline, group near-identical titles, rank the rest by title and profile fit and return at most scout.max_per_company per company as roles.add candidates (best first, companies interleaved). Companies without a readable board come back no_board (search the web for them). Board candidates never replace open-market search: roles.add caps a run's watchlist adds at its share of scout.target_new_roles.",
   input: z.object({
     /** Company names or slugs. Default: the Company component watchlist. */
     companies: z.array(z.string().min(1)).optional(),
@@ -464,6 +489,8 @@ export const scoutWatchlistScan = defineOp({
     exclude: z.array(z.string().min(1)).optional(),
     /** JD characters per candidate (roles.add captures the full JD from the ATS). Default 400; 0 = none. */
     jd_chars: z.number().int().min(0).max(20000).optional(),
+    /** Most candidates per company (#67). Default `scout.max_per_company` (else `scoring.company_active_cap` + 2). */
+    max_per_company: z.number().int().min(1).optional(),
   }),
   output: z.object({
     companies: z.array(
@@ -474,7 +501,12 @@ export const scoutWatchlistScan = defineOp({
         ats: z.string().nullable(),
         board: z.string().nullable(),
         listed: z.number().int(),
+        /** Returned as candidates (after grouping and the per-company limit). */
         kept: z.number().int(),
+        /** Passed the filter but over `max_per_company` (lowest fit dropped). */
+        capped: z.number().int().default(0),
+        /** Folded into a near-identical title at the same company (similarity >= 0.85). */
+        grouped: z.number().int().default(0),
         reason: z.string().optional(),
       }),
     ),
@@ -485,7 +517,12 @@ export const scoutWatchlistScan = defineOp({
       work_mode: z.number().int(),
       location: z.number().int(),
       known: z.number().int(),
+      similar: z.number().int().default(0),
+      company_cap: z.number().int().default(0),
     }),
+    /** Near-identical titles folded into the kept one (`kept` = its URL). */
+    groups: z.array(z.object({ company: z.string(), kept: z.string(), title: z.string(), similar: z.array(z.string()) })).default([]),
+    max_per_company: z.number().int().optional(),
   }),
   impact: 'low',
   readOnly: true,

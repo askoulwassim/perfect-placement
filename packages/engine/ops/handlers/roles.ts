@@ -8,14 +8,25 @@ import {
   ROLE_STATUSES,
   type Role,
   type RoleStatus,
+  type Run,
   Slug,
+  scoutMaxPerCompany,
+  scoutWatchlistMaxAdds,
   vaultPath,
 } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
 import { getComponent, getCurrentVersion } from '../../profile/versions.js';
 import { watchlistFrom } from '../../scoring/source-mix.js';
-import { type IntakeVerdict, intakeDeps, rulesFromProfile, type ScanCompany, scanWatchlist, verifyCandidate } from '../../scout/index.js';
+import {
+  fitScorer,
+  type IntakeVerdict,
+  intakeDeps,
+  rulesFromProfile,
+  type ScanCompany,
+  scanWatchlist,
+  verifyCandidate,
+} from '../../scout/index.js';
 import { atsFromUrl, normalizeUrl, TITLE_DUPLICATE_MIN, TITLE_POSSIBLE_MIN, titleSimilarity } from '../dedupe.js';
 import { OpError } from '../errors.js';
 import { roleIdFor, slugify } from '../ids.js';
@@ -113,7 +124,94 @@ function matchKnown(
 /** Intake verdicts by candidate index (#32), computed before the transaction (network). */
 type Verdicts = Map<number, IntakeVerdict>;
 
-const emptyCounts = (): IntakeCounts => ({ candidates: 0, added: 0, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 });
+const emptyCounts = (): IntakeCounts => ({
+  candidates: 0,
+  added: 0,
+  duplicates: 0,
+  skipped_dead: 0,
+  skipped_aggregator: 0,
+  skipped_cap: 0,
+});
+
+/**
+ * The scout run a `roles.add` call belongs to (#67): ctx.runId when it is a scout run, else (an agent's
+ * own session with no run id) the latest running scout run. Null outside a scout run.
+ */
+export function scoutRunOf(db: Database.Database, runId: string | undefined): Run | null {
+  if (runId) {
+    const r = get(db, 'run', runId);
+    return r?.op === 'scout' ? r : null;
+  }
+  return select(db, 'run', `op = 'scout' AND status = 'running' ORDER BY started_at DESC, id DESC LIMIT 1`)[0] ?? null;
+}
+
+/** Roles a scout run added so far, by source (role_added events linked to it; unlinked since it started without a run id). */
+export function scoutRunAdds(db: Database.Database, run: Run, linked: boolean): Array<{ source: string; company_id: string }> {
+  const rows = linked
+    ? select(db, 'event', `type = 'role_added' AND json_extract(payload_json, '$.run_id') = ? ORDER BY ts ASC, id ASC`, [run.id])
+    : select(db, 'event', `type = 'role_added' AND ts >= ? AND json_extract(payload_json, '$.run_id') IS NULL ORDER BY ts ASC, id ASC`, [
+        run.started_at,
+      ]);
+  return rows.map((e) => {
+    const p = (e.payload_json ?? {}) as { source?: unknown; company_id?: unknown };
+    return { source: String(p.source ?? ''), company_id: String(p.company_id ?? '') };
+  });
+}
+
+/**
+ * Watchlist budget (#67): within one scout run, source `watchlist` adds stop at
+ * ceil(share * target) and at `max_per_company` per company. Outside a run the limits apply per call.
+ */
+class WatchlistBudget {
+  readonly max: number;
+  readonly perCompany: number;
+  readonly target: number;
+  added = 0;
+  open = 0;
+  readonly byCompany = new Map<string, number>();
+  constructor(
+    readonly run: Run | null,
+    config: HandlerContext['config'],
+    prior: ReadonlyArray<{ source: string; company_id: string }>,
+  ) {
+    this.max = scoutWatchlistMaxAdds(config);
+    this.perCompany = scoutMaxPerCompany(config);
+    this.target = config.scout.target_new_roles;
+    for (const a of prior) this.count(a.source, a.company_id);
+  }
+  count(source: string, companyId: string) {
+    if (source !== 'watchlist') {
+      this.open++;
+      return;
+    }
+    this.added++;
+    this.byCompany.set(companyId, (this.byCompany.get(companyId) ?? 0) + 1);
+  }
+  /** Why this watchlist candidate may not be added, or null. */
+  refuse(companyId: string): { reason: 'watchlist_cap' | 'company_cap'; detail: string } | null {
+    if (this.added >= this.max)
+      return {
+        reason: 'watchlist_cap',
+        detail: `run already added ${this.added} watchlist roles (max ${this.max} = ceil(watchlist_share_max x target_new_roles)); add open-market roles`,
+      };
+    const n = this.byCompany.get(companyId) ?? 0;
+    if (n >= this.perCompany)
+      return { reason: 'company_cap', detail: `${companyId}: ${n} watchlist roles this run (max_per_company ${this.perCompany})` };
+    return null;
+  }
+  report() {
+    return {
+      run_id: this.run?.id ?? null,
+      target: this.target,
+      max: this.max,
+      added: this.added,
+      remaining: Math.max(0, this.max - this.added),
+      max_per_company: this.perCompany,
+      open_added: this.open,
+      open_needed: Math.max(0, this.target - this.added - this.open),
+    };
+  }
+}
 
 export const rolesAdd = defineHandler('roles.add', {
   async prepare(input, p): Promise<Verdicts> {
@@ -121,11 +219,15 @@ export const rolesAdd = defineHandler('roles.add', {
     if (input.verify === false) return verdicts;
     const deps = intakeDeps(p.services.fetch ?? defaultFetch());
     const known = knownRoles(p.db);
+    const run = scoutRunOf(p.db, p.ctx.runId);
+    const budget = new WatchlistBudget(run, p.config, run ? scoutRunAdds(p.db, run, !!p.ctx.runId) : []);
     for (const [index, c] of input.candidates.entries()) {
       if (!c.url) continue;
       const company = findCompany(p.db, c.company_name, c.company_domain, c.url);
       const { dup } = matchKnown(known, company, c.title, c.url, c.ats_job_id ?? atsFromUrl(c.url).jobId);
       if (dup) continue; // no network for known roles
+      const companyId = company?.id ?? companySlug(c.company_name);
+      if (c.source === 'watchlist' && budget.refuse(companyId)) continue; // over the watchlist cap: run() skips it
       known.push({
         id: `#${index}`,
         company_id: company?.id ?? companySlug(c.company_name),
@@ -138,7 +240,9 @@ export const rolesAdd = defineHandler('roles.add', {
         ats_type: company?.ats_type ?? null,
         ats_board: company?.ats_board ?? null,
       };
-      verdicts.set(index, await verifyCandidate({ title: c.title, url: c.url, location: c.location }, hint, deps));
+      const v = await verifyCandidate({ title: c.title, url: c.url, location: c.location }, hint, deps);
+      verdicts.set(index, v);
+      if (v.verdict === 'keep') budget.count(c.source, companyId);
     }
     return verdicts;
   },
@@ -149,7 +253,7 @@ export const rolesAdd = defineHandler('roles.add', {
     const added: string[] = [];
     const duplicates: { index: number; existing_id: string; match: 'url' | 'ats_job_id' | 'company_title' }[] = [];
     const possible: { index: number; role_id: string; existing_id: string; similarity: number; decision_id: string }[] = [];
-    const skipped: { index: number; reason: 'dead' | 'aggregator'; detail: string }[] = [];
+    const skipped: { index: number; reason: 'dead' | 'aggregator' | 'watchlist_cap' | 'company_cap'; detail: string }[] = [];
     const resolved: { index: number; role_id: string; from: string; to: string }[] = [];
     const notes = new Map<string, string>();
     const bySource: Partial<Record<Candidate['source'], IntakeCounts>> = {};
@@ -158,6 +262,8 @@ export const rolesAdd = defineHandler('roles.add', {
       n[key]++;
       bySource[c.source] = n;
     };
+    const run = scoutRunOf(h.db, h.ctx.runId);
+    const budget = new WatchlistBudget(run, h.config, run ? scoutRunAdds(h.db, run, !!h.ctx.runId) : []);
 
     for (const [index, raw] of input.candidates.entries()) {
       count(raw, 'candidates');
@@ -204,6 +310,15 @@ export const rolesAdd = defineHandler('roles.add', {
             ? { workplace: posting.workplace }
             : {}),
         };
+      }
+
+      if (raw.source === 'watchlist') {
+        const no = budget.refuse(company?.id ?? companySlug(c.company_name));
+        if (no) {
+          skipped.push({ index, ...no });
+          count(raw, 'skipped_cap');
+          continue;
+        }
       }
 
       const nurl = normalizeUrl(c.url);
@@ -254,6 +369,7 @@ export const rolesAdd = defineHandler('roles.add', {
       h.emit('role_added', 'role', id, { company_id: co.id, title: role.title, source: c.source, url: role.url });
       added.push(id);
       count(raw, 'added');
+      budget.count(c.source, co.id);
       if (v?.resolved_from && c.url) resolved.push({ index, role_id: id, from: v.resolved_from, to: c.url });
       if (v && v.freshness === 'unsure') notes.set(id, v.reason);
       known.push({ id, company_id: co.id, title: role.title, url: nurl, jobId: jobId ?? null });
@@ -283,6 +399,9 @@ export const rolesAdd = defineHandler('roles.add', {
 
     const skippedDead = skipped.filter((s) => s.reason === 'dead');
     const skippedAgg = skipped.filter((s) => s.reason === 'aggregator');
+    const skippedCap = skipped.filter((s) => s.reason === 'watchlist_cap' || s.reason === 'company_cap');
+    const showBudget = !!run || input.candidates.some((c) => c.source === 'watchlist');
+    const wb = budget.report();
     h.runLog({
       title: 'roles.add',
       summary: {
@@ -293,15 +412,22 @@ export const rolesAdd = defineHandler('roles.add', {
         skipped_dead: skippedDead.length,
         skipped_aggregator: skippedAgg.length,
         resolved: resolved.length,
+        skipped_cap: skippedCap.length,
         by_source: bySource,
       },
       lines: [
-        `Candidates in: ${input.candidates.length}, added: ${added.length}, deduped: ${duplicates.length}, possible duplicates: ${possible.length}, skipped dead: ${skippedDead.length}, skipped aggregator: ${skippedAgg.length}`,
+        `Candidates in: ${input.candidates.length}, added: ${added.length}, deduped: ${duplicates.length}, possible duplicates: ${possible.length}, skipped dead: ${skippedDead.length}, skipped aggregator: ${skippedAgg.length}${skippedCap.length ? `, skipped over the watchlist cap: ${skippedCap.length}` : ''}`,
+        ...(showBudget
+          ? [
+              `Watchlist this run: ${wb.added} of ${wb.max} (max ${wb.max_per_company} per company); open market ${wb.open_added}, still needed ${wb.open_needed} for the target of ${wb.target}`,
+            ]
+          : []),
         '',
-        '| Source | Candidates | Added | Duplicates | Dead | Aggregator |',
-        '| --- | --- | --- | --- | --- | --- |',
+        '| Source | Candidates | Added | Duplicates | Dead | Aggregator | Cap |',
+        '| --- | --- | --- | --- | --- | --- | --- |',
         ...Object.entries(bySource).map(
-          ([src, n]) => `| ${src} | ${n.candidates} | ${n.added} | ${n.duplicates} | ${n.skipped_dead} | ${n.skipped_aggregator} |`,
+          ([src, n]) =>
+            `| ${src} | ${n.candidates} | ${n.added} | ${n.duplicates} | ${n.skipped_dead} | ${n.skipped_aggregator} | ${n.skipped_cap} |`,
         ),
         '',
         '### Added to inbox',
@@ -333,6 +459,7 @@ export const rolesAdd = defineHandler('roles.add', {
       skipped,
       resolved,
       by_source: bySource,
+      ...(showBudget ? { watchlist_budget: wb } : {}),
     };
   },
 });
@@ -344,7 +471,7 @@ const titleCase = (slug: string) => slug.replace(/(^|-)([a-z])/g, (_m, sep: stri
 export const scoutWatchlistScanHandler = defineHandler('scout.watchlist_scan', {
   async run(input, h) {
     const version = getCurrentVersion(h.repos);
-    const comp = (key: 'craft' | 'work_mode' | 'company') =>
+    const comp = (key: 'craft' | 'work_mode' | 'company' | 'domain') =>
       version ? ((getComponent(h.repos, version.id, key)?.data_json as Record<string, unknown> | undefined) ?? {}) : {};
     const names = input.companies ?? watchlistFrom(comp('company'));
     const companies: ScanCompany[] = [];
@@ -372,6 +499,8 @@ export const scoutWatchlistScanHandler = defineHandler('scout.watchlist_scan', {
       fetch: h.services.fetch ?? defaultFetch(),
       boards: new Map(),
       jdChars: input.jd_chars ?? 400,
+      fit: fitScorer({ craft: comp('craft'), domain: comp('domain') }),
+      maxPerCompany: input.max_per_company ?? scoutMaxPerCompany(h.config),
     });
     return res;
   },

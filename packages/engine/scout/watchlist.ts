@@ -2,11 +2,14 @@ import type { BoardCache, FetchLike, ListedPosting } from '../integrations/ats/i
 import { normalizeUrl } from '../ops/dedupe.js';
 import { type CompanyHint, findBoard } from './boards.js';
 import { type ScanRules, type ScreenReason, screen } from './filter.js';
+import { cutCompany, type FitScorer, interleave } from './rank.js';
 
 /*
  * Watchlist scan (#28): every open posting on each watchlist company's ATS board, through the rule
  * filter, minus postings already in the pipeline. Companies without a board we can read come back
  * `no_board` so the skill falls back to web search (under the watchlist query share).
+ * #67: each company's survivors are ranked by fit, near-identical titles grouped, and at most
+ * `maxPerCompany` returned; candidates come back best first, companies interleaved.
  */
 
 export interface ScanCompany extends CompanyHint {
@@ -36,13 +39,17 @@ export interface ScanCompanyResult {
   board: string | null;
   listed: number;
   kept: number;
+  capped: number;
+  grouped: number;
   reason?: string;
 }
 
 export interface ScanResult {
   companies: ScanCompanyResult[];
   candidates: ScanCandidate[];
-  dropped: Record<ScreenReason | 'known', number>;
+  dropped: Record<ScreenReason | 'known' | 'similar' | 'company_cap', number>;
+  groups: Array<{ company: string; kept: string; title: string; similar: string[] }>;
+  max_per_company: number;
 }
 
 export interface Known {
@@ -78,9 +85,16 @@ export async function scanWatchlist(
   companies: readonly ScanCompany[],
   rules: ScanRules,
   known: Known,
-  deps: { fetch: FetchLike; boards: BoardCache; jdChars: number },
+  deps: { fetch: FetchLike; boards: BoardCache; jdChars: number; fit: FitScorer; maxPerCompany: number },
 ): Promise<ScanResult> {
-  const out: ScanResult = { companies: [], candidates: [], dropped: { title: 0, seniority: 0, work_mode: 0, location: 0, known: 0 } };
+  const out: ScanResult = {
+    companies: [],
+    candidates: [],
+    dropped: { title: 0, seniority: 0, work_mode: 0, location: 0, known: 0, similar: 0, company_cap: 0 },
+    groups: [],
+    max_per_company: deps.maxPerCompany,
+  };
+  const perCompany: ScanCandidate[][] = [];
   for (const c of companies) {
     const search = await findBoard(c, deps.fetch, deps.boards);
     if (!search.found) {
@@ -92,12 +106,14 @@ export async function scanWatchlist(
         board: null,
         listed: 0,
         kept: 0,
+        capped: 0,
+        grouped: 0,
         ...(search.errors.length ? { reason: search.errors.join('; ') } : {}),
       });
       continue;
     }
     const { ref, postings } = search.found;
-    let kept = 0;
+    const passed: ScanCandidate[] = [];
     for (const p of postings) {
       if (!p.url) continue;
       if (known.jobIds.has(p.jobId) || known.urls.has(normalizeUrl(p.url) ?? '')) {
@@ -109,10 +125,26 @@ export async function scanWatchlist(
         out.dropped[s.reason]++;
         continue;
       }
-      out.candidates.push(toCandidate(c.name, p, deps.jdChars));
-      kept++;
+      passed.push(toCandidate(c.name, p, deps.jdChars));
     }
-    out.companies.push({ company: c.slug, name: c.name, state: 'scanned', ats: ref.type, board: ref.board, listed: postings.length, kept });
+    const cut = cutCompany(passed, deps.fit, deps.maxPerCompany);
+    perCompany.push(cut.kept);
+    out.dropped.similar += cut.grouped;
+    out.dropped.company_cap += cut.capped;
+    for (const g of cut.groups)
+      out.groups.push({ company: c.slug, kept: g.kept.url, title: g.kept.title, similar: g.similar.map((x) => x.title) });
+    out.companies.push({
+      company: c.slug,
+      name: c.name,
+      state: 'scanned',
+      ats: ref.type,
+      board: ref.board,
+      listed: postings.length,
+      kept: cut.kept.length,
+      capped: cut.capped,
+      grouped: cut.grouped,
+    });
   }
+  out.candidates = interleave(perCompany);
   return out;
 }

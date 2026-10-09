@@ -151,10 +151,30 @@ describe('scout.watchlist_scan', () => {
     e = openFixtureEngine({ services: { fetch: f } });
     const out = okOut(await e.runOp('scout.watchlist_scan', { companies: ['vercel', 'linear', 'Lever Demo', 'nohire'] }, ctxAt()));
     expect(out.companies).toEqual([
-      { company: 'vercel', name: 'Vercel', state: 'scanned', ats: 'greenhouse', board: 'vercel', listed: 7, kept: 1 },
-      { company: 'linear', name: 'Linear', state: 'scanned', ats: 'ashby', board: 'linear', listed: 5, kept: 1 },
-      { company: 'lever-demo', name: 'Lever Demo', state: 'scanned', ats: 'lever', board: 'leverdemo', listed: 4, kept: 0 },
-      { company: 'nohire', name: 'Nohire', state: 'no_board', ats: null, board: null, listed: 0, kept: 0 },
+      {
+        company: 'vercel',
+        name: 'Vercel',
+        state: 'scanned',
+        ats: 'greenhouse',
+        board: 'vercel',
+        listed: 7,
+        kept: 1,
+        capped: 0,
+        grouped: 0,
+      },
+      { company: 'linear', name: 'Linear', state: 'scanned', ats: 'ashby', board: 'linear', listed: 5, kept: 1, capped: 0, grouped: 0 },
+      {
+        company: 'lever-demo',
+        name: 'Lever Demo',
+        state: 'scanned',
+        ats: 'lever',
+        board: 'leverdemo',
+        listed: 4,
+        kept: 0,
+        capped: 0,
+        grouped: 0,
+      },
+      { company: 'nohire', name: 'Nohire', state: 'no_board', ats: null, board: null, listed: 0, kept: 0, capped: 0, grouped: 0 },
     ]);
     expect(out.candidates.map((c: { company_name: string; title: string }) => `${c.company_name}: ${c.title}`)).toEqual([
       'Vercel: Product Manager, Dashboard',
@@ -168,7 +188,8 @@ describe('scout.watchlist_scan', () => {
       location: 'Remote - United States',
     });
     expect(out.candidates[0].jd_markdown).toContain('Synthetic');
-    expect(out.dropped).toEqual({ title: 12, seniority: 0, work_mode: 1, location: 1, known: 0 });
+    expect(out.dropped).toEqual({ title: 12, seniority: 0, work_mode: 1, location: 1, known: 0, similar: 0, company_cap: 0 });
+    expect(out.max_per_company).toBe(5); // scoring.company_active_cap (3) + 2
     // Nothing written: a read.
     expect(e.db.prepare(`SELECT count(*) n FROM company WHERE id IN ('lever-demo', 'nohire')`).get()).toEqual({ n: 0 });
   });
@@ -296,10 +317,10 @@ describe('roles.add intake check (#32)', () => {
       { index: 3, role_id: 'vercel_product-manager-dashboard', from: li(1), to: 'https://job-boards.greenhouse.io/vercel/jobs/6205772004' },
     ]);
     expect(out.by_source).toEqual({
-      scout: { candidates: 10, added: 3, duplicates: 1, skipped_dead: 4, skipped_aggregator: 2 },
-      watchlist: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 },
-      link: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 },
-      referral: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 },
+      scout: { candidates: 10, added: 3, duplicates: 1, skipped_dead: 4, skipped_aggregator: 2, skipped_cap: 0 },
+      watchlist: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0, skipped_cap: 0 },
+      link: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0, skipped_cap: 0 },
+      referral: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0, skipped_cap: 0 },
     });
 
     const role = (id: string) => e.db.prepare('SELECT * FROM role WHERE id = ?').get(id) as Record<string, unknown>;
@@ -322,7 +343,7 @@ describe('roles.add intake check (#32)', () => {
     expect(md).toContain(`Resolved from ${li(1)}`);
     const run = e.db.prepare(`SELECT * FROM run WHERE op = 'roles.add'`).get() as { log_path: string; summary_json: string };
     expect(JSON.parse(run.summary_json)).toMatchObject({ skipped_dead: 4, skipped_aggregator: 2, resolved: 1 });
-    expect(readFileSync(join(e.home, run.log_path), 'utf8')).toContain('| scout | 10 | 3 | 1 | 4 | 2 |');
+    expect(readFileSync(join(e.home, run.log_path), 'utf8')).toContain('| scout | 10 | 3 | 1 | 4 | 2 | 0 |');
   });
 
   it('makes no network call for a known role and none with verify: false', async () => {

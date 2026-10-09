@@ -139,11 +139,15 @@ export const PolicyConfig = z.object({
    * Scout (#28). `watchlist_share_max`: watchlist web-search queries as a share of a run's queries (ATS board
    * scans are not queries). `target_new_roles`: a run keeps building query variations until this many roles
    * were added or `max_queries` web searches ran. Defaults keep older config.json files valid.
+   * #67: the share also caps a run's watchlist **adds** at `ceil(watchlist_share_max * target_new_roles)`.
+   * `max_per_company`: most roles one company adds per run from its board (`scout.watchlist_scan`,
+   * `roles.add` source `watchlist`); unset = `scoring.company_active_cap + 2` (`scoutMaxPerCompany`).
    */
   scout: z.object({
     watchlist_share_max: z.number().min(0).max(1),
     target_new_roles: z.number().int().min(1).default(25),
     max_queries: z.number().int().min(1).default(30),
+    max_per_company: z.number().int().min(1).optional(),
   }),
   runner: RunnerConfig,
   /** Read-only, capped, slow; never messages or connects. Tests use `dry-run`. */
@@ -180,6 +184,16 @@ export const PolicyConfig = z.object({
 });
 /** Shape of `$PP_HOME/config.json`. */
 export type PolicyConfig = z.infer<typeof PolicyConfig>;
+
+/** Most roles one watchlist company adds per scout run (#67): `scout.max_per_company`, else the active cap + 2. */
+export function scoutMaxPerCompany(config: Pick<PolicyConfig, 'scout' | 'scoring'>): number {
+  return config.scout.max_per_company ?? config.scoring.company_active_cap + 2;
+}
+
+/** Most watchlist roles one scout run adds (#67): `ceil(watchlist_share_max * target_new_roles)`. */
+export function scoutWatchlistMaxAdds(config: Pick<PolicyConfig, 'scout'>): number {
+  return Math.ceil(config.scout.watchlist_share_max * config.scout.target_new_roles - 1e-9);
+}
 
 export const DEFAULT_CONFIG: PolicyConfig = {
   policy: { auto: 0.9, second_opinion: 0.7, undo_hours: 24 },

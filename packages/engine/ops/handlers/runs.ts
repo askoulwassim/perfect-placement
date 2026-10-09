@@ -1,7 +1,8 @@
 import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
-import { activeDuplicate, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
+import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
 import { get, insert, select, update } from '../rows.js';
 import {
   buildRunnerSpec,
@@ -16,6 +17,7 @@ import {
 } from '../runner.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
+import { scoutRunAdds } from './roles.js';
 import { getRole } from './shared.js';
 
 /**
@@ -229,10 +231,24 @@ export const runsFinish = defineHandler('runs.finish', {
     if (!run) throw notFound('run', input.run_id);
     if (run.status !== 'running' && run.status !== 'queued') throw new OpError('conflict', `run ${run.id} is already ${run.status}`);
     const iso = h.nowIso();
-    const patch = { finished_at: iso, status: input.status, summary_json: { ...run.summary_json, ...(input.summary ?? {}) } };
+    // #67: a scout run's achieved source mix vs its targets, from the roles it added (engine-counted).
+    let mix: ReturnType<typeof achievedMix> | null = null;
+    if (run.op === 'scout') {
+      const linked = scoutRunAdds(h.db, run, true);
+      const adds = linked.length || isQueueRun(run) ? linked : scoutRunAdds(h.db, run, false);
+      mix = achievedMix(adds, h.config.scout);
+    }
+    const patch = {
+      finished_at: iso,
+      status: input.status,
+      summary_json: { ...run.summary_json, ...(input.summary ?? {}), ...(mix ? { source_mix: mix } : {}) } as Record<string, unknown>,
+    };
     update(h.db, 'run', run.id, patch);
     if (run.log_path)
-      h.vault.append(run.log_path, `\n## Finished\n\n${iso}: ${input.status}${input.note ? `\n\n${input.note.trim()}` : ''}\n`);
+      h.vault.append(
+        run.log_path,
+        `\n## Finished\n\n${iso}: ${input.status}${mix ? `\n\n${mixLine(mix)}` : ''}${input.note ? `\n\n${input.note.trim()}` : ''}\n`,
+      );
     h.emit('run_finished', 'run', run.id, { status: input.status, skill: run.op });
 
     const triggered: string[] = [];

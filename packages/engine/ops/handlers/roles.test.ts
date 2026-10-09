@@ -43,7 +43,7 @@ describe('roles.add', () => {
       possible_duplicates: [],
       skipped: [],
       resolved: [],
-      by_source: { scout: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0 } },
+      by_source: { scout: { candidates: 1, added: 1, duplicates: 0, skipped_dead: 0, skipped_aggregator: 0, skipped_cap: 0 } },
     });
     const role = e.db.prepare('SELECT * FROM role WHERE id = ?').get('acme-robotics_principal-pm-data') as Record<string, unknown>;
     // No network in tests: the intake check cannot prove anything, so the role is kept as `unsure`.

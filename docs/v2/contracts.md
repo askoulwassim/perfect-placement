@@ -92,8 +92,8 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `profile.apply_diff` | per diff: weights medium, filters/dealbreakers high | |
 | `profile.set_defaults` | low | Application defaults (Terms `application_defaults`): a human edit applies as v+1, never rescored (#42) |
 | `onboard.ingest_resume`, `onboard.answer`, `onboard.calibrate`, `onboard.confirm` | low | |
-| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32) |
-| `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, as roles.add candidates (#28) |
+| `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32); per scout run, watchlist adds capped at ceil(share x target) and `max_per_company` (#67) |
+| `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, ranked by fit, near-identical titles grouped, at most `scout.max_per_company` per company, as roles.add candidates (#28, #67) |
 | `roles.score` | low | writes score row, sets active/held/archived |
 | `roles.move` | medium | status change with no-downgrade guard |
 | `roles.archive` | medium | requires reason |
@@ -152,6 +152,8 @@ decide(answer: Answer, impact: Impact, thresholds): 'auto' | 'auto_second' | 'au
   "schedules": { "inbox": "daily 07:30", "freshness": "daily 06:30", "scout_score": "fri 05:30" }
 }
 ```
+
+`scout.max_per_company` is optional: the most roles one watchlist company adds per scout run (default `scoring.company_active_cap` + 2).
 
 ## Design tokens
 
