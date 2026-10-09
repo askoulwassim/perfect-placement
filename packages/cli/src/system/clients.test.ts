@@ -14,6 +14,7 @@ import {
   registerJsonClient,
   upsertCodexToml,
 } from './clients.js';
+import { stableNodePath } from './deps.js';
 import { fakeDeps } from './fake-deps.test-helpers.js';
 
 let home: string;
@@ -162,5 +163,14 @@ describe('detectClients', () => {
     mkdirSync(join(home, '.cursor'));
     mkdirSync(join(home, 'Applications', 'Claude.app'), { recursive: true });
     expect(detectClients(d)).toEqual({ 'claude-code': true, codex: true, cursor: true, 'claude-desktop': true });
+  });
+});
+
+describe('stableNodePath', () => {
+  it('prefers PP_NODE, then maps a Homebrew Cellar node to its opt link', () => {
+    const has = (p: string) => p === '/opt/homebrew/opt/node@22/bin/node' || p === '/x/node';
+    expect(stableNodePath({ PP_NODE: '/x/node' }, '/usr/bin/node', has)).toBe('/x/node');
+    expect(stableNodePath({}, '/opt/homebrew/Cellar/node@22/22.23.3_1/bin/node', has)).toBe('/opt/homebrew/opt/node@22/bin/node');
+    expect(stableNodePath({}, '/usr/local/bin/node', has)).toBe('/usr/local/bin/node');
   });
 });

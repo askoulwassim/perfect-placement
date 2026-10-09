@@ -51,6 +51,20 @@ export function whichIn(cmd: string, path: string | undefined): string | null {
   return null;
 }
 
+/**
+ * The node to write into MCP client configs: PP_NODE (set by the install.sh launcher), else this
+ * process's node with a Homebrew Cellar path mapped to its stable `opt/` link (survives brew upgrade).
+ */
+export function stableNodePath(env: NodeJS.ProcessEnv, execPath: string, exists: (p: string) => boolean = existsSync): string {
+  if (env.PP_NODE && exists(env.PP_NODE)) return env.PP_NODE;
+  const m = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/.exec(execPath);
+  if (m) {
+    const opt = `${m[1]}/opt/${m[2]}/bin/node`;
+    if (exists(opt)) return opt;
+  }
+  return execPath;
+}
+
 export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
   return {
     platform: process.platform,
@@ -59,7 +73,7 @@ export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
     home: env.HOME || homedir(),
     appsDir: '/Applications',
     env,
-    nodePath: process.execPath,
+    nodePath: stableNodePath(env, process.execPath),
     which: (cmd) => whichIn(cmd, env.PATH),
     run: (cmd, args, opts) =>
       new Promise((done) => {

@@ -120,7 +120,8 @@ echo "Installing dependencies (pnpm install --frozen-lockfile)"
 cd "$REPO"
 COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 OPENUI_TELEMETRY_DISABLED=1
-export COREPACK_ENABLE_DOWNLOAD_PROMPT OPENUI_TELEMETRY_DISABLED
+NPM_CONFIG_UPDATE_NOTIFIER=false
+export COREPACK_ENABLE_DOWNLOAD_PROMPT OPENUI_TELEMETRY_DISABLED NPM_CONFIG_UPDATE_NOTIFIER
 # $PNPM is one or two words ("pnpm" or "corepack pnpm"): split on purpose.
 # shellcheck disable=SC2086
 $PNPM install --frozen-lockfile
@@ -131,7 +132,8 @@ $PNPM build
 # --- launchers -----------------------------------------------------------------------
 write_launcher() { # name target
   dest="$BIN_DIR/$1"
-  content=$(printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$NODE" "$2")
+  # PP_NODE tells pp setup which node to write into agent MCP configs (the stable path, not a versioned Cellar dir).
+  content=$(printf '#!/bin/sh\nPP_NODE="%s" exec "%s" "%s" "$@"\n' "$NODE" "$NODE" "$2")
   if [ -f "$dest" ] && [ "$(cat "$dest")" = "$content" ]; then
     ok "$dest (unchanged)"
     return
