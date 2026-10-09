@@ -3,7 +3,6 @@ export const OWNER_LANE = 'E' as const;
 
 export * from './calibration.js';
 export * from './components.js';
-export * from './convert-v1.js';
 export * from './deps.js';
 export * from './errors.js';
 export * from './learn.js';

@@ -381,7 +381,7 @@ export const roles: Role[] = ROLE_SEEDS.map((r, i) => {
     facing: i % 3 === 0 ? 'external' : 'mixed',
     seniority: r.title.split(/[ ,]/)[0] ?? null,
     status: r.status,
-    archive_reason: r.status === 'archived' ? (r.reason ?? 'legacy') : null,
+    archive_reason: r.status === 'archived' ? (r.reason ?? 'passed') : null,
     held_reason: r.status === 'held' ? 'company_cap' : null,
     last_checked_at: r.checked === undefined ? null : at(r.checked, 6),
     freshness: r.fresh ?? 'unknown',

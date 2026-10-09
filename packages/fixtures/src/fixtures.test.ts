@@ -66,11 +66,11 @@ function hydrate(table: TableName, row: Record<string, unknown>) {
   return out;
 }
 
-describe('migrations 001 + 002', () => {
-  it('are numbered 001, 002 and recorded', () => {
-    expect(MIGRATIONS.slice(0, 2)).toEqual(['001_init.sql', '002_wave2.sql']);
+describe('migrations 001..003', () => {
+  it('are numbered 001, 002, 003 and recorded', () => {
+    expect(MIGRATIONS.slice(0, 3)).toEqual(['001_init.sql', '002_wave2.sql', '003_fresh_start.sql']);
     const versions = db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[];
-    expect(versions.map((v) => v.version)).toEqual([1, 2]);
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3]);
   });
 
   it('creates exactly the contract tables with exactly the contract columns', () => {

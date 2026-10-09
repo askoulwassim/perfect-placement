@@ -16,10 +16,6 @@ const TextList = z.array(z.string());
 export const CriterionWeights = z.partialRecord(z.enum(CRITERIA), z.number().min(0).max(100));
 export type CriterionWeights = z.infer<typeof CriterionWeights>;
 
-/** Raw v1 text kept verbatim by the converter so nothing is dropped. */
-export const V1Section = z.object({ source: z.string(), heading: z.string(), text: z.string() });
-export type V1Section = z.infer<typeof V1Section>;
-
 /** Rubric anchors for a criterion (1 poor, 3 ok, 5 ideal). */
 export const CriterionAnchor = z.object({
   id: z.enum(CRITERIA),
@@ -35,7 +31,6 @@ const common = {
   criteria: z.array(CriterionAnchor).optional(),
   notes: TextList.optional(),
   open_questions: TextList.optional(),
-  v1_sections: z.array(V1Section).optional(),
 };
 
 export const StoryRole = z.looseObject({

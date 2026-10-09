@@ -69,8 +69,7 @@ A user LaunchAgent (`~/Library/LaunchAgents/ai.kev.serve.plist`) with `ProgramAr
 
 ```sh
 pnpm --filter @perfect-placement/resolver build
-node packages/resolver/dist/eval/cli.js --live --backends jev,kev,llm \
-  --v1 <path to v1 02_Pipeline> --rubric <path to v1 rubric.md> --out <a folder OUTSIDE the repo>
+node packages/resolver/dist/eval/cli.js --live --backends jev,kev,llm --out <dir>
 ```
 
-The CLI refuses to write v1-derived output inside the repo.
+The eval runs on synthetic cases only.

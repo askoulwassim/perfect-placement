@@ -26,7 +26,6 @@ export {
   StoryItem,
   StoryRole,
   safeParseComponentData,
-  V1Section,
 } from '@perfect-placement/contracts';
 
 // ---------------------------------------------------------------------------

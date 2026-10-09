@@ -30,7 +30,7 @@ import { EventType } from './events.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, Slug, VaultPath } from './primitives.js';
 
 /*
- * Row schemas. One per table in migrations 001 + 002.
+ * Row schemas. One per table in migrations 001 + 002 + 003.
  * Rules:
  * - Keys equal column names exactly (tested against PRAGMA table_info).
  * - Columns ending in `_json` hold JSON TEXT in SQLite; here they are the parsed value.
@@ -116,7 +116,7 @@ export const Role = z.object({
   held_reason: HeldReason.nullable(),
   last_checked_at: IsoTimestamp.nullable(),
   freshness: Freshness,
-  /** Free-form flags (v1 carried flags like `closed`, `dream_company`). Known keys: ROLE_FLAG_KEYS (e.g. `verify_remote: true`). */
+  /** Free-form flags. Known keys: ROLE_FLAG_KEYS (e.g. `dealbreaker`). */
   flags_json: Json,
   md_path: VaultPath.nullable(),
   created_at: IsoTimestamp,
@@ -134,7 +134,7 @@ export type ScoreScale = z.infer<typeof ScoreScale>;
  *   bands 75 / 55 were calibrated on it.
  * - `scale: 'zero_based'`: total = round(sum(w_i * (c_i - 1) / 4)), range 0..100. Not comparable with v1.
  * Then total = clamp(base + affinity_mod, 0, 100). Weights are c1..c9, summing to 100.
- * Loose: the scorer may add `formula`, `blind`, etc. v1 legacy rows (migration) carry `source: 'v1'` and may not match.
+ * Loose: the scorer may add `formula`, `blind`, etc.
  */
 export const RubricSnapshot = z.looseObject({
   version: z.string(),
@@ -154,9 +154,9 @@ export type RubricSnapshot = z.infer<typeof RubricSnapshot>;
 export const Score = z.object({
   id: Id,
   role_id: Id,
-  /** Null only for v1 legacy scores imported by migration. */
+  /** Null when no profile version existed at scoring time (weights_source `default`). */
   profile_version_id: Id.nullable(),
-  /** Snapshot of the rubric used. New rows match RubricSnapshot; v1 legacy rows are free-form. */
+  /** Snapshot of the rubric used. Rows match RubricSnapshot. */
   rubric_json: Json,
   c1: CriterionScore,
   c2: CriterionScore,
@@ -329,7 +329,7 @@ export const OnboardSession = z.object({
 });
 export type OnboardSession = z.infer<typeof OnboardSession>;
 
-/** Table name -> row schema. Migrations 001 + 002 must match this exactly. */
+/** Table name -> row schema. Migrations 001..003 must match this exactly. */
 export const TABLES = {
   profile_version: ProfileVersion,
   profile_component: ProfileComponent,

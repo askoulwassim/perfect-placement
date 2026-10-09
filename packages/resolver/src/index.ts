@@ -13,7 +13,6 @@ export * from './errors.js';
 export * from './eval/harness.js';
 export * from './eval/report.js';
 export * from './eval/synthetic.js';
-export * from './eval/v1.js';
 export { newDecisionId, ulid } from './ids.js';
 export * from './ops.js';
 export * from './policy.js';

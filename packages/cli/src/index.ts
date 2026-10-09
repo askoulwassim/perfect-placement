@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `pp` CLI (lane B; commands/migrate.ts and commands/doctor.ts: lane A). Thin: every command calls ops.
+// `pp` CLI (lane B; commands/doctor.ts: lane A). Thin: every command calls ops.
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { runCli } from './cli.js';

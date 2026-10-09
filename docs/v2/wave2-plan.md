@@ -2,7 +2,7 @@
 
 Branch: `v2/wave2` (all ten lanes merged A, B, I, E, F, G, H, C, D, J; build/test/lint green at merge). Inputs: `CONTRACT_CHANGES.md`, `wave1-decisions.md` (#1 to #25), lane briefs, `W2-integrate.md`.
 
-**Stop line:** nothing in Wave 2 automation touches real data: no `pp migrate` against the v1 repo into a real PP_HOME, no rescore of real roles, no freshness backfill on real roles, no scheduled tasks created, no LinkedIn/Gmail live calls, no real-role run. Those are the Wassim-present steps at the end (see "Stop line runbook").
+**Stop line:** nothing in Wave 2 automation touches real data: no real PP_HOME, no scoring of real roles, no scheduled tasks created, no LinkedIn/Gmail live calls, no real-role run. Those are the Wassim-present steps at the end (see "Fresh-start runbook"). Since #26 there is no v1 import: the system starts empty.
 
 ## Phase 1: contracts (one agent)
 
@@ -70,13 +70,21 @@ Phase 1 done when: all entries have a Status, contracts + migration 002 + fixtur
 
 ## Phase 3: surfaces (two agents in parallel worktrees)
 
-- **3a pp up + MCP + CLI** (packages/cli, packages/mcp): `pp up` serves `POST /api/ops/:name`, mounts MCP Streamable HTTP at `/mcp`, serves `apps/web/dist`; MCP stdio uses the real `runOp`; `pp doctor`/`pp migrate` wired; MCP config snippets for Claude Code, Codex, Cursor verified against current docs; tool names tested dotted vs underscore.
+- **3a pp up + MCP + CLI** (packages/cli, packages/mcp): `pp up` serves `POST /api/ops/:name`, mounts MCP Streamable HTTP at `/mcp`, serves `apps/web/dist`; MCP stdio uses the real `runOp`; `pp doctor` wired; MCP config snippets for Claude Code, Codex, Cursor verified against current docs; tool names tested dotted vs underscore.
 - **3b web live** (apps/web incl. genui): switch the client to live ops (`VITE_PP_API`), remove mock-only mechanics, fold genui into the apps/web build (OpenUI 0.3.2 pinned, lang-core install script stays blocked, devtools stubbed, `OPENUI_TELEMETRY_DISABLED=1` documented), Ask reply cards with PRIMARY_ACTIONS buttons (#23), Settings policy grid shows the #24 grid with hard exclusions locked.
 
 ## Phase 4: verify + docs (me)
 
 Clean-clone build/test/lint; `pp up` against a temp fixtures vault smoke test (UI loads, an op round-trips, MCP lists tools); AGENTS.md updated (Kev, agent backend, runner, telemetry opt-out, Codex/Cursor); no v1 scripts in the repo; push `v2/wave2`; open a PR to `main` (not merged).
 
-## Stop line runbook (Wassim present)
+## Fresh-start runbook (Wassim present)
 
-1. Start Kev. 2. `pp migrate --from <v1 repo>` into the real `~/.perfect-placement` (dry-run first), then `pp doctor`; counts must be 68 / 3 / 3 / 84 = 158. 3. Gmail read-only search for the two missing applied dates (#19). 4. Full re-onboard (#15). 5. Freshness backfill (expect ~57 closes). 6. Scoring v2 rescore with your go. 7. Create the three schedules. 8. Real role end to end (#3 to #6). 9. UI sign-off against the prototype.
+No v1 data is imported (wave1-decisions #26). The system starts empty and fills from real use.
+
+1. **Start Kev** (`packages/resolver/docs/kev-setup.md`); `pp up --kev` must report it reachable.
+2. **`pp init`** into the real `~/.perfect-placement` (outside any git repo), then `pp doctor`: all green, 0 roles.
+3. **Onboarding** in an agent session over MCP (`skills/onboard`): resume, interview, calibrate, confirm. Profile version 1 lands with all 11 components and criterion weights.
+4. **First scout + score** via an agent session (`skills/scout`, `skills/score`): roles enter the inbox and are scored into active / held / archived; check the per-company cap and bands look right.
+5. **Schedules:** create the three (`inbox` daily 07:30, `freshness` daily 06:30, `scout_score` Fri 05:30) from Settings or `config.json`.
+6. **One real role end to end** (#3 to #6): pick on-deck, research, tailor, connect (LinkedIn read-only), fill, Open portal; Wassim submits; the confirmation email moves it to applied.
+7. **UI sign-off** against the Claude Design prototype.

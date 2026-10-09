@@ -21,7 +21,7 @@ description: Build or refresh the user's profile. Resume in, short adaptive inte
    the user's gut call with `onboard.calibrate` `{ sample_id, choice: 'yes' | 'no' | 'maybe' }`. Show the returned
    weights only as a radar or bars, no commentary. `remaining` reaches 0 -> step `confirm`.
 4. **Confirm.** Show the profile card (from `profile.get` after confirm, or the draft). On the user's OK call
-   `onboard.confirm` `{}`. That writes profile v1 (or v+1).
+   `onboard.confirm` `{}`. That writes the first profile version (or the next one).
 
 ## Re-interview one component
 

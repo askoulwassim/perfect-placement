@@ -3,9 +3,28 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { db } from '@perfect-placement/engine';
-import { type CliIo, parseFlags } from './migrate.js';
 
 export const OWNER_LANE = 'A' as const;
+
+export interface CliIo {
+  out: (s: string) => void;
+  err: (s: string) => void;
+  env?: NodeJS.ProcessEnv;
+}
+
+/** Minimal flag parser: `--key value`, `--key=value`, boolean `--flag`. */
+export function parseFlags(argv: string[], booleans: readonly string[]): Record<string, string | boolean> {
+  const flags: Record<string, string | boolean> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] as string;
+    if (!a.startsWith('--')) continue;
+    const [k, v] = a.slice(2).split(/=(.*)/s);
+    if (v !== undefined) flags[k as string] = v;
+    else if (booleans.includes(k as string)) flags[k as string] = true;
+    else flags[k as string] = argv[++i] ?? '';
+  }
+  return flags;
+}
 
 const defaultIo: CliIo = { out: (s) => console.log(s), err: (s) => console.error(s) };
 

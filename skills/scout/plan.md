@@ -11,7 +11,7 @@
 
 ## Why
 
-v1 concentrated the active list in a few loved companies. The per-company cap stops a company from taking more than its share of `active`; the source mix stops it from taking more than its share of the search.
+Left alone, scouting concentrates the active list in a few loved companies. The per-company cap stops a company from taking more than its share of `active`; the source mix stops it from taking more than its share of the search.
 
 ## Rotation
 

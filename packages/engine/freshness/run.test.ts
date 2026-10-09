@@ -5,7 +5,7 @@ import { FIXTURE_NOW, roles as fixtureRoles } from '@perfect-placement/fixtures'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fakeFetch, page, recorded } from '../integrations/ats/__fixtures__/fake-fetch.js';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
-import { backfillDryRun, checkFreshness, memoryStore, rolesFromDb, rolesFromV1Pipeline } from './index.js';
+import { backfillDryRun, checkFreshness, memoryStore, rolesFromDb } from './index.js';
 
 /*
  * roles.check_freshness through runOp on a temp fixture vault: lane A repos, runOp's emitter, the
@@ -277,32 +277,6 @@ describe('backfill dry run', () => {
     expect(res.summary.checked).toBe(16);
     expect(res.report).toContain('# Freshness backfill dry run');
     expect(res.report).toMatch(/## Closed \(5\)/);
-  });
-
-  it('over a v1-shaped pipeline.json (synthetic)', async () => {
-    const v1 = {
-      roles: [
-        {
-          id: 'acme_staff-pm',
-          company: 'Acme',
-          role: 'Staff PM',
-          status: 'active',
-          url: 'https://job-boards.greenhouse.io/acme/jobs/1234567',
-        },
-        { id: 'acme_pm', company: 'Acme', role: 'PM', status: 'applied', url: 'https://job-boards.greenhouse.io/acme/jobs/7654321' },
-        { id: 'beta_lead', company: 'Beta', role: 'Lead', status: 'on-deck', url: 'https://www.linkedin.com/jobs/view/1234567890' },
-      ],
-    };
-    const roles = rolesFromV1Pipeline(v1);
-    expect(roles.map((r) => r.id)).toEqual(['acme_staff-pm', 'beta_lead']);
-    expect(roles[0]).toMatchObject({ ats_type: 'greenhouse', ats_board: 'acme', company_id: 'acme' });
-    const f = fakeFetch((u) => (u.includes('boards-api') ? { status: 404, body: recorded('greenhouse_job_404.json') } : { status: 999 }));
-    const res = await backfillDryRun(memoryStore(roles), 'v1', { fetch: f, delayMs: 0 });
-    expect(res.rows.map((r) => [r.role_id, r.freshness])).toEqual([
-      ['acme_staff-pm', 'closed'],
-      ['beta_lead', 'unsure'],
-    ]);
-    expect(f.calls.some((u) => u.includes('7654321'))).toBe(false);
   });
 
   it('memoryStore refuses writes', () => {

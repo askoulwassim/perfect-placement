@@ -18,7 +18,7 @@ Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages
 | `src/ops.ts` | Handlers for `decisions.queue`, `decisions.resolve`, `decisions.undo` over an injected store + `RunOp`. |
 | `src/store.ts` | The `DecisionStore` interface. Lane A's repository implements it in the engine (`packages/engine/ops/decision-store.ts`); a SQLite double lives in `test-helpers.ts` for this package's tests. |
 | `src/config.ts` | `backendsFromConfig(config, { env, agent? })`. Kev always; agent only when attached; Jev only when `backends.jev.enabled` and its key is set; the Anthropic adapter only when `backends.llm.enabled` and `ANTHROPIC_API_KEY` is set. |
-| `src/eval/` | Eval harness (accuracy vs label, agreement, Brier, ECE, auto rate, latency), synthetic data + mocked transports, v1 loaders, CLI. |
+| `src/eval/` | Eval harness (accuracy vs label, agreement, Brier, ECE, auto rate, latency), synthetic data + mocked transports, CLI. |
 | `docs/kev-setup.md` | Running kev-4b via MLX on Apple Silicon. |
 
 ## action_json
@@ -36,7 +36,7 @@ Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages
 ```sh
 pnpm --filter @perfect-placement/resolver build
 node packages/resolver/dist/eval/cli.js                    # synthetic, mocked -> eval-reports/synthetic/
-node packages/resolver/dist/eval/cli.js --live --v1 <02_Pipeline> --rubric <rubric.md> --out <outside the repo>
+node packages/resolver/dist/eval/cli.js --live --out <dir>       # synthetic cases, real backends
 ```
 
-`eval-reports/synthetic/` is committed (synthetic only). v1 output must stay outside the repo; the CLI enforces it.
+`eval-reports/synthetic/` is committed (synthetic only).

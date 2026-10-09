@@ -30,8 +30,8 @@ Wassim's answers to the questions the ten Wave 1 lanes raised. Wave 2 applies th
 16. A confident confirmation email **revives an archived role to applied**, auto + 24h undo.
 17. Agent moves and archives **follow the policy grid** once the resolver is wired; no confidence attached means Needs you.
 18. Closing a draft-ready role follows the **policy grid** (auto + undo at p >= 0.92), no special rule.
-19. The two applied roles missing `applied_at`: **search Gmail read-only at cutover** for the confirmations; leave null if none.
-20. The four green-scored roles v1 archived for unconfirmed remote: **migrate as archived / dealbreaker** tagged `verify_remote` (keeps 84 archived), revisit at the approved v2 rescore.
+19. (Void, #26.) The two applied roles missing `applied_at`: **search Gmail read-only at cutover** for the confirmations; leave null if none.
+20. (Void, #26.) The four green-scored roles v1 archived for unconfirmed remote: **migrate as archived / dealbreaker** tagged `verify_remote` (keeps 84 archived), revisit at the approved v2 rescore.
 
 ## OpenUI (lane J)
 21. **Adapt**: OpenUI parser + streaming renderer (pinned 0.3.2) with our own cards and id-only props. Keep install scripts blocked; stub the CDN devtools.
@@ -45,3 +45,6 @@ Wassim's answers to the questions the ten Wave 1 lanes raised. Wave 2 applies th
     - high: auto + undo | you | you
     Hard exclusions, always `you` and not tunable from Settings: submit an application, send an email, delete anything, change a dealbreaker, change the comp floor. Note: with Kev as the only System One backend, "second backend agrees" needs a second opinion source (the calling agent session or a second Kev question); otherwise it falls to `you`. Changes decisions.md #4 and `POLICY_GRID` in contracts (Wave 2 contract change; the DB check `impact <> 'high' OR policy_outcome = 'human'` must be relaxed to the exclusion list).
 25. **Craft stays weighted** (blueprint wins over the prototype's asset coloring).
+
+## Fresh start (cleanup)
+26. **Fresh start: no v1 data is imported; v1 migration code removed in this cleanup; decisions #19 and #20 are void.** Gone: `pp migrate`, the v1 importer, the v1 profile converter, the scoring backtest, the freshness `--v1` dry run and the resolver eval's v1 loaders. Migration 003 drops archive reason `legacy`, role source `migration`, flag `verify_remote` and the `v1_sections` profile field. The first real run follows `wave2-plan.md`, "Fresh-start runbook".
