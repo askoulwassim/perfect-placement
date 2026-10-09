@@ -139,7 +139,7 @@ describe('direct vs bridge through the ops (#98)', () => {
     ]);
     // Never a draft to the mutual: the bridge tier is refused, the direct one lands with Rowan as To.
     const bad = await draft('bridge');
-    expect(bad.status === 'error' && bad.message).toContain('chosen path');
+    expect(bad.status === 'error' && bad.message).toContain('not an open path');
     const o = ok(await draft('cold_hiring')).outreach;
     expect(o).toMatchObject({ contact_id: 'ct_rowan', tier: 'cold_hiring' });
     expect(ok(await run('outreach.get', { outreach_id: o.id })).to).toMatchObject({ contact_id: 'ct_rowan', name: 'Rowan Vale' });
@@ -157,10 +157,48 @@ describe('direct vs bridge through the ops (#98)', () => {
     expect((await pathsOf()).chosen).toBe('bridge');
     const o = ok(await draft('bridge')).outreach;
     expect(ok(await run('outreach.get', { outreach_id: o.id })).to).toMatchObject({ contact_id: 'ct_kit', email: 'kit@otherco.example' });
-    // Back to the default (still a draft, so the switch is allowed); the redraft goes direct.
+    // Back to the default: the direct note is a second draft; the bridge intro stays.
     ok(await run('people.set_path', { contact_id: 'ct_rowan', role_id: ROLE, path: null }, ctxAt('human')));
     expect((await pathsOf()).chosen).toBe('direct');
-    expect(ok(await draft('cold_hiring')).outreach).toMatchObject({ id: o.id, tier: 'cold_hiring' });
+    const d = ok(await draft('cold_hiring')).outreach;
+    expect(d.id).not.toBe(o.id);
+    expect(ok(await run('outreach.list', { role_id: ROLE })).items).toHaveLength(2);
+  });
+
+  it('Hopper-like: a direct note to the target and a bridge intro to the mutual, each filed under its recipient', async () => {
+    seed({ mutualEmail: true });
+    const direct = ok(await draft('cold_hiring')).outreach;
+    const bridge = ok(await draft('bridge')).outreach;
+    expect(direct).toMatchObject({ contact_id: 'ct_rowan', about_contact_id: null, tier: 'cold_hiring' });
+    expect(direct.md_path).toBe(`outreach/ct_rowan-${ROLE}.md`);
+    expect(bridge).toMatchObject({ contact_id: 'ct_kit', about_contact_id: 'ct_rowan', tier: 'bridge' });
+    expect(bridge.md_path).toBe(`outreach/ct_kit-${ROLE}-about-ct_rowan.md`);
+    // outreach.list: one per recipient, with names.
+    const items = ok(await run('outreach.list', { role_id: ROLE })).items;
+    expect(
+      items
+        .map((i: { contact_id: string; recipient_name: string; about_name: string | null; tier: string }) => [
+          i.contact_id,
+          i.recipient_name,
+          i.about_name,
+          i.tier,
+        ])
+        .sort(),
+    ).toEqual([
+      ['ct_kit', 'Kit Moss', 'Rowan Vale', 'bridge'],
+      ['ct_rowan', 'Rowan Vale', null, 'cold_hiring'],
+    ]);
+    // outreach.get: the recipient, the To, and the target a bridge intro is about.
+    const g = ok(await run('outreach.get', { outreach_id: bridge.id }));
+    expect([g.contact.id, g.to.contact_id, g.about?.id]).toEqual(['ct_kit', 'ct_kit', 'ct_rowan']);
+    const gd = ok(await run('outreach.get', { outreach_id: direct.id }));
+    expect([gd.contact.id, gd.to.contact_id, gd.about]).toEqual(['ct_rowan', 'ct_rowan', null]);
+    // Redrafting either one updates it in place, never the other.
+    expect(ok(await draft('bridge')).outreach.id).toBe(bridge.id);
+    expect(ok(await draft('cold_hiring')).outreach.id).toBe(direct.id);
+    // The bridge intro goes to Gmail addressed to the mutual.
+    const sent = ok(await run('outreach.to_gmail', { outreach_id: bridge.id, gmail_draft_id: 'gm-1' }, ctxAt('human')));
+    expect(sent.to).toBe('kit@otherco.example');
   });
 
   it('a strong mutual (same company) with an email: bridge by default, direct as the alternative', async () => {

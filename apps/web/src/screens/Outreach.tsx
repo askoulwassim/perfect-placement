@@ -30,13 +30,14 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const co = role.data?.company.name ?? '';
   const people = role.data?.contacts ?? [];
   const me = people.find((p) => p.contact.id === contact.id);
-  // #98: a direct note to a 2nd-degree target has no hop; a bridge names the mutual (who may not be on the role).
-  const viaPath = me?.paths?.options.find((o) => o.path === 'bridge')?.name;
-  const via =
-    outreach.tier !== 'bridge'
-      ? undefined
-      : (viaPath ?? (me?.link.via_contact_id ? people.find((p) => p.contact.id === me.link.via_contact_id)?.contact.name : undefined));
-  const path = ['You', ...(via ? [via] : []), contact.name];
+  // #98: the outreach is filed under its recipient; a bridge intro goes You -> mutual -> the target it is about.
+  // An old bridge row (filed under the target, no about) takes the mutual from the link.
+  const about = res.data.about;
+  const legacyVia =
+    !about && outreach.tier === 'bridge' && me?.link.via_contact_id
+      ? people.find((p) => p.contact.id === me.link.via_contact_id)?.contact.name
+      : undefined;
+  const path = about ? ['You', contact.name, about.name] : ['You', ...(legacyVia ? [legacyVia] : []), contact.name];
   // #37: the Gmail To (the contact, or the mutual for bridge drafts): address, source and confidence.
   const to = res.data.to;
   const toAddr = to?.email ?? to?.guess ?? null;

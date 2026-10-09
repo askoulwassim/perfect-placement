@@ -1290,6 +1290,34 @@ describe('run status (#21)', () => {
     expect($(container, '.connect-path[data-path="direct"] button[data-op="people.set_path"]').textContent).toBe('Use');
   });
 
+  it('People: a direct note and a bridge intro both listed, each under its recipient (#98)', async () => {
+    const note = { hook: 'Hi, your team is rebuilding search.', proof: 'I led a search rebuild end to end.', ask: 'Open to a short call?' };
+    const { container } = await boot(`#/people/${R.linearDraft}`, async (l) => {
+      await hopperLike(true)(l);
+      await l.as('agent', 'outreach.draft', { contact_id: 'ct_rowan', role_id: R.linearDraft, tier: 'cold_hiring', ...note });
+      return l.as('agent', 'outreach.draft', { contact_id: 'ct_rowan', role_id: R.linearDraft, tier: 'bridge', ...note });
+    });
+    await waitFor(() => expect(container.querySelectorAll('.outreach-item')).toHaveLength(2));
+    const items = Array.from(container.querySelectorAll('.outreach-item')).map((el) => [
+      el.querySelector('.outreach-item__to')?.textContent,
+      el.querySelector('.outreach-item__about')?.textContent ?? null,
+    ]);
+    expect(items.sort()).toEqual([
+      ['Kit Moss', 'About Rowan Vale'],
+      ['Rowan Vale', null],
+    ]);
+    // Both paths show their draft; the person row for Rowan shows the direct note.
+    expect($(container, '.connect-path[data-path="direct"]').textContent).toContain('Drafted');
+    expect($(container, '.connect-path[data-path="bridge"]').textContent).toContain('Drafted');
+    assertButtons(container);
+    // Opening the bridge intro shows it to Kit, about Rowan.
+    const bridgeItem = Array.from(container.querySelectorAll<HTMLButtonElement>('.outreach-item')).find((el) =>
+      el.textContent?.includes('About Rowan'),
+    ) as HTMLButtonElement;
+    fireEvent.click(bridgeItem);
+    await waitFor(() => expect(container.textContent).toContain('You  →  Kit Moss  →  Rowan Vale'));
+  });
+
   it('Role -> Answers: Add questions saves the pasted questions and queues a fill run that uses them (#81)', async () => {
     const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Connect'));

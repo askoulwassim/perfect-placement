@@ -30,7 +30,9 @@ export const vaultPath = {
   application: (roleId: string, file: keyof typeof APPLICATION_FILES) => `applications/${roleId}/${APPLICATION_FILES[file]}`,
   interviewPrep: (roleId: string) => `interviews/${roleId}/prep.md`,
   interviewRetro: (roleId: string, n: number) => `interviews/${roleId}/retro-${n}.md`,
-  outreach: (contactId: string, roleId: string) => `outreach/${contactId}-${roleId}.md`,
+  /** `contactId` is the recipient; `aboutId` (#98) the target a bridge intro is about. */
+  outreach: (contactId: string, roleId: string, aboutId?: string | null) =>
+    aboutId ? `outreach/${contactId}-${roleId}-about-${aboutId}.md` : `outreach/${contactId}-${roleId}.md`,
   file: (name: string) => `files/${name}`,
   /** Added (#38): a kept resume upload: its extracted text (markdown) and the original file. */
   resumeText: (stamp: string) => `files/resume-${stamp}.md`,

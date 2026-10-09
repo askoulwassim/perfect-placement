@@ -1,8 +1,8 @@
 import { useAct, useApp, useOp } from '../client/context';
-import { ConnectFallbackBar, PathChoice, PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
+import { ConnectFallbackBar, DraftList, PathChoice, PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
 import { eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { bestPath, emailTag, initials, linkedinState, recipientOf } from '../lib/people';
+import { bestPath, draftFor, draftOnPath, emailTag, initials, linkedinState, recipientOf } from '../lib/people';
 import { activeLabel } from '../lib/runs';
 import { stageOf } from '../lib/stage';
 import { graphLayout } from '../lib/view';
@@ -21,7 +21,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   const { role, company, contacts } = res.data;
   const people = [...contacts].sort((a, b) => TIER_ORDER.indexOf(a.link.tier) - TIER_ORDER.indexOf(b.link.tier));
   const best = bestPath(people);
-  const draftOf = (cid: string) => drafts.data?.items.find((o) => o.contact_id === cid);
+  const draftOf = (cid: string) => draftFor(drafts.data?.items, cid);
   const open = (cid: string) => {
     if (cid === 'co') return go({ screen: 'role', roleId: role.id });
     const o = draftOf(cid);
@@ -68,22 +68,33 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       }
     />
   );
-  // #98: direct vs bridge for the best target; switch before drafting (no switch once its draft is in Gmail).
+  // #98: direct vs bridge for the best target. Use picks the path the primary drafts; the other path's
+  // draft stays (each draft is filed under its recipient), so both can exist.
   const bestPaths = best?.target.paths ?? null;
   const pathChoice =
     best && bestPaths ? (
       <PathChoice
         mobile={mobile}
         paths={bestPaths}
-        onPick={
-          bestDraft && bestDraft.status !== 'drafted'
-            ? null
-            : async (path) => {
-                await act('people.set_path', { contact_id: best.target.contact.id, role_id: role.id, path });
-              }
-        }
+        status={(path) => draftOnPath(drafts.data?.items, best.target.contact.id, path)?.status ?? 'none'}
+        onPick={async (path) => {
+          await act('people.set_path', { contact_id: best.target.contact.id, role_id: role.id, path });
+        }}
       />
     ) : null;
+  // #98: every draft for the role, per recipient (a bridge intro names the target it is about).
+  const draftList = drafts.data?.items.length ? (
+    <DraftList
+      mobile={mobile}
+      items={drafts.data.items.map((o) => ({
+        id: o.id,
+        recipient: o.recipient_name,
+        about: o.about_name,
+        status: o.status,
+      }))}
+      onOpen={(id) => go({ screen: 'outreach-draft', outreachId: id })}
+    />
+  ) : null;
   const li = finds.data ? linkedinState(finds.data.items, role.id) : null;
   const linkedin = li ? (
     <div className="people-linkedin" data-linkedin={li.read ? 'read' : 'not-read'} style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>
@@ -116,6 +127,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
         <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {rows}
         </div>
+        {draftList}
       </Screen>
     );
 
@@ -132,6 +144,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
           <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {rows}
           </div>
+          {draftList}
         </div>
       </div>
     </Screen>

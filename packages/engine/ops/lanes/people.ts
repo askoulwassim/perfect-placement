@@ -94,11 +94,21 @@ export const LANE_H_HANDLERS = {
         guess: r.guess,
         reason: r.reason,
       };
-      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants, to };
+      // #98: the target a bridge intro is about (the outreach itself is filed under its recipient).
+      const about = outreach.about_contact_id ? (h.repos.contact.get(outreach.about_contact_id) ?? null) : null;
+      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants, to, about };
     },
   }),
   'outreach.list': defineHandler('outreach.list', {
-    run: (i, h) => ({ items: h.repos.outreach.select('role_id = ? ORDER BY id', [i.role_id]) }),
+    run(i, h) {
+      // #98: one draft per recipient; each names its recipient and, for a bridge intro, the target.
+      const name = (id: string | null) => (id ? (h.repos.contact.get(id)?.name ?? null) : null);
+      return {
+        items: h.repos.outreach
+          .select('role_id = ? ORDER BY id', [i.role_id])
+          .map((o) => ({ ...o, recipient_name: name(o.contact_id) ?? '', about_name: name(o.about_contact_id) })),
+      };
+    },
   }),
   'contacts.get': defineHandler('contacts.get', {
     run(i, h) {

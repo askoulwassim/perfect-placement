@@ -157,7 +157,7 @@ describe('migrations 001..009', () => {
   it('002 preserves rows written under 001', () => {
     const old = new Database(':memory:');
     old.exec(migration('001'));
-    // Seed as 001 would accept it: no onboard_session, no `agent` backend, no contact email source (006), no ask_thread (008), no contact_link path (009).
+    // Seed as 001 would accept it: no onboard_session, no `agent` backend, no contact email source (006), no ask_thread (008), no contact_link path or outreach about (009).
     const seed001 = readFileSync(FIXTURE_SEED_SQL, 'utf8')
       .replace(/^INSERT INTO (onboard_session|ask_thread) .*$/gm, '')
       .replace(
@@ -167,6 +167,11 @@ describe('migrations 001..009', () => {
       .replace(
         /^(INSERT INTO contact_link \([^)]*?), path, via_tie_json\) VALUES (.*), (?:NULL|'[^']*'), (?:NULL|'[^']*')\);$/gm,
         '$1) VALUES $2);',
+      )
+      .replace(
+        /^INSERT INTO outreach \(([^)]*?), about_contact_id\) VALUES \('([^']*)', '([^']*)', (.*), (?:NULL|'([^']*)')\);$/gm,
+        (_l, cols: string, id: string, recipient: string, rest: string, about?: string) =>
+          `INSERT INTO outreach (${cols}) VALUES ('${id}', '${about ?? recipient}', ${rest});`,
       )
       .replace(/^INSERT INTO decision .*$/gm, (line) => line.replaceAll("'agent'", "'llm'"));
     old.exec(seed001);

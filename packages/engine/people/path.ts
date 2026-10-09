@@ -9,7 +9,7 @@ import {
   peopleSetPath,
 } from '@perfect-placement/contracts';
 import { draftRecipient } from './email.js';
-import { getLinkForRole, getOutreachFor, updateLink } from './queries.js';
+import { getLinkForRole, updateLink } from './queries.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
 
 /*
@@ -133,9 +133,18 @@ export function draftTierFor(deps: PathDeps, link: ContactLink): ContactTier {
 }
 
 /**
+ * Tiers a draft for this link may use: both paths' (a role may hold a direct note and a bridge intro, each
+ * filed under its recipient) except a blocked bridge; else the link's tier.
+ */
+export function draftTiersFor(deps: PathDeps, link: ContactLink): ContactTier[] {
+  const paths = connectPathsFor(deps, link);
+  return paths ? paths.options.filter((o) => !o.blocked).map((o) => o.tier) : [link.tier];
+}
+
+/**
  * people.set_path: the user's pick of direct or bridge for a 2nd-degree hiring-team target (null: back to
- * the ranked default). A blocked bridge (mutual has no email, target reachable) is refused; so is a switch
- * once the target's draft is in Gmail.
+ * the ranked default). The pick sets the default draft; it never removes a draft on the other path. A
+ * blocked bridge (mutual has no email, target reachable) is refused.
  */
 export const setPath: Handler<'people.set_path'> = async (raw, ctx, deps) => {
   const parsed = peopleSetPath.input.safeParse(raw);
@@ -147,10 +156,6 @@ export const setPath: Handler<'people.set_path'> = async (raw, ctx, deps) => {
   if (!paths) return err('invalid_input', `contact ${contact_id} has one path only (2nd-degree hiring team with a mutual has two)`);
   if (path && paths.options.find((o) => o.path === path)?.blocked)
     return err('conflict', `the ${path} path is blocked: the mutual has no email and the target is reachable`);
-  const prev = getOutreachFor(deps.repos, contact_id, role_id);
-  const nextTier = PATH_TIER[path ?? paths.recommended];
-  if (prev && prev.status !== 'drafted' && prev.tier !== nextTier)
-    return err('conflict', `outreach ${prev.id} is ${prev.status}; the path cannot change now`);
   const next: ContactLink = { ...link, path };
   if (!ctx.dryRun) updateLink(deps.repos, next);
   const out = connectPathsFor(deps, next) ?? paths;

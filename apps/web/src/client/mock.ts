@@ -193,7 +193,15 @@ function readOp(
     }
 
     case 'outreach.list':
-      return ok({ items: fx.outreach.filter((o) => o.role_id === i.role_id) });
+      return ok({
+        items: fx.outreach
+          .filter((o) => o.role_id === i.role_id)
+          .map((o) => ({
+            ...o,
+            recipient_name: fx.contacts.find((c) => c.id === o.contact_id)?.name ?? '',
+            about_name: o.about_contact_id ? (fx.contacts.find((c) => c.id === o.about_contact_id)?.name ?? null) : null,
+          })),
+      });
     case 'outreach.get': {
       const outreach = must(
         fx.outreach.find((x) => x.id === i.outreach_id),
@@ -218,7 +226,8 @@ function readOp(
         guess: contact.email,
         reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
       };
-      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to });
+      const about = outreach.about_contact_id ? (fx.contacts.find((c) => c.id === outreach.about_contact_id) ?? null) : null;
+      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to, about });
     }
     case 'contacts.get': {
       const contact = must(

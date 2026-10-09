@@ -1,10 +1,41 @@
-import type { ConnectFallback, ConnectPaths, Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
+import type {
+  ConnectFallback,
+  ConnectPaths,
+  Contact,
+  ContactLink,
+  ContactTier,
+  EmailSource,
+  Outreach,
+  Run,
+} from '@perfect-placement/contracts';
 
 export interface Person {
   contact: Contact;
   link: ContactLink;
   /** #98: direct vs bridge for a 2nd-degree hiring-team target (roles.get), else null. */
   paths?: ConnectPaths | null;
+}
+
+/**
+ * The draft for a person on a role (#98: drafts are filed under their recipient): the note addressed to
+ * them, else a bridge intro about them.
+ */
+export function draftFor<O extends Pick<Outreach, 'contact_id' | 'about_contact_id'>>(
+  items: readonly O[] | undefined,
+  cid: string,
+): O | undefined {
+  return items?.find((o) => o.contact_id === cid && !o.about_contact_id) ?? items?.find((o) => o.about_contact_id === cid);
+}
+
+/** The draft on one path for a 2nd-degree hiring target (#98): direct = to them, bridge = about them. */
+export function draftOnPath<O extends Pick<Outreach, 'contact_id' | 'about_contact_id' | 'tier'>>(
+  items: readonly O[] | undefined,
+  targetId: string,
+  path: 'direct' | 'bridge',
+): O | undefined {
+  return path === 'direct'
+    ? items?.find((o) => o.contact_id === targetId && !o.about_contact_id)
+    : items?.find((o) => o.about_contact_id === targetId);
 }
 
 /** Who a draft for this person goes to (#98): the chosen path's recipient, else the person. */

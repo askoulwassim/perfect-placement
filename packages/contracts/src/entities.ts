@@ -248,6 +248,11 @@ export const ContactLink = z.object({
 });
 export type ContactLink = z.infer<typeof ContactLink>;
 
+/**
+ * One outreach draft, filed under the person it is addressed to (`contact_id`, the recipient). #98: a role
+ * can have several, one per recipient; a bridge intro is filed under the mutual with `about_contact_id`
+ * naming the target it is about (null for a note to the target itself).
+ */
 export const Outreach = z.object({
   id: Id,
   contact_id: Id,
@@ -256,6 +261,8 @@ export const Outreach = z.object({
   gmail_draft_id: z.string().nullable(),
   status: OutreachStatus,
   md_path: VaultPath.nullable(),
+  /** Added (#98): the target a bridge intro is about; null when the note is to the recipient's own role. */
+  about_contact_id: Id.nullable().default(null),
 });
 export type Outreach = z.infer<typeof Outreach>;
 

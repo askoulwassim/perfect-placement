@@ -18,12 +18,21 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const migration = (prefix: string) =>
   readFileSync(join(MIGRATIONS_DIR, listMigrations().find((f) => f.startsWith(prefix)) as string), 'utf8');
 
-/** The fixture seed for a db before 009: contact links without `path` / `via_tie_json` (#98). */
+/**
+ * The fixture seed for a db before 009 (#98): contact links without `path` / `via_tie_json`; outreach
+ * without `about_contact_id`, the bridge intro filed under its target as it was before.
+ */
 const seedBefore009 = () =>
-  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
-    /^(INSERT INTO contact_link \([^)]*?), path, via_tie_json\) VALUES (.*), (?:NULL|'[^']*'), (?:NULL|'[^']*')\);$/gm,
-    '$1) VALUES $2);',
-  );
+  readFileSync(FIXTURE_SEED_SQL, 'utf8')
+    .replace(
+      /^(INSERT INTO contact_link \([^)]*?), path, via_tie_json\) VALUES (.*), (?:NULL|'[^']*'), (?:NULL|'[^']*')\);$/gm,
+      '$1) VALUES $2);',
+    )
+    .replace(
+      /^INSERT INTO outreach \(([^)]*?), about_contact_id\) VALUES \('([^']*)', '([^']*)', (.*), (?:NULL|'([^']*)')\);$/gm,
+      (_l, cols: string, id: string, recipient: string, rest: string, about?: string) =>
+        `INSERT INTO outreach (${cols}) VALUES ('${id}', '${about ?? recipient}', ${rest});`,
+    );
 
 /** The fixture seed for a db before 008: no Ask threads (#69). */
 const seedBefore008 = () => seedBefore009().replace(/^INSERT INTO ask_thread .*$/gm, '');
@@ -325,10 +334,18 @@ describe('migration 009 (connect path, #98)', () => {
     db8.exec(migration('008'));
     const before = db8.prepare('SELECT * FROM contact_link ORDER BY id').all() as Record<string, unknown>[];
     expect(before.length).toBeGreaterThan(0);
+    expect(db8.prepare(`SELECT contact_id FROM outreach WHERE id = 'or_0002'`).get()).toEqual({ contact_id: 'ct_0003' });
     db8.exec(migration('009'));
     expect(db8.prepare('SELECT * FROM contact_link ORDER BY id').all()).toEqual(
       before.map((r) => ({ ...r, path: null, via_tie_json: null })),
     );
+    // The bridge intro filed under its target (Lina K.) is refiled under the mutual (Dev P.), about Lina.
+    expect(db8.prepare(`SELECT contact_id, about_contact_id FROM outreach WHERE id = 'or_0002'`).get()).toEqual({
+      contact_id: 'ct_0002',
+      about_contact_id: 'ct_0003',
+    });
+    expect(db8.prepare(`SELECT count(*) n FROM outreach WHERE about_contact_id IS NOT NULL`).get()).toEqual({ n: 1 });
+    expect(db8.pragma('foreign_key_check')).toEqual([]);
     const upd = db8.prepare('UPDATE contact_link SET path = ? WHERE id = ?');
     const id = before[0]?.id as string;
     expect(() => upd.run('direct', id)).not.toThrow();

@@ -717,15 +717,18 @@ export const outreach: Outreach[] = [
     gmail_draft_id: null,
     status: 'drafted',
     md_path: vaultPath.outreach('ct_0001', R.linearDraft),
+    about_contact_id: null,
   },
   {
     id: 'or_0002',
-    contact_id: 'ct_0003',
+    // #98: a bridge intro is filed under the mutual (Dev P.), about the target (Lina K.).
+    contact_id: 'ct_0002',
     role_id: R.linearDraft,
     tier: 'bridge',
     gmail_draft_id: 'fixture-draft-0002',
     status: 'in_gmail',
-    md_path: vaultPath.outreach('ct_0003', R.linearDraft),
+    md_path: vaultPath.outreach('ct_0002', R.linearDraft, 'ct_0003'),
+    about_contact_id: 'ct_0003',
   },
   {
     id: 'or_0003',
@@ -735,6 +738,7 @@ export const outreach: Outreach[] = [
     gmail_draft_id: 'fixture-draft-0003',
     status: 'replied',
     md_path: vaultPath.outreach('ct_0006', R.vercelDraft),
+    about_contact_id: null,
   },
 ];
 

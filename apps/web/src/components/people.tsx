@@ -446,10 +446,13 @@ const firstName = (name: string) => name.split(' ')[0] ?? name;
 export function PathChoice({
   paths,
   onPick,
+  status,
   mobile,
 }: {
   paths: ConnectPaths;
   onPick?: ((path: ConnectPath) => void) | null;
+  /** #98: the draft on each path (both may exist, each under its recipient). */
+  status?: (path: ConnectPath) => OutreachStatus | 'none';
   mobile?: boolean;
 }) {
   return (
@@ -484,6 +487,9 @@ export function PathChoice({
                 {o.reason}
               </span>
             </span>
+            {status && status(o.path) !== 'none' && (
+              <DraftStatusChip status={status(o.path)} size={mobile ? 10 : 10.5} pad={mobile ? '0' : '3px 9px'} />
+            )}
             {!chosen && !o.blocked && onPick && (
               <SecondaryButton
                 op="people.set_path"
@@ -496,6 +502,59 @@ export function PathChoice({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ Draft list (#98)
+
+/** Every outreach draft for a role, one per recipient; a bridge intro shows the target it is about. */
+export function DraftList({
+  items,
+  onOpen,
+  mobile,
+}: {
+  items: ReadonlyArray<{ id: string; recipient: string; about: string | null; status: OutreachStatus }>;
+  onOpen?: (id: string) => void;
+  mobile?: boolean;
+}) {
+  return (
+    <div className="outreach-list" style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 18 }}>
+      <div style={{ ...eyebrow(), margin: '0 0 8px 12px' }}>Drafts</div>
+      {items.map((o) => (
+        <Btn
+          key={o.id}
+          op={null}
+          className="outreach-item"
+          data-outreach={o.id}
+          onClick={() => onOpen?.(o.id)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            width: '100%',
+            padding: mobile ? '8px 4px' : '8px 12px',
+            borderRadius: 10,
+            border: 0,
+            background: 'transparent',
+            color: C.fg,
+            textAlign: 'left',
+          }}
+          hover={{ background: C.panel }}
+        >
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="outreach-item__to" style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>
+              {o.recipient}
+            </span>
+            {o.about && (
+              <span className="outreach-item__about" style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>
+                {`About ${o.about}`}
+              </span>
+            )}
+          </span>
+          <DraftStatusChip status={o.status} size={10.5} pad={mobile ? '0' : '3px 9px'} />
+        </Btn>
+      ))}
     </div>
   );
 }

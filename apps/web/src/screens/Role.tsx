@@ -10,7 +10,7 @@ import { BestPathPill, ConnectFallbackBar, ContactAvatar, TIER_ORDER, TIER_VIS }
 import { C, display, eyebrow, mono, tab } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
-import { bestPath, initials } from '../lib/people';
+import { bestPath, draftFor, initials } from '../lib/people';
 import { criteriaOf, freshOf, sourcesOf } from '../lib/role';
 import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
@@ -49,7 +49,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const { role, company, latest_score: score, contacts } = data;
   const tl = tile(data, t, config.scoring);
   const best = bestPath(contacts);
-  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id), !!company.md_path);
+  const stage = stageOf(role, app, best && draftFor(drafts.data?.items, best.target.contact.id), !!company.md_path);
   const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
   // Connect runs are per person (People shows them); Research, Tailor and Fill are per role.
   const runOf = (s: Skill | null | undefined) =>
@@ -105,7 +105,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
     ['Posted', role.posted_at ? ago(role.posted_at, t) : '—'],
     ['Source', humanize(role.source)],
   ];
-  const draftOf = (cid: string) => drafts.data?.items.find((o) => o.contact_id === cid);
+  const draftOf = (cid: string) => draftFor(drafts.data?.items, cid);
   const openPerson = (cid: string) => {
     const o = draftOf(cid);
     if (o) go({ screen: 'outreach-draft', outreachId: o.id });

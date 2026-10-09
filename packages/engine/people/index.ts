@@ -57,6 +57,7 @@ export {
 export {
   connectPathsFor,
   draftTierFor,
+  draftTiersFor,
   LIKELY_EMAIL_P,
   PATH_TIER,
   type PathFacts,

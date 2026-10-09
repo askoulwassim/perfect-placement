@@ -1,4 +1,5 @@
 import {
+  type ConnectPath,
   type Contact,
   type OpContext,
   type OpOutcome,
@@ -9,7 +10,7 @@ import {
   vaultPath,
 } from '@perfect-placement/contracts';
 import { draftRecipient } from './email.js';
-import { draftTierFor } from './path.js';
+import { connectPathsFor, draftTierFor, draftTiersFor, PATH_TIER } from './path.js';
 import {
   advanceConnectToFill,
   emitEvent,
@@ -135,14 +136,15 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
   const role = getRole(db, input.role_id);
   if (!role) return err('not_found', `role ${input.role_id}`);
   const link = getLinkForRole(db, input.contact_id, input.role_id);
-  // #98: a 2nd-degree hiring target is drafted on its chosen path (direct: cold_hiring, bridge: bridge).
-  const expected = link ? draftTierFor(deps, link) : null;
-  if (link && expected !== input.tier)
+  // #98: a 2nd-degree hiring target may be drafted on either path (direct: cold_hiring, bridge: bridge),
+  // never on a blocked bridge (the mutual has no email while the target is reachable).
+  const allowed = link ? draftTiersFor(deps, link) : null;
+  if (link && allowed && !allowed.includes(input.tier))
     return err(
       'invalid_input',
-      expected === link.tier
-        ? `tier ${input.tier} does not match the contact link tier ${link.tier}`
-        : `tier ${input.tier} does not match the chosen path (tier ${expected}); switch with people.set_path`,
+      connectPathsFor(deps, link)
+        ? `tier ${input.tier} is not an open path for ${input.contact_id} (open: ${allowed.join(', ')}); a bridge to a mutual with no email is blocked while the target is reachable`
+        : `tier ${input.tier} does not match the contact link tier ${link.tier}`,
     );
   if (input.tier === 'bridge' && !link?.via_contact_id)
     return err('invalid_input', 'bridge drafts need a contact_link with via_contact_id (the mutual)');
@@ -161,18 +163,23 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
   if (issues.length)
     return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
 
-  const prev = getOutreachFor(db, input.contact_id, input.role_id);
+  // #98: filed under the recipient. A bridge intro goes to the mutual, about the target.
+  const bridge = input.tier === 'bridge';
+  const recipientId = bridge ? (link?.via_contact_id as string) : input.contact_id;
+  const aboutId = bridge ? input.contact_id : null;
+  const prev = getOutreachFor(db, recipientId, input.role_id, aboutId);
   if (prev && prev.status !== 'drafted') return err('conflict', `outreach ${prev.id} is ${prev.status}; edit it in Gmail`);
 
   const id = prev?.id ?? newId(deps, 'or');
   const outreach: Outreach = {
     id,
-    contact_id: input.contact_id,
+    contact_id: recipientId,
     role_id: input.role_id,
     tier: input.tier,
     gmail_draft_id: null,
     status: 'drafted',
-    md_path: vaultPath.outreach(input.contact_id, input.role_id),
+    md_path: prev?.md_path ?? vaultPath.outreach(recipientId, input.role_id, aboutId),
+    about_contact_id: aboutId,
   };
   if (ctx.dryRun) return { status: 'ok', output: { outreach }, eventIds: [] };
 
@@ -184,7 +191,7 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
       type: 'outreach_drafted',
       subject_type: 'outreach',
       subject_id: id,
-      payload: { contact_id: input.contact_id, role_id: input.role_id, tier: input.tier, redraft: Boolean(prev) },
+      payload: { contact_id: recipientId, about_contact_id: aboutId, role_id: input.role_id, tier: input.tier, redraft: Boolean(prev) },
       actor: ctx.actor,
       ts: ctx.now().toISOString(),
     }),
@@ -216,7 +223,7 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   const d = resolveDraft(deps, o, md);
   if ('error' in d) return err('not_found', d.error);
   const { text, recipient, body } = d;
-  const issues = checkDraft(text, factsText(deps, o.role_id, o.contact_id), { bridge: o.tier === 'bridge', context: d.context });
+  const issues = checkDraft(text, factsText(deps, o.role_id, d.target), { bridge: o.tier === 'bridge', context: d.context });
   if (issues.length)
     return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
 
@@ -254,7 +261,7 @@ export function resolveDraft(
   deps: PeopleDeps,
   o: Outreach,
   md: string,
-): { text: DraftText; body: string; recipient: Contact; context: string } | { error: string } {
+): { text: DraftText; body: string; recipient: Contact; target: string; context: string } | { error: string } {
   const { repos: db } = deps;
   const s = readOutreachSections(md);
   const role = getRole(db, o.role_id);
@@ -267,14 +274,18 @@ export function resolveDraft(
     ask: s.ask ?? '',
     signoff: s.signoff || profileSignoff(deps),
   };
-  const recipientId =
-    TIER_TEMPLATES[o.tier].recipient === 'via' ? getLinkForRole(db, o.contact_id, o.role_id)?.via_contact_id : o.contact_id;
+  // #98: the outreach is filed under its recipient; a bridge intro names its target in about_contact_id.
+  // A bridge row with no about is an old one filed under the target: its recipient is the link's mutual.
+  const legacy = TIER_TEMPLATES[o.tier].recipient === 'via' && !o.about_contact_id;
+  const recipientId = legacy ? getLinkForRole(db, o.contact_id, o.role_id)?.via_contact_id : o.contact_id;
   const recipient = recipientId ? getContact(db, recipientId) : undefined;
   if (!recipient) return { error: `recipient for outreach ${o.id}` };
-  const target = getContact(db, o.contact_id);
+  const targetId = o.about_contact_id ?? o.contact_id;
+  const target = getContact(db, targetId);
   return {
     text,
     recipient,
+    target: targetId,
     body: composeBody(text, { recipientName: recipient.name }),
     context: contextText(deps, o.role_id, target?.headline ?? null),
   };
@@ -291,16 +302,18 @@ export interface ComposeInput {
   role_id: string;
   /** Draft a cold_other contact anyway (blueprint: skip unless asked). */
   force?: boolean;
+  /** #98: draft this path for a 2nd-degree hiring target instead of the chosen one (both may exist). */
+  path?: ConnectPath;
 }
 
 /** Builds the DraftContext for a contact on a role: db + CONTEXT (JD, dossier, headline) + Story + Voice. */
-export function draftContext(deps: PeopleDeps, contactId: string, roleId: string): DraftContext | { error: string } {
+export function draftContext(deps: PeopleDeps, contactId: string, roleId: string, path?: ConnectPath): DraftContext | { error: string } {
   const contact = getContact(deps.repos, contactId);
   const role = getRole(deps.repos, roleId);
   const link = getLinkForRole(deps.repos, contactId, roleId);
   if (!contact || !role || !link) return { error: `contact ${contactId} is not linked to role ${roleId}` };
   const company = getCompany(deps.repos, role.company_id);
-  const tier = draftTierFor(deps, link);
+  const tier = path && connectPathsFor(deps, link) ? PATH_TIER[path] : draftTierFor(deps, link);
   // A direct note to a 2nd-degree target names no mutual (#98).
   const via = tier === 'bridge' && link.via_contact_id ? getContact(deps.repos, link.via_contact_id) : undefined;
   const story = getComponent(deps, 'story') ?? { data: {}, text: '' };
@@ -329,7 +342,7 @@ export async function composeAndDraft(
   input: ComposeInput,
   ctx: OpContext,
 ): Promise<OpOutcome<OpOutput<'outreach.draft'>>> {
-  const c = draftContext(deps, input.contact_id, input.role_id);
+  const c = draftContext(deps, input.contact_id, input.role_id, input.path);
   if ('error' in c) return err('not_found', c.error);
   if (TIER_TEMPLATES[c.tier].skipByDefault && !input.force) return err('conflict', `tier ${c.tier} is skipped unless asked (force: true)`);
   const text = deps.writer ? await deps.writer.write(buildWriterPrompt(c)) : templateDraft(c);

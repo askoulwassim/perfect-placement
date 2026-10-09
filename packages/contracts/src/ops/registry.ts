@@ -1379,6 +1379,8 @@ export const outreachGet = defineOp({
     variants: z.array(DraftText).length(OUTREACH_TONES.length),
     /** Added (#37): the Gmail draft's To (the contact, or the mutual for bridge drafts). */
     to: DraftRecipient.nullable().default(null),
+    /** Added (#98): the target a bridge intro is about (`outreach.about_contact_id`); null otherwise. */
+    about: Contact.nullable().default(null),
   }),
   impact: 'low',
   readOnly: true,
@@ -1389,9 +1391,17 @@ export const outreachGet = defineOp({
 /** Added in Wave 2 (lane D): drafts for a role (DraftStatusChip per person). */
 export const outreachList = defineOp({
   name: 'outreach.list',
-  description: 'Outreach drafts for a role.',
+  description: 'Outreach drafts for a role, one per recipient (a bridge intro is about its target).',
   input: z.object({ role_id: Id }),
-  output: z.object({ items: z.array(Outreach) }),
+  /** #98: each item names its recipient (`contact_id`) and, for a bridge intro, the target it is about. */
+  output: z.object({
+    items: z.array(
+      Outreach.extend({
+        recipient_name: z.string().default(''),
+        about_name: z.string().nullable().default(null),
+      }),
+    ),
+  }),
   impact: 'low',
   readOnly: true,
   emits: [],
