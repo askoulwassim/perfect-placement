@@ -3,7 +3,7 @@ import { DEFAULT_CONFIG } from '@perfect-placement/contracts';
 import { decide, sameValue } from '../policy.js';
 
 /*
- * Eval harness: replay labelled calls (v1 scores, v1 inbox classifications, synthetic) through
+ * Eval harness: replay labelled calls (synthetic criterion scores and inbox classifications) through
  * several backends and measure accuracy vs the label, agreement between backends, calibration of p,
  * latency, and what the policy would have auto-applied.
  *

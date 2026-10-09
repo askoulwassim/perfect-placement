@@ -1,5 +1,7 @@
 # v1 inventory -> v2 mapping
 
+> Superseded by #26 (fresh start): no v1 data is imported. Kept as the historical brief.
+
 Everything below lives in the v1 repo (this repo, `PerfectPlacement`). Personal data must move to the vault only, never into the system repo.
 
 | v1 path | What | v2 home | Lane |

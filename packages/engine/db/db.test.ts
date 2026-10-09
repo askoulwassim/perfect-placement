@@ -1,6 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { FIXTURE_SEED_SQL } from '@perfect-placement/fixtures';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appliedVersions, applyMigrations, listMigrations, MIGRATIONS_DIR, openDb } from './connection.js';
 import { newId, roleId, slugify, ulid } from './ids.js';
@@ -11,6 +13,9 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'pp-db-'));
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+const migration = (prefix: string) =>
+  readFileSync(join(MIGRATIONS_DIR, listMigrations().find((f) => f.startsWith(prefix)) as string), 'utf8');
 
 describe('migrations', () => {
   it('are discoverable and start at 001', () => {
@@ -118,5 +123,47 @@ describe('ids', () => {
     expect(slugify('Weights & Biases')).toBe('weights-and-biases');
     const taken = new Set(['acme_pm']);
     expect(roleId('acme', 'pm', (x) => taken.has(x))).toBe('acme_pm-2');
+  });
+});
+
+describe('migration 003 (fresh start, #26)', () => {
+  it('drops archive reason legacy and source migration, mapping any leftovers', () => {
+    const fx = new Database(':memory:');
+    for (const f of listMigrations()) fx.exec(migration(f.slice(0, 3)));
+    fx.exec(readFileSync(FIXTURE_SEED_SQL, 'utf8'));
+    const insert = fx.prepare(
+      `INSERT INTO role (id, company_id, title, source, found_at, status, archive_reason, created_at, updated_at) VALUES (?, 'stripe', 't', ?, 'x', ?, ?, 'x', 'x')`,
+    );
+    expect(() => insert.run('tmp_legacy', 'scout', 'archived', 'legacy')).toThrow(/CHECK/);
+    expect(() => insert.run('tmp_mig', 'migration', 'inbox', null)).toThrow(/CHECK/);
+    expect(() => insert.run('tmp_ok', 'manual', 'archived', 'passed')).not.toThrow();
+    fx.close();
+
+    const old = new Database(':memory:');
+    old.exec(migration('001'));
+    old.exec(migration('002'));
+    old.exec(readFileSync(FIXTURE_SEED_SQL, 'utf8'));
+    old.exec(`UPDATE role SET archive_reason = 'legacy' WHERE id = (SELECT id FROM role WHERE status = 'archived' ORDER BY id LIMIT 1)`);
+    old.exec(`UPDATE role SET source = 'migration' WHERE id = (SELECT id FROM role WHERE status = 'inbox' ORDER BY id LIMIT 1)`);
+    const roles002 = old.prepare('SELECT * FROM role ORDER BY id').all() as Record<string, unknown>[];
+    const indexes = () =>
+      (
+        old
+          .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='role' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+          .all() as { name: string }[]
+      ).map((r) => r.name);
+    const idx002 = indexes();
+    old.exec(migration('003'));
+    const expected = roles002.map((r) => ({
+      ...r,
+      archive_reason: r.archive_reason === 'legacy' ? 'passed' : r.archive_reason,
+      source: r.source === 'migration' ? 'manual' : r.source,
+    }));
+    expect(old.prepare('SELECT * FROM role ORDER BY id').all()).toEqual(expected);
+    expect(old.prepare(`SELECT count(*) n FROM role WHERE archive_reason = 'legacy' OR source = 'migration'`).get()).toEqual({ n: 0 });
+    expect(indexes()).toEqual(idx002);
+    expect(old.pragma('foreign_key_check')).toEqual([]);
+    expect(() => old.exec(`DELETE FROM score`)).toThrow(/append-only/);
+    old.close();
   });
 });

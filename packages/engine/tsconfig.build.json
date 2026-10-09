@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
   "include": ["index.ts", "db", "ops", "status", "profile", "scoring", "freshness", "people", "integrations"],
-  "exclude": ["**/*.test.ts", "testing", "db/testing", "**/__fixtures__", "profile/synthetic.ts", "dist", "node_modules"]
+  "exclude": ["**/*.test.ts", "testing", "**/__fixtures__", "profile/synthetic.ts", "dist", "node_modules"]
 }

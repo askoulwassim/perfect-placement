@@ -461,3 +461,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: rationale is written per criterion when there is something to say.
 - Shim: none.
 - Status: accepted
+
+## Fresh start cleanup
+
+### Drop migration-only values (#26)
+- Lane: cleanup (A, E, F)
+- Date: 2026-10-08
+- Contract: `ARCHIVE_REASONS`, `ROLE_SOURCES`, `ROLE_FLAG_KEYS` (enums.ts); `V1Section` and component `v1_sections` (profile-data.ts); migration `003_fresh_start.sql`
+- Change: remove archive reason `legacy`, role source `migration`, flag key `verify_remote` and the `v1_sections` component field. 003 rebuilds `role` (12-step, as 002) with the narrowed CHECKs, after mapping any leftover `legacy` -> `passed` and `migration` -> `manual`.
+- Why: no v1 data is ever imported (wave1-decisions #26); these existed only for the v1 importer.
+- Shim: none (003 maps leftovers).
+- Status: accepted

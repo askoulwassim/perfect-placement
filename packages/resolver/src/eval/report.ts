@@ -52,7 +52,7 @@ export function renderReport(result: EvalResult, meta: { title: string; label: s
   out.push(
     '## How to read this',
     '',
-    '- Acc vs label: share of answers equal to the label (v1 score or class). Within 1 / MAE apply to 1..5 criterion scores.',
+    '- Acc vs label: share of answers equal to the label (true score or class). Within 1 / MAE apply to 1..5 criterion scores.',
     '- Call p50 / p95: latency of the backend call that carried the question (one call holds every question for a state).',
     '- Brier and ECE measure calibration: lower is better. A calibrated backend at p = 0.9 is right about 90% of the time.',
     '- Auto rate / Auto acc: what the policy would auto-apply at default thresholds for each case impact, and how often those picks were right. High impact cases are never auto.',

@@ -3,12 +3,11 @@ import { db, ops } from '@perfect-placement/engine';
 import { openFixtureDemo, type ToolNameStyle } from '@perfect-placement/mcp';
 import { type Args, parseArgs } from './args.js';
 import { renderDoctor } from './commands/doctor.js';
-import { migrateCommand } from './commands/migrate.js';
 import { fresh, inbox, op, score, scout } from './commands/skills.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 
-export const COMMANDS = ['up', 'init', 'migrate', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
+export const COMMANDS = ['up', 'init', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
 
@@ -19,8 +18,7 @@ const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
   fresh    [--role <id>]...                roles.check_freshness
   inbox    --in <file|->                   inbox.ingest
   op       <name> [<json>|--input <json>|--in f]  any op
-  doctor   [--json]                        system.doctor
-  migrate  --from <v1 repo> [--dry-run] [--json]  v1 import`;
+  doctor   [--json]                        system.doctor`;
 
 /** Resolves when SIGINT / SIGTERM arrives (overridable in tests). */
 export type WaitForStop = () => Promise<void>;
@@ -33,7 +31,7 @@ const waitForSignal: WaitForStop = () =>
 export async function runCli(argv: readonly string[], io: Io = processIo, waitForStop: WaitForStop = waitForSignal): Promise<number> {
   const args: Args = parseArgs(argv);
   const cmd = args._[0];
-  if (!cmd || (args.has('help') && cmd !== 'migrate')) {
+  if (!cmd || args.has('help')) {
     io.out(USAGE);
     return 0;
   }
@@ -46,14 +44,11 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
 
   try {
     switch (cmd) {
-      case 'migrate':
-        // Lane A's importer (engine db.migrateV1): --dry-run supported; refuses a PP_HOME inside a git repo.
-        return migrateCommand(argv.slice(1) as string[], io);
       case 'init':
         return init(home, io);
       case 'doctor': {
         if (!existsSync(db.dbPath(home))) {
-          io.err(`pp doctor: no vault at ${home} (run pp init or pp migrate)`);
+          io.err(`pp doctor: no vault at ${home} (run pp init)`);
           return 1;
         }
         const engine = ops.openEngine({ home, ...services });

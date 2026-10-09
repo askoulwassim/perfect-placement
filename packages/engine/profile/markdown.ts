@@ -73,14 +73,6 @@ export function renderComponentMd(key: ProfileComponentKey, id: string, data: Re
     }
     push('Samples', list(data.samples));
   }
-  if (Array.isArray(data.v1_sections)) {
-    push(
-      'Imported from v1',
-      (data.v1_sections as Array<{ source: string; heading: string; text: string }>)
-        .map((s) => `### ${s.heading || s.source}\n\n${s.text}`)
-        .join('\n\n'),
-    );
-  }
   return `${out.join('\n').trimEnd()}\n`;
 }
 

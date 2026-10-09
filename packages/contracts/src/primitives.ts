@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * Ids are TEXT.
- * - role: `<company-slug>_<title-slug>` (v1-compatible), `-2`, `-3` suffix on collision.
+ * - role: `<company-slug>_<title-slug>`, `-2`, `-3` suffix on collision.
  * - company: `<slug>`.
  * - everything else: `<prefix>_<ulid>`, prefixes in ID_PREFIX.
  */

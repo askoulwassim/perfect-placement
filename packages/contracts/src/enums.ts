@@ -45,8 +45,6 @@ export const ARCHIVE_REASONS = [
   'rejected',
   'passed',
   'withdrawn',
-  /** v1 migration only, when the reason cannot be inferred. */
-  'legacy',
   /** Accepting a `roles.dedupe` decision archives the newer copy (Wave 2; not a skip signal for Learn). */
   'duplicate',
 ] as const;
@@ -62,12 +60,8 @@ export const RESCORE_MOVABLE = ['inbox', 'active', 'held'] as const satisfies re
 /** Archive reasons a rescore may revive (a better score can bring the role back). */
 export const RESCORE_REVIVABLE_ARCHIVE = ['below_threshold', 'dealbreaker'] as const satisfies readonly ArchiveReason[];
 
-/**
- * Known keys of `role.flags_json` (free-form, these are conventions).
- * - `verify_remote: true`: green-scored role archived as `dealbreaker` because remote was not confirmed
- *   (v1 migration, wave1-decisions #20). Revisit at the approved v2 rescore.
- */
-export const ROLE_FLAG_KEYS = ['verify_remote', 'closed', 'dream_company', 'dealbreaker'] as const;
+/** Known keys of `role.flags_json` (free-form, these are conventions). */
+export const ROLE_FLAG_KEYS = ['closed', 'dream_company', 'dealbreaker'] as const;
 
 export const HELD_REASONS = ['company_cap'] as const;
 export const HeldReason = z.enum(HELD_REASONS);
@@ -81,7 +75,7 @@ export const WORKPLACES = ['remote', 'hybrid', 'onsite', 'flexible', 'unspecifie
 export const Workplace = z.enum(WORKPLACES);
 export type Workplace = z.infer<typeof Workplace>;
 
-export const ROLE_SOURCES = ['scout', 'link', 'watchlist', 'referral', 'migration', 'manual'] as const;
+export const ROLE_SOURCES = ['scout', 'link', 'watchlist', 'referral', 'manual'] as const;
 export const RoleSource = z.enum(ROLE_SOURCES);
 export type RoleSource = z.infer<typeof RoleSource>;
 

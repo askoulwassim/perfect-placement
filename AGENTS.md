@@ -15,10 +15,10 @@ AGENTS.md               this file
 CONTRACT_CHANGES.md     contract change requests and their resolutions
 packages/
   contracts/            zod schemas, statuses, events, ops registry, resolver + policy types, design tokens, UI inventory
-  engine/               openEngine(): db/ (repos, migrations, vault, doctor, v1 migrate)  ops/ (runOp + handlers)  status/  profile/  scoring/  freshness/  people/  integrations/
+  engine/               openEngine(): db/ (repos, migrations, vault, doctor)  ops/ (runOp + handlers)  status/  profile/  scoring/  freshness/  people/  integrations/
   resolver/             decision layer: rule, Kev, agent, human; policy; decision ops
   mcp/                  MCP server generated from ops (stdio `pp-mcp`, HTTP at /mcp)
-  cli/                  `pp`: up, init, doctor, migrate, op, scout, score, fresh, inbox
+  cli/                  `pp`: up, init, doctor, op, scout, score, fresh, inbox
   fixtures/             synthetic vault + db seed (Wave 0)
 apps/web/               UI from the Claude Design prototype; genui/ renders Ask replies with OpenUI
 skills/<name>/SKILL.md  agent-agnostic skills
@@ -68,11 +68,11 @@ node packages/cli/dist/index.js op <name> --input '<json>'
 
 ## How work merges
 
-- **Waves:** Wave 0 (contracts), Wave 1 (lanes A to J), Wave 2 (integrate) are done in code; Wave 2's real-data steps run with the owner present (`docs/v2/wave2-plan.md`, "Stop line runbook"). Wave 3 is next.
+- **Waves:** Wave 0 (contracts), Wave 1 (lanes A to J), Wave 2 (integrate) are done in code; Fresh start (wave1-decisions #26): no v1 data is imported; the first real run follows `docs/v2/wave2-plan.md`, "Fresh-start runbook", with the owner present. Wave 3 is next.
 - **One branch per piece of work**, in its own worktree. Open a PR when the branch is finished and ready to close; merge through the PR, then delete the branch and worktree. No big-bang PRs.
 - **Contracts:** `packages/contracts` and migrations change only through `CONTRACT_CHANGES.md` (request, then a resolution with a Status). New schema changes are new numbered migrations; never edit an applied one.
 - **Develop against fixtures** (`@perfect-placement/fixtures`, or `@perfect-placement/engine/testing` for a real engine on a temp fixtures vault). Tests never touch the real `PP_HOME`.
-- **Real-data steps** (migrate, rescore, freshness backfill, schedules, live LinkedIn or Gmail) only with the owner present.
+- **Real-data steps** (first scout + score, rescore, schedules, live LinkedIn or Gmail) only with the owner present.
 
 ## Conventions
 

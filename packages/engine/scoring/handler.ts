@@ -38,7 +38,7 @@ export interface ScoringDeps {
 
 /** Statuses a rescore may change. Everything else is held where it is (no-downgrade + human picks). */
 const MOVABLE: ReadonlySet<RoleStatus> = new Set(['inbox', 'active', 'held']);
-/** Archived roles a rescore may revive (the score put them there). closed/rejected/passed/withdrawn/legacy stay. */
+/** Archived roles a rescore may revive (the score put them there). closed/rejected/passed/withdrawn/duplicate stay. */
 const REVIVABLE: ReadonlySet<ArchiveReason> = new Set(['below_threshold', 'dealbreaker']);
 
 export function isMovable(status: RoleStatus, archiveReason: ArchiveReason | null): boolean {

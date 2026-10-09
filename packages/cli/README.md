@@ -1,12 +1,11 @@
 # @perfect-placement/cli (`pp`)
 
-**Owner: lane B**, except `src/commands/migrate.ts` and `src/commands/doctor.ts` (lane A). Thin: every command goes through the engine (`openEngine({ home, services })`; `Io.services` overrides the engine services, tests pass no-network fakes).
+**Owner: lane B**, except `src/commands/doctor.ts` (lane A). Thin: every command goes through the engine (`openEngine({ home, services })`; `Io.services` overrides the engine services, tests pass no-network fakes).
 
 ```
 pp up      [--port 5177] [--web <dir>|none] [--fixtures] [--kev] [--tool-names dotted]
 pp init                                       new vault + default config.json (refuses an existing or git-tracked dir)
 pp doctor  [--json]                           system.doctor via the engine (never creates a vault)
-pp migrate --from <v1 repo> [--dry-run] [--json]   lane A importer; refuses a PP_HOME inside a git repo
 pp scout   --in candidates.json [--note ..]   runs.start -> roles.add -> runs.finish
 pp score   --in scores.json                   roles.score (lane F)
 pp fresh   [--role <id>]...                   roles.check_freshness (lane G)

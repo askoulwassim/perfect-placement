@@ -40,13 +40,10 @@ const OPENS_DB = [/from 'better-sqlite3'/, /\bopenDb\(/, /new Database\(/];
 const SQL_ALLOWED = ['packages/engine/db/', 'packages/engine/ops/runtime.ts', 'packages/fixtures/'];
 const FS_ALLOWED = [
   'packages/engine/db/vault.ts',
-  'packages/engine/db/v1/import.ts',
   'packages/engine/ops/vault.ts',
   'packages/engine/ops/runner.ts',
   // Report CLIs: write reports to --out outside the repo, never the vault.
   'packages/engine/freshness/cli.ts',
-  'packages/engine/scoring/backtest-cli.ts',
-  'packages/engine/profile/convert-v1-cli.ts',
   'packages/resolver/src/eval/cli.ts',
   'packages/fixtures/',
   'packages/contracts/scripts/',
@@ -91,8 +88,7 @@ describe('(d) ops-only writes', () => {
       SURFACES,
       [...SQL_WRITES, ...FS_WRITES, ...OPENS_DB, /\brepos\(/, /\.insert\(/, /VaultTx/],
       [
-        // lane A's `pp migrate` / `pp doctor` commands call lane A directly (the importer is the migration path).
-        'packages/cli/src/commands/migrate.ts',
+        // lane A's `pp doctor` command calls lane A directly.
         'packages/cli/src/commands/doctor.ts',
       ],
     );

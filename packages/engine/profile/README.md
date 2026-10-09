@@ -14,14 +14,13 @@
 | `calibration.ts` | 12-sample calibration -> criterion weights |
 | `onboard.ts`, `onboard-store.ts` | `onboard.*` ops (start, state, samples, ingest_resume, answer, calibrate, confirm); sessions in the `onboard_session` table |
 | `learn.ts` | learn loop: event -> resolver -> LLM diff -> policy |
-| `convert-v1.ts`, `convert-v1-cli.ts` | v1 profile converter + coverage check + report |
 | `deps.ts` | `ProfileDeps`, built per op call by `ops/lanes/profile.ts`: lane A repos, runOp's emitter + staged vault, the resolver, nested `runOp`, optional writing model |
-| `synthetic.ts` | synthetic v1-shaped inputs and resume for tests (a made-up person) |
+| `synthetic.ts` | synthetic resume for tests (a made-up person) |
 
 ## Component data
 
 `profile_component.data_json` is validated per key by `COMPONENT_DATA_SCHEMAS`. Every component may also carry
-`criterion_weights`, `criteria` (rubric anchors), `notes`, `open_questions`, `v1_sections` (verbatim v1 text).
+`criterion_weights`, `criteria` (rubric anchors), `notes`, `open_questions`.
 
 **Criterion ownership** (each C1..C9 weight lives on exactly one component):
 
@@ -87,11 +86,3 @@ the loop runs nested ops: `profile.propose_diff`, then `routeDiff` asks `profile
 Applied weighted and filter diffs rescore `RESCORE_MOVABLE` roles (inbox, active, held; never on-deck, #13) through nested
 `roles.score` with their latest judged criteria. With no writing model in the engine (the default: all LLM work runs in the
 agent session), the loop only asks; the learn skill drafts and calls `profile.propose_diff`.
-
-## v1 converter
-
-`convertV1Profile(inputs)` maps `01_Profile/{perfect_role,positioning,application_defaults,stories,resume_master}.md` and
-`00_System/rubric.{json,md}` into the 11 components plus `config.scoring` bands, a version reason and provenance.
-Every markdown section is kept verbatim in its routed component's `v1_sections`; structured fields are extracted on top.
-`verifyCoverage` proves nothing was dropped (every non-empty line found in the output; every rubric.json leaf mapped).
-Dry run: `node packages/engine/dist/profile/convert-v1-cli.js <v1-root> <out-dir-outside-any-repo>`.

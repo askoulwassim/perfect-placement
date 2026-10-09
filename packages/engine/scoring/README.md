@@ -13,7 +13,6 @@ Scoring v2 mechanics. The score skill supplies judgment (C1..C9, facts); this co
 | `source-mix.ts` | Scout source mix: watchlist queries at most `scout.watchlist_share_max`. |
 | `handler.ts` | `rolesScoreHandler` (op `roles.score`) and `rebalanceCompany` (lane B's `moveRole` and freshness closes call it after every move, archive or close). |
 | `store.ts` | `ScoringStore` seam; the engine implements it over lane A repos and runOp's emitter (`ops/lanes/scoring.ts`). |
-| `backtest.ts`, `backtest-cli.ts` | Read-only replay of v1 judgments through v2 mechanics. |
 
 ## Rules
 
@@ -23,15 +22,3 @@ Scoring v2 mechanics. The score skill supplies judgment (C1..C9, facts); this co
 - A rescore moves only `inbox`, `active`, `held` (`RESCORE_MOVABLE`), and archives with reason `below_threshold` or `dealbreaker`. On-deck and later keep their status (#13; the score row still records the decision and `facts_json.status_kept`), and profile-change rescores skip them entirely. The per-company cap counts `active` (and `held`) only, never on-deck.
 - `notes` (rationale per criterion, any subset) are appended to the role markdown, never the db.
 - Every score row records `profile_version_id` and the rubric snapshot. Rows are append-only.
-
-## Backtest method
-
-Input: v1 `pipeline.json`, `scores.json` (latest record per role) and `rubric.json`, read only. The stored C1..C9 are replayed with the v1 weights through the v2 rules: capped affinity (two scenarios: dream companies at the cap, and neutral), no dream-company dealbreaker bypass (v1 `dream-exception` and v1 forced-archive reasons count as not remote), per-company cap, and the rescore-movable rule above. Output: active-set company mix before vs after (roles, companies, top-5 share, max per company, dream share), status transitions, band shifts, averages, and the list of roles that change state.
-
-Limitation: blind scoring changes the judgment itself. A replay of stored criteria cannot show that part; measure it on the next live scoring run.
-
-```
-node packages/engine/dist/scoring/backtest-cli.js --v1 <v1 repo> --out <dir outside this repo>
-```
-
-The report names companies and roles, so the CLI refuses to write inside this repo. Never commit it.

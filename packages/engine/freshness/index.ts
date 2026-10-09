@@ -4,7 +4,7 @@ import { type CheckFreshnessOutput, checkFreshness, type FreshnessDeps } from '.
 
 export const OWNER_LANE = 'G' as const;
 
-export { backfillDryRun, type DryRunOptions, memoryStore, rolesFromDb, rolesFromV1Pipeline } from './backfill.js';
+export { backfillDryRun, type DryRunOptions, memoryStore, rolesFromDb } from './backfill.js';
 export { assess, type Evidence, type LadderTarget } from './ladder.js';
 export { CLOSED_PHRASES, checkPage, closedPhrase, isListingRedirect, type PageCheck, type PageSignal } from './page.js';
 export { renderDryRunReport, renderRunLog } from './report.js';

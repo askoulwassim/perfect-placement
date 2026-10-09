@@ -1,5 +1,7 @@
 # Lane A: Data layer + migration
 
+> Superseded by #26 (fresh start): no v1 data is imported. Kept as the historical brief.
+
 **Branch / worktree:** `v2/lane-a`  
 **Owns (writes only here):** packages/engine/db/**, packages/cli/src/commands/migrate.ts, packages/cli/src/commands/doctor.ts  
 **Starts after:** Wave 0 merged  
