@@ -12,11 +12,9 @@ import {
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
-import { Toggle } from '../components/controls';
 import { BackendCard, HardExclusions, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
-import { CUE_IDS } from '../lib/cues';
 import { go } from '../router';
 import { RunRow } from './Runs';
 
@@ -65,9 +63,7 @@ export const lastResult = (r: Run | null | undefined): string =>
 const NO_JOB: ReadonlySet<ScheduleJobState> = new Set(['missing', 'stale']);
 
 export function Settings() {
-  const { config, thresholds, setThresholds, now, showToast, cuesSeen, setCues, runs } = useApp();
-  // On while any cue is still to come; flipping it on shows every cue again, off retires them all.
-  const cuesOn = !CUE_IDS.every((id) => cuesSeen?.includes(id));
+  const { config, thresholds, setThresholds, now, showToast, runs } = useApp();
   const act = useAct();
   const backends = useOp('system.backends', {});
   // Last scheduled run + OS job per schedule (#29); refetched after every write (Save syncs the jobs).
@@ -147,22 +143,6 @@ export function Settings() {
             <RunRow key={r.id} run={r} now={t} onOpen={() => go({ screen: 'runs', runId: r.id })} />
           ))}
           {!runs.length && <div style={{ color: C.muted, padding: '12px 4px' }}>No runs</div>}
-        </div>
-        <div>
-          <div style={{ ...eyebrow(), marginBottom: 6 }}>Cues</div>
-          <div
-            className="cues-row"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              height: 60,
-              borderBottom: `1px solid ${C.line}`,
-            }}
-          >
-            <span style={{ fontSize: 15, fontWeight: 600 }}>Show cues</span>
-            <Toggle on={cuesOn} label="Show cues" op="config.update" onChange={(v) => void setCues(v ? [] : CUE_IDS)} />
-          </div>
         </div>
         <div>
           <div style={{ ...eyebrow(), marginBottom: 14 }}>Data home</div>

@@ -1114,4 +1114,5 @@ export const FIXTURE_TABLES = {
   onboard_session: onboardSessions,
 } as const;
 
-export const FIXTURE_CONFIG = DEFAULT_CONFIG;
+/** An established search: the Getting started path (#24) is long finished. */
+export const FIXTURE_CONFIG: typeof DEFAULT_CONFIG = { ...DEFAULT_CONFIG, ui: { guide: { policy: true, review: true, done: true } } };

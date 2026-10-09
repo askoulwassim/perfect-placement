@@ -115,6 +115,15 @@ export const ScheduleSpec = z.union([z.literal('off'), z.string().min(1)]);
 export const LINKEDIN_MODES = ['off', 'dry-run', 'live'] as const;
 export const LINKEDIN_DRIVERS = ['claude-in-chrome', 'playwright'] as const;
 
+/** Getting started path flags (#24): the steps not read from the pipeline itself. */
+export const GuideState = z.object({
+  policy: z.boolean().default(false),
+  review: z.boolean().default(false),
+  done: z.boolean().default(false),
+});
+export type GuideState = z.infer<typeof GuideState>;
+export const DEFAULT_GUIDE: GuideState = { policy: false, review: false, done: false };
+
 export const PolicyConfig = z.object({
   policy: Thresholds,
   /** Per decision-kind threshold overrides. */
@@ -161,11 +170,13 @@ export const PolicyConfig = z.object({
     scout_score: ScheduleSpec,
   }),
   /**
-   * UI state kept in the vault (wave1-decisions #27). `cues_seen`: first-visit cue ids already
-   * dismissed (screen names, plus `ask`); Settings "Show cues" resets it to []. Optional: older
-   * config.json files parse unchanged.
+   * UI state kept in the vault (wave1-decisions #27, superseded 2026-10-09: #24/#43). `guide`: the
+   * Getting started path on Now. `policy`: Settings opened; `review`: River or Needs you opened with
+   * scored roles; `done`: every step finished, the card never shows again. No user setting reads or
+   * resets it; a dev reset is `pp op config.update` with `{ ui: { guide: { done: false, ... } } }`.
+   * Optional: older config.json files (including ones with the retired `cues_seen`) parse unchanged.
    */
-  ui: z.object({ cues_seen: z.array(z.string()).default([]) }).optional(),
+  ui: z.object({ guide: GuideState.default(DEFAULT_GUIDE) }).optional(),
 });
 /** Shape of `$PP_HOME/config.json`. */
 export type PolicyConfig = z.infer<typeof PolicyConfig>;
@@ -201,7 +212,7 @@ export const DEFAULT_CONFIG: PolicyConfig = {
   runs: { max_concurrent: 2 },
   pipeline: { score_after_scout: true, research_after_score: true },
   schedules: { inbox: 'daily 07:30', freshness: 'daily 06:30', scout_score: 'fri 05:30' },
-  ui: { cues_seen: [] },
+  ui: { guide: { ...DEFAULT_GUIDE } },
 };
 
 /** Effective thresholds for a decision kind (base merged with override). Pure data merge, no policy logic. */

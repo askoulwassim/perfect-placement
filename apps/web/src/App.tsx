@@ -7,7 +7,7 @@ import { Toast } from './components/controls';
 import { AskPill, MobileFrame, NavRail, type NavTarget, RunIndicator, type RunIndicatorState, TabBar } from './components/shell';
 import { C, F } from './components/theme';
 import { LayoutCtx } from './layout';
-import { CUE_TARGET, CUES, cueFor, pendingCue } from './lib/cues';
+import { STEP_CUE, STEP_TARGET, scoredCount } from './lib/guide';
 import { activeLabel, isActive, runLabel } from './lib/runs';
 import { useMobile } from './lib/useMobile';
 import { go, href, type Route, replaceRoute, useRoute } from './router';
@@ -68,7 +68,7 @@ export function shownRoute(route: Route, opts: { mobile: boolean; fresh: boolean
 function Shell() {
   const route = useRoute();
   const mobile = useMobile();
-  const { toast, cuesSeen, markCue, runs } = useApp();
+  const { toast, guide, markGuide, guideCue, setGuideCue, runs } = useApp();
   const fresh = useFresh();
   const sum = useOp('pipeline.summary', {});
   const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 1 });
@@ -147,10 +147,24 @@ function Shell() {
   const ask = askOpen && (
     <Ask roleId={roleId} screen={shown?.screen ?? null} session={askSession} onSession={setAskSession} onClose={() => setAskOpen(false)} />
   );
-  const cue = pendingCue(cueFor(flow ? null : (shown?.screen ?? null), askOpen), cuesSeen);
-  const dismissCue = useCallback(() => {
-    if (cue) markCue(cue);
-  }, [cue, markCue]);
+
+  // Getting started (#24): the steps not read from the pipeline are flags set on arrival, once.
+  const scored = sum.data ? scoredCount(sum.data.counts) > 0 : false;
+  const shownScreen = shown?.screen ?? null;
+  useEffect(() => {
+    if (!guide || guide.done) return;
+    if (shownScreen === 'settings' && !guide.policy) markGuide({ policy: true });
+    if ((shownScreen === 'river' || shownScreen === 'needs-you') && scored && !guide.review) markGuide({ review: true });
+  }, [shownScreen, guide, scored, markGuide]);
+  // A step's cue lives on the route the card opened; leaving it drops the cue.
+  const cueKey = useRef(routeKey);
+  useEffect(() => {
+    if (cueKey.current === routeKey) return;
+    cueKey.current = routeKey;
+    if (guideCue && guideCue.at !== routeKey) setGuideCue(null);
+  }, [routeKey, guideCue, setGuideCue]);
+  const cue = guideCue && guideCue.at === routeKey && shown?.screen === route.screen && !flow && !askOpen ? guideCue.step : null;
+  const dismissCue = useCallback(() => setGuideCue(null), [setGuideCue]);
 
   return (
     <LayoutCtx.Provider value={{ mobile, slot }}>
@@ -198,7 +212,7 @@ function Shell() {
           </div>
         )}
         <Toast text={toast?.text ?? null} tone={toast?.tone} action={toast?.action} />
-        {cue && <Cue key={cue} id={cue} label={CUES[cue]} target={CUE_TARGET[cue]} onDismiss={dismissCue} />}
+        {cue && <Cue key={cue} id={cue} label={STEP_CUE[cue]} target={STEP_TARGET[cue]} onDismiss={dismissCue} />}
         {!askOpen && !mobile && !flow && <AskPill onOpen={() => setAskOpen(true)} />}
         {ask}
       </div>

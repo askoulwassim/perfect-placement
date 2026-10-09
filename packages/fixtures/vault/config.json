@@ -66,6 +66,10 @@
     "scout_score": "fri 05:30"
   },
   "ui": {
-    "cues_seen": []
+    "guide": {
+      "policy": true,
+      "review": true,
+      "done": true
+    }
   }
 }

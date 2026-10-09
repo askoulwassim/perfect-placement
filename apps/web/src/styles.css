@@ -66,7 +66,7 @@ button:focus-visible,
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-/* First-visit cue (wave1-decisions #27). */
+/* Getting started step cue (#24). */
 @keyframes ppCue {
   from {
     opacity: 0;

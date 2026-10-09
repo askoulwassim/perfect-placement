@@ -1,5 +1,6 @@
 import { CRITERION_LABELS, type Criterion, type Decision } from '@perfect-placement/contracts';
 import { useAct, useApp, useOp } from '../client/context';
+import { GuideCard } from '../components/Guide';
 import { whoOf } from '../components/glyphs';
 import { CountTile, HeroRing } from '../components/meters';
 import { AutoRow, RoleCard } from '../components/roles';
@@ -64,6 +65,7 @@ export function Now() {
   if (mobile)
     return (
       <Screen label="Now · mobile" eyebrow={dayEyebrow(t)} title="Now" primary={primary}>
+        <GuideCard mobile />
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <HeroRing mobile count={need} fill={s?.auto_share_24h ?? 0} onClick={goQueue} />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -85,6 +87,7 @@ export function Now() {
 
   return (
     <Screen label="Now" eyebrow={dayEyebrow(t)} title="Now" primary={primary}>
+      <GuideCard />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 40, alignItems: 'center', marginTop: 40 }}>
         <HeroRing count={need} fill={s?.auto_share_24h ?? 0} onClick={goQueue} />
         <div style={{ flex: 1, minWidth: 420, display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 16 }}>

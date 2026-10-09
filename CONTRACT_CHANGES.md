@@ -515,6 +515,15 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Change: optional `ui: { cues_seen: string[] }` (default `[]`): ids of the one-time first-visit cues already dismissed (wave1-decisions #27). The web UI saves it with `config.update { patch: { ui: { cues_seen } } }` (arrays replace); Settings "Show cues" saves `[]`. `DEFAULT_CONFIG` gains `ui: { cues_seen: [] }`. Mock mode keeps it in memory.
 - Why: cues are shown once per screen and must stay dismissed across browsers and restarts, so the state lives in the vault, not localStorage.
 - Shim: none (optional; a config.json without `ui` parses as before).
+- Status: accepted (superseded by "Getting started flags in config", 2026-10-09)
+
+### Getting started flags in config; `ui.cues_seen` retired (#24, #43)
+- Lane: guided-path (D)
+- Date: 2026-10-09
+- Contract: packages/contracts/src/policy.ts (new `GuideState`, `DEFAULT_GUIDE`; `PolicyConfig.ui`, `DEFAULT_CONFIG.ui`)
+- Change: `ui` is now `{ guide: { policy: boolean, review: boolean, done: boolean } }` (each default `false`; `ui` itself stays optional). `policy`: Settings was opened; `review`: River or Needs you was opened with scored roles; `done`: every Getting started step is finished and the card never shows again. The web UI sets them with `config.update { patch: { ui: { guide: { <flag>: true } } } }`; nothing in the UI clears them. Dev-only reset through `pp op config.update`. `ui.cues_seen` is removed: an older config.json that has it parses unchanged (the key is dropped on the next write). Fixture config (`FIXTURE_CONFIG`) has the guide finished (an established search); tests that walk the path patch it back.
+- Why: the per-screen cues had no order and no "why", and a "Show cues" setting is not something a user should manage; guidance is a story that runs once and goes away (#24, #43).
+- Shim: none (optional; an unknown `cues_seen` is stripped by the schema).
 - Status: accepted
 
 ## Run status

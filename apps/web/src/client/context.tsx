@@ -1,5 +1,7 @@
 import {
   DEFAULT_CONFIG,
+  DEFAULT_GUIDE,
+  type GuideState,
   OPS,
   type OpName,
   type OpOutcome,
@@ -8,9 +10,15 @@ import {
   type Thresholds,
 } from '@perfect-placement/contracts';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { GuideStepId } from '../lib/guide';
 import { isActive, matches, type RunScope, runToast } from '../lib/runs';
 import { go } from '../router';
 import type { In, OpClient, Out } from './types';
+
+export interface GuideCue {
+  step: GuideStepId;
+  at: string;
+}
 
 export interface ToastAction {
   label: string;
@@ -57,14 +65,18 @@ interface Ctx {
   /** The queued or running run a start button is scoped to, if any. */
   activeRun: (scope: RunScope) => Run | undefined;
   /**
-   * First-visit cues already dismissed (wave1-decisions #27), from `config.ui.cues_seen`.
-   * `null` until config has loaded (no cue shows before we know).
+   * Getting started flags (#24), from `config.ui.guide`. `null` until config has loaded (no guide shows
+   * before we know).
    */
-  cuesSeen: readonly string[] | null;
-  /** Dismiss a cue for good: saved in the vault with `config.update`; in memory when that fails (mock). */
-  markCue: (id: string) => void;
-  /** Replace the seen list (Settings "Show cues": [] shows every cue again). */
-  setCues: (ids: readonly string[]) => Promise<void>;
+  guide: GuideState | null;
+  /** Set guide flags for good: saved in the vault with `config.update`; in memory when that fails (mock). */
+  markGuide: (patch: Partial<GuideState>) => void;
+  /**
+   * The step whose one-sentence cue shows on arrival at `at` (the step's route href): set by the Getting
+   * started card, cleared by any click or by leaving that route.
+   */
+  guideCue: GuideCue | null;
+  setGuideCue: (c: GuideCue | null) => void;
 }
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -161,34 +173,35 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
   }, [client, pollMs, bump, ended, putRuns, kick]);
   const activeRun = useCallback((scope: RunScope) => runs.find((r) => isActive(r.status) && matches(r, scope)), [runs]);
 
-  // Seen cues live apart from `config` so saving one never resets a screen's unsaved config edits.
-  const [cuesSeen, setCuesSeen] = useState<readonly string[] | null>(null);
-  const seenRef = useRef<readonly string[] | null>(null);
-  /** True once a save failed (mock, offline): the in-memory list is then the truth. */
-  const seenLocal = useRef(false);
-  const seenSaving = useRef(0);
-  const putSeen = useCallback((ids: readonly string[]) => {
-    seenRef.current = ids;
-    setCuesSeen(ids);
+  // Guide flags live apart from `config` so saving one never resets a screen's unsaved config edits.
+  const [guide, setGuide] = useState<GuideState | null>(null);
+  const guideRef = useRef<GuideState | null>(null);
+  /** True once a save failed (mock, offline): the in-memory flags are then the truth. */
+  const guideLocal = useRef(false);
+  const guideSaving = useRef(0);
+  const [guideCue, setGuideCue] = useState<GuideCue | null>(null);
+  const putGuide = useCallback((g: GuideState) => {
+    guideRef.current = g;
+    setGuide(g);
   }, []);
-  const saveSeen = useCallback(
-    async (ids: readonly string[]) => {
-      putSeen(ids);
-      // Not through useAct: no refetch, no toast. The mock refuses writes; the list stays in memory.
-      seenSaving.current++;
-      const o = await client.run('config.update', { patch: { ui: { cues_seen: [...ids] } } }).finally(() => {
-        seenSaving.current--;
-      });
-      if (o.status !== 'ok') seenLocal.current = true;
+  const markGuide = useCallback(
+    (patch: Partial<GuideState>) => {
+      const cur = guideRef.current ?? DEFAULT_GUIDE;
+      if (Object.entries(patch).every(([k, v]) => cur[k as keyof GuideState] === v)) return;
+      const next = { ...cur, ...patch };
+      putGuide(next);
+      // Not through useAct: no refetch, no toast. The mock refuses writes; the flags stay in memory.
+      guideSaving.current++;
+      void client
+        .run('config.update', { patch: { ui: { guide: patch } } })
+        .finally(() => {
+          guideSaving.current--;
+        })
+        .then((o) => {
+          if (o.status !== 'ok') guideLocal.current = true;
+        });
     },
-    [client, putSeen],
-  );
-  const markCue = useCallback(
-    (id: string) => {
-      const cur = seenRef.current ?? [];
-      if (!cur.includes(id)) void saveSeen([...cur, id]);
-    },
-    [saveSeen],
+    [client, putGuide],
   );
 
   useEffect(() => {
@@ -198,16 +211,19 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
       if (live && o.status === 'ok') {
         setConfig(o.output);
         setThresholds(o.output.policy);
-        const stored = o.output.ui?.cues_seen ?? [];
-        // The vault's list wins, unless a save is in flight or failed (mock): then in-memory dismissals are kept.
-        const cur = seenRef.current;
-        putSeen(cur && (seenLocal.current || seenSaving.current > 0) ? [...cur, ...stored.filter((x) => !cur.includes(x))] : stored);
+        const stored = o.output.ui?.guide ?? DEFAULT_GUIDE;
+        // The vault wins, unless a save is in flight or failed (mock): then flags set in memory are kept.
+        const cur = guideRef.current;
+        const keep = cur && (guideLocal.current || guideSaving.current > 0);
+        putGuide(
+          keep ? { policy: cur.policy || stored.policy, review: cur.review || stored.review, done: cur.done || stored.done } : stored,
+        );
       }
     });
     return () => {
       live = false;
     };
-  }, [client, version, putSeen]);
+  }, [client, version, putGuide]);
 
   const value = useMemo<Ctx>(
     () => ({
@@ -223,11 +239,12 @@ export function ClientProvider({ client, now, pollMs = 2000, children }: ClientP
       watchRun,
       runs,
       activeRun,
-      cuesSeen,
-      markCue,
-      setCues: saveSeen,
+      guide,
+      markGuide,
+      guideCue,
+      setGuideCue,
     }),
-    [client, version, bump, now, config, thresholds, toast, showToast, watchRun, runs, activeRun, cuesSeen, markCue, saveSeen],
+    [client, version, bump, now, config, thresholds, toast, showToast, watchRun, runs, activeRun, guide, markGuide, guideCue],
   );
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
