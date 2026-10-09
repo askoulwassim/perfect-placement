@@ -140,3 +140,23 @@ export function duration(r: Run, now: Date): string {
   if (m < 60) return `${m}m`;
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
+
+/**
+ * Score inbox roles (#31): the one `runs.start` input for a score run. No role = every inbox role
+ * (the River's Inbox column, and the automatic pipeline in #30); a role = that role only (Role screen, rescore).
+ */
+export function scoreInput(roleId?: string): RunScope {
+  return { skill: 'score', ...(roleId ? { role_id: roleId } : {}) };
+}
+
+/**
+ * The queued or running score run that covers a role: its own run or an all-inbox run. With no role,
+ * only an all-inbox run counts (a one-role run does not score the rest).
+ */
+export function scoreRunFor(runs: readonly Run[], roleId?: string): Run | undefined {
+  return runs.find((r) => {
+    if (r.op !== 'score' || !isActive(r.status)) return false;
+    const s = summaryOf(r).role_id;
+    return !s || (roleId !== undefined && s === roleId);
+  });
+}

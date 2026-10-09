@@ -222,6 +222,7 @@ export function RiverColumn({
   dotChildren,
   onDrop,
   onDragOver,
+  action,
 }: {
   status: RoleStatus;
   count: number;
@@ -232,6 +233,8 @@ export function RiverColumn({
   dotChildren?: ReactNode;
   onDrop?: (e: DragEvent) => void;
   onDragOver?: (e: DragEvent) => void;
+  /** A column action under the header (Inbox: Score all). */
+  action?: ReactNode;
 }) {
   const color = STATUS_HEX[status];
   const allowed = state === 'drop-allowed';
@@ -257,7 +260,8 @@ export function RiverColumn({
         <div style={{ ...eyebrow(color, 10.5), whiteSpace: 'nowrap' }}>{STATUS_LABEL[status]}</div>
         <div style={{ ...display(26, 800, '-0.03em'), ...tab, lineHeight: 1 }}>{count}</div>
       </div>
-      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: 16 }} />
+      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: action ? 10 : 16 }} />
+      {action}
       {!dots && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>}
       {dots && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12, alignItems: 'center' }}>{dotChildren}</div>}
     </section>

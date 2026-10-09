@@ -9,7 +9,7 @@ description: Judge C1..C9 and facts for inbox roles (blind for C1, C2, C3, C4, C
 
 ## Inputs
 
-- Roles in `inbox` (`roles.list { status: 'inbox' }`) or roles a profile change asks to rescore.
+- Roles in `inbox` (`roles.list { status: 'inbox' }`) or roles a profile change asks to rescore. A run started for one role (`role_id` given) scores that role only; a run without one scores every inbox role.
 - The JD for each role (`roles/<role_id>.md` in the vault; capture the full JD first if only a title is on file).
 - The current profile (`profile.get`): Craft, Domain, Team, Growth, Terms, Work mode, Dealbreakers.
 

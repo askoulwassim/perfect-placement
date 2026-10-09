@@ -7,7 +7,7 @@ import { ArchivedColumn, type ColumnState, RiverColumn, RiverDot, RiverTile } fr
 import { C, display, eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import type { RoleView } from '../lib/role';
-import { activeLabel } from '../lib/runs';
+import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { tile } from '../lib/view';
 import { go } from '../router';
 
@@ -28,7 +28,7 @@ export const canMove = (from: RoleStatus, to: RoleStatus) => MANUAL_MOVES.some((
 type FilterKey = 'band' | 'fresh' | 'company' | 'mode';
 
 export function River() {
-  const { now, config, showToast, watchRun, activeRun } = useApp();
+  const { now, config, showToast, watchRun, activeRun, runs } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const list = useOp('roles.list', { limit: 500 });
@@ -91,6 +91,35 @@ export function River() {
   };
 
   const cols = RIVER_COLUMNS.map((s) => ({ s, roles: live.filter((v) => v.role.status === s) }));
+
+  // Score inbox roles (#31): one click scores every inbox role; the button follows the run.
+  const scoring = scoreRunFor(runs);
+  const inboxCount = cols[0]?.roles.length ?? 0;
+  const scoreAll = (scoring || inboxCount > 0) && (
+    <Btn
+      op="runs.start"
+      className="river-score"
+      disabled={!!scoring}
+      onClick={async () => {
+        const o = await act('runs.start', scoreInput());
+        if (o.status === 'ok') watchRun(o.output.run);
+      }}
+      style={{
+        width: '100%',
+        height: 30,
+        marginBottom: 12,
+        borderRadius: 8,
+        border: `1px solid ${C['line-2']}`,
+        background: 'transparent',
+        color: scoring ? C.muted : C.fg,
+        fontSize: 12.5,
+        fontWeight: 600,
+      }}
+      hover={{ borderColor: STATUS_HEX.inbox, color: C.fg }}
+    >
+      {scoring ? activeLabel(scoring) : 'Score all'}
+    </Btn>
+  );
 
   if (mobile) {
     const max = Math.max(1, ...cols.map((c) => c.roles.length));
@@ -231,6 +260,7 @@ export function River() {
               width={zoom === 'tiles' ? 218 : 128}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => void onDrop(e, s)}
+              action={s === 'inbox' ? scoreAll : undefined}
               dotChildren={roles.map((v) => (
                 <RiverDot
                   key={v.role.id}

@@ -1,4 +1,4 @@
-import { FORBIDDEN_BUTTON_LABELS, OP_NAMES } from '@perfect-placement/contracts';
+import { FORBIDDEN_BUTTON_LABELS, OP_NAMES, OPS, type OpName } from '@perfect-placement/contracts';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -58,6 +58,9 @@ function assertButtons(container: HTMLElement) {
 const primary = (container: HTMLElement) => container.querySelector('.btn--primary') as HTMLButtonElement;
 const nextQ = (container: HTMLElement) => container.querySelector('.decision__q')?.textContent ?? 'clear';
 const opsCalled = () => live?.calls.map((c) => c.name) ?? [];
+/** Write ops called so far. Read-only calls (the background runs.list poll, refetches) vary with timing. */
+const writes = () =>
+  live?.calls.filter((c) => !(OPS[c.name as OpName] as { readOnly?: true } | undefined)?.readOnly).map((c) => c.name) ?? [];
 const queueCalls = () => live?.calls.filter((c) => c.name === 'decisions.queue').length ?? 0;
 
 /**
@@ -88,6 +91,7 @@ describe('screens', () => {
     ['#/needs-you', 'Accept'],
     ['#/river', 'Scout now'],
     [`#/role/${R.stripeOnDeck}`, 'Research'],
+    [`#/role/${R.notionInbox}`, 'Score'],
     [`#/people/${R.linearDraft}`, 'Draft for Maya'],
     ['#/outreach/or_0001', 'Create Gmail draft'],
     ['#/you', 'Review 2 diff'],
@@ -241,10 +245,11 @@ describe('click paths', () => {
         .map((b) => b.textContent)
         .join('|');
     const before = text();
-    const calls = live?.calls.length;
+    const wrote = writes();
     fireEvent.click(screen.getByText('Coffee or intro'));
     await waitFor(() => expect(text()).not.toBe(before));
-    expect(live?.calls.length).toBe(calls);
+    // Local only: no write op (read-only polling such as runs.list may still tick).
+    expect(writes()).toEqual(wrote);
     expect(screen.getByText('Coffee or intro').closest('button')?.getAttribute('data-op')).toBe('local');
   });
 
@@ -493,6 +498,39 @@ describe('run status (#21)', () => {
     await live?.as('agent', 'runs.finish', { run_id: lastRun(), status: 'ok' });
     await waitFor(() => expect(toast().textContent).toBe('Research done'));
     await waitFor(() => expect(primary(container).textContent).not.toBe('Researching'));
+  });
+
+  it('River: Score all scores every inbox role in one click, shows Scoring, then a toast', async () => {
+    const { container } = await boot('#/river', quiet);
+    const btn = () => $<HTMLButtonElement>(container, '.river-col[data-status="inbox"] .river-score');
+    await waitFor(() => expect(btn().textContent).toBe('Score all'));
+    expect(btn().getAttribute('data-op')).toBe('runs.start');
+    fireEvent.click(btn());
+    await waitFor(() => expect(btn().textContent).toBe('Scoring'));
+    expect(btn().disabled).toBe(true);
+    expect(live?.calls.filter((c) => c.name === 'runs.start').at(-1)?.body).toEqual({ skill: 'score' });
+    const got = await live?.client.run('runs.get', { run_id: lastRun() });
+    expect(got?.status === 'ok' && got.output.run.op).toBe('score');
+    // The River's own primary stays Scout now.
+    expect(primary(container).textContent).toBe('Scout now');
+    await live?.as('agent', 'runs.finish', { run_id: lastRun(), status: 'ok', summary: { scored: 3 } });
+    await waitFor(() => expect(toast().textContent).toBe('Score done · 3 scored'));
+    await waitFor(() => expect(btn().textContent).toBe('Score all'));
+    expect(live?.calls.filter((c) => c.name === 'runs.start')).toHaveLength(1);
+  });
+
+  it('Role: an inbox role scores in one click; an all-inbox run also shows Scoring', async () => {
+    const { container } = await boot(`#/role/${R.notionInbox}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Score'));
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(primary(container).textContent).toBe('Scoring'));
+    expect(primary(container).disabled).toBe(true);
+    expect(live?.calls.filter((c) => c.name === 'runs.start').at(-1)?.body).toEqual({ skill: 'score', role_id: R.notionInbox });
+    await live?.as('agent', 'runs.finish', { run_id: lastRun(), status: 'ok' });
+    await waitFor(() => expect(primary(container).textContent).toBe('Score'));
+    // A score run for every inbox role (River, a schedule, the pipeline) covers this role too.
+    await live?.as('schedule', 'runs.start', { skill: 'score' });
+    await waitFor(() => expect(primary(container).textContent).toBe('Scoring'), { timeout: 3000 });
   });
 
   it('runs started elsewhere (a schedule) show on the rail; Runs lists them, Settings shows the latest', async () => {

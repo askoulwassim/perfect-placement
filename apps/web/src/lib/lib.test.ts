@@ -5,7 +5,7 @@ import { probColor } from '../components/theme';
 import { nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, type Person } from './people';
-import { activeLabel, duration, isActive, matches, retryInput, runOutcome, runToast } from './runs';
+import { activeLabel, duration, isActive, matches, retryInput, runOutcome, runToast, scoreInput, scoreRunFor } from './runs';
 import { stageOf } from './stage';
 
 describe('stageOf', () => {
@@ -116,6 +116,18 @@ describe('runs (#21)', () => {
       skill: 'connect',
       outreach_id: 'or_1',
     });
+  });
+  it('score runs (#31): one input for all inbox or one role; an all-inbox run covers every role', () => {
+    expect(scoreInput()).toEqual({ skill: 'score' });
+    expect(scoreInput('a_b')).toEqual({ skill: 'score', role_id: 'a_b' });
+    const all = run({ id: 'rn_all', op: 'score', summary_json: { skill: 'score' } });
+    const one = run({ id: 'rn_one', op: 'score', summary_json: { skill: 'score', role_id: 'a_b' } });
+    expect(scoreRunFor([one])).toBeUndefined();
+    expect(scoreRunFor([one], 'a_b')?.id).toBe('rn_one');
+    expect(scoreRunFor([one], 'c_d')).toBeUndefined();
+    expect(scoreRunFor([all], 'c_d')?.id).toBe('rn_all');
+    expect(scoreRunFor([{ ...all, status: 'ok' }, run({})])).toBeUndefined();
+    expect(activeLabel(all)).toBe('Scoring');
   });
   it('shows duration', () => {
     expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');

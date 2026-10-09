@@ -10,7 +10,7 @@ import { Screen, useLayout } from '../layout';
 import { ago, compRange, humanize } from '../lib/format';
 import { bestPath, initials } from '../lib/people';
 import { criteriaOf, freshOf } from '../lib/role';
-import { activeLabel } from '../lib/runs';
+import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { STAGE_SKILL, STAGES, stageOf } from '../lib/stage';
 import { type DocLine, docLines, tile } from '../lib/view';
 import { go } from '../router';
@@ -25,7 +25,7 @@ const TABS = [
 type Tab = (typeof TABS)[number][0];
 
 export function RoleScreen({ roleId }: { roleId: string }) {
-  const { now, config, showToast, watchRun, activeRun } = useApp();
+  const { now, config, showToast, watchRun, activeRun, runs } = useApp();
   const { mobile } = useLayout();
   const act = useAct();
   const res = useOp('roles.get', { role_id: roleId });
@@ -65,30 +65,42 @@ export function RoleScreen({ roleId }: { roleId: string }) {
     else go({ screen: 'people', roleId: role.id });
   };
 
+  // An inbox role is unscored (#31): scoring comes first. Its run, or an all-inbox score run, shows "Scoring".
+  const scoring = role.status === 'inbox' ? scoreRunFor(runs, role.id) : undefined;
   const primary =
-    stage === 4
+    role.status === 'inbox'
       ? {
-          label: 'Open portal',
-          op: null,
-          onClick: () => {
-            const url = app?.portal_url ?? role.url;
-            if (url) window.open(url, '_blank', 'noopener');
-            showToast('Portal opened · you submit');
+          label: scoring ? activeLabel(scoring) : 'Score',
+          op: 'runs.start' as const,
+          disabled: !!scoring,
+          onClick: async () => {
+            const o = await act('runs.start', scoreInput(role.id));
+            if (o.status === 'ok') watchRun(o.output.run);
           },
         }
-      : skill
+      : stage === 4
         ? {
-            label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
-            op: 'runs.start' as const,
-            disabled: !!inFlight,
-            onClick: async () => {
-              const o = await act('runs.start', { skill, role_id: role.id });
-              if (o.status !== 'ok') return;
-              watchRun(o.output.run);
-              if (skill === 'connect') go({ screen: 'people', roleId: role.id });
+            label: 'Open portal',
+            op: null,
+            onClick: () => {
+              const url = app?.portal_url ?? role.url;
+              if (url) window.open(url, '_blank', 'noopener');
+              showToast('Portal opened · you submit');
             },
           }
-        : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
+        : skill
+          ? {
+              label: inFlight ? activeLabel(inFlight) : (STAGES[stage] as string),
+              op: 'runs.start' as const,
+              disabled: !!inFlight,
+              onClick: async () => {
+                const o = await act('runs.start', { skill, role_id: role.id });
+                if (o.status !== 'ok') return;
+                watchRun(o.output.run);
+                if (skill === 'connect') go({ screen: 'people', roleId: role.id });
+              },
+            }
+          : { label: 'Open River', op: null, onClick: () => go({ screen: 'river' }) };
 
   const tabs = (m: boolean) => (
     <div
