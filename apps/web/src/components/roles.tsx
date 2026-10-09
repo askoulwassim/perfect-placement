@@ -1,6 +1,6 @@
 import type { ArchiveReason, RoleStatus } from '@perfect-placement/contracts';
-import { type DragEvent, type MouseEvent, type ReactNode, useState } from 'react';
-import { Btn, useHover } from './Btn';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
+import { Btn } from './Btn';
 import { ReasonChip, STATUS_HEX, STATUS_LABEL } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph, type WhoKind } from './glyphs';
 import { C, display, ellipsis, eyebrow, mono, tab } from './theme';
@@ -211,17 +211,14 @@ export function RiverTile({
 
 /** An Inbox tile with its menu (#77): Pass shows on hover or focus; Shift-click selects. */
 export function InboxTile({ onPass, ...tile }: Parameters<typeof RiverTile>[0] & { onPass: () => void }) {
-  const [hover, bind] = useHover();
-  const [focus, setFocus] = useState(false);
+  // Pass shows on tile hover or keyboard focus via CSS (styles.css), never JS hover state (#101).
   return (
-    <div className="inbox-tile" {...bind} style={{ position: 'relative' }}>
+    <div className="inbox-tile" style={{ position: 'relative' }}>
       <RiverTile {...tile} />
       <Btn
         op="roles.archive"
         className="tile-pass"
         aria-label={`Pass ${tile.r.co}`}
-        onFocus={() => setFocus(true)}
-        onBlur={() => setFocus(false)}
         onClick={onPass}
         style={{
           position: 'absolute',
@@ -235,7 +232,6 @@ export function InboxTile({ onPass, ...tile }: Parameters<typeof RiverTile>[0] &
           color: C.muted,
           fontSize: 11,
           fontWeight: 600,
-          opacity: hover || focus ? 1 : 0,
           transition: 'opacity .15s',
         }}
         hover={{ borderColor: C.coral, color: C.coral }}
@@ -393,13 +389,13 @@ export function AutoRow({
   mobile?: boolean;
 }) {
   const canUndo = undoable && !undone;
+  // Desktop rows reveal Undo on row hover via CSS (styles.css); mobile always shows it (#101).
   const undoBtn = (visible: boolean) => (
     <Btn
       op="decisions.undo"
-      className="auto-row__undo"
+      className={visible ? 'auto-row__undo is-shown' : 'auto-row__undo'}
       onClick={onUndo}
       style={{
-        opacity: visible ? 1 : 0,
         background: 'transparent',
         border: `1px solid ${C['line-2']}`,
         color: C.fg,
@@ -424,26 +420,23 @@ export function AutoRow({
     );
   return (
     <HoverRow undone={undone}>
-      {(hover) => (
-        <>
-          <WhoDecidesGlyph kind={glyph} left={left} />
-          <div style={{ fontSize: 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
-          <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap' }}>{undone ? 'undone' : action}</div>
-          <div style={{ flex: 1 }} />
-          {canUndo && undoBtn(hover)}
-          <div style={{ ...mono(12, C.dim), ...tab, width: 40, textAlign: 'right' }}>{time}</div>
-        </>
-      )}
+      <>
+        <WhoDecidesGlyph kind={glyph} left={left} />
+        <div style={{ fontSize: 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
+        <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap' }}>{undone ? 'undone' : action}</div>
+        <div style={{ flex: 1 }} />
+        {canUndo && undoBtn(false)}
+        <div style={{ ...mono(12, C.dim), ...tab, width: 40, textAlign: 'right' }}>{time}</div>
+      </>
     </HoverRow>
   );
 }
 
-function HoverRow({ undone, children }: { undone?: boolean; children: (hover: boolean) => ReactNode }) {
-  const [hover, bind] = useHover();
+/** A desktop activity row: its hover background is CSS (`.auto-row--hover` in styles.css), not JS state (#101). */
+function HoverRow({ undone, children }: { undone?: boolean; children: ReactNode }) {
   return (
     <div
-      className={`auto-row ${undone ? 'is-undone' : ''}`}
-      {...bind}
+      className={`auto-row auto-row--hover ${undone ? 'is-undone' : ''}`}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -451,11 +444,11 @@ function HoverRow({ undone, children }: { undone?: boolean; children: (hover: bo
         height: 46,
         padding: '0 14px',
         borderRadius: 10,
-        background: hover ? C.panel : 'transparent',
+        background: 'transparent',
         opacity: undone ? 0.45 : 1,
       }}
     >
-      {children(hover)}
+      {children}
     </div>
   );
 }

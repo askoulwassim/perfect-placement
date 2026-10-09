@@ -14,19 +14,62 @@ a {
   color: var(--pp-color-emerald);
   text-decoration: none;
 }
-a:hover {
-  color: var(--pp-color-emerald-hover);
-}
 button {
   font-family: inherit;
 }
 input[type="range"] {
   accent-color: var(--pp-color-emerald);
 }
+/*
+ * Hover and focus (#101). Hover is CSS only, and only on devices that really
+ * hover, so a tap or a click can never leave a highlight behind. Btn hover
+ * objects become injected `.pp-h-*:hover` rules under the same media query.
+ * Focus rings use :focus-visible (keyboard), never :focus (which sticks after
+ * a click). Colors come from tokens.
+ */
 button:focus-visible,
+a:focus-visible,
 [role="slider"]:focus-visible {
   outline: var(--pp-focus-ring);
   outline-offset: var(--pp-focus-offset);
+}
+button:focus:not(:focus-visible) {
+  outline: none;
+}
+.inbox-tile .tile-pass,
+.auto-row--hover .auto-row__undo:not(.is-shown) {
+  opacity: 0;
+}
+.rail-tip {
+  display: none;
+}
+.inbox-tile .tile-pass:focus-visible,
+.auto-row--hover .auto-row__undo:focus-visible {
+  opacity: 1;
+}
+.rail-item:has(:focus-visible) .rail-tip {
+  display: block;
+}
+@media (hover: hover) {
+  a:hover {
+    color: var(--pp-color-emerald-hover);
+  }
+  .inbox-tile:hover .tile-pass,
+  .auto-row--hover:hover .auto-row__undo {
+    opacity: 1;
+  }
+  .auto-row--hover:hover {
+    background: var(--pp-color-panel) !important;
+  }
+  .rail-item:hover .rail-tip {
+    display: block;
+  }
+}
+@media (hover: none) {
+  /* No hover to reveal it on touch: the Pass menu is always shown. */
+  .inbox-tile .tile-pass {
+    opacity: 1;
+  }
 }
 @keyframes ppBounce {
   0% {

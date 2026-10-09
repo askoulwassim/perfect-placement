@@ -14,6 +14,8 @@ Fonts: Bricolage Grotesque (display), Figtree (UI), JetBrains Mono (mono). Type 
 
 Space: 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56. Layout: rail 76, page pad x 48 / top 32, max width 1440, decision card max 720, side panel 380, mobile 390, mobile tab bar 70. Radius: card 12, button 10, small 8, chip 999, phone 36. Controls: button 44, chip 34, mobile hit 44, mobile primary 50. Focus: 2px solid emerald, offset 2. Motion: fast 150ms, base 250ms, ring 600ms ease, bounce 450ms.
 
+Hover and focus (#101): hover is CSS only, under `@media (hover: hover)` (a Btn `hover` object becomes an injected `.pp-h-*:hover:not(:disabled)` rule), so a click or a tap never leaves a highlight behind; focus rings use `:focus-visible`, never `:focus`. No JS hover state (`onMouseEnter`/`onMouseLeave`); `hover.test.tsx` enforces both.
+
 ## 2. Component inventory
 
 RoleTile, FreshnessRing, BandDot, WhoDecidesGlyph (auto, second, undo, you), PrimaryButton, SecondaryButton, Chip (fact, filter, impact, status, reason, diff-before, diff-after, evidence), StatusChip, ImpactChip, ProbabilityBar (colored by policy thresholds), HeroRing (= NeedsYouRing), CountTile, AutoRow, RoleCard, RiverColumn, RiverTile, ScoreRadar, AffinityChip, StageRail, ContactAvatar (5 tiers), BestPathPill, PeopleGraph, DraftStatusChip, OutreachBlock, ToneChips, ProfileNode, DiffBlock, VersionTimeline, DecisionCard, ProgressDots, CommandBar, PolicyGrid, Toggle, BackendCard, Toast, NavRail / TabBar. Props and states: `packages/contracts/src/ui.ts`.
