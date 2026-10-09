@@ -16,3 +16,22 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm lint
+  fresh-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: shellcheck
+        run: shellcheck -s sh install.sh scripts/fresh-install-smoke.sh
+      - name: install.sh --check
+        run: ./install.sh --check
+      - name: install.sh (corepack pnpm, launchers in ~/.local/bin)
+        run: ./install.sh
+      - name: setup, up, write, restart, read back
+        env:
+          OPENUI_TELEMETRY_DISABLED: '1'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          PP_HOME="$RUNNER_TEMP/pp-vault" PP=pp scripts/fresh-install-smoke.sh

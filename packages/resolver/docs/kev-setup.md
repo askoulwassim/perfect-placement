@@ -1,5 +1,7 @@
 # Kev setup (local System One backend, MLX on Apple Silicon)
 
+**Managed path (recommended):** `pp kev install [--model kev-0.8b]` then `pp up` (starts Kev on demand) or `pp kev start|stop|status`. It clones Kev into `$PP_HOME/kev/repo`, runs `uv sync --extra serve`, serves `--run <hub>@<pinned revision>` on the port from `backends.kev.baseUrl`, and stores the model in `backends.kev.model`. The manual steps below are what it automates.
+
 Kev is the open-weights System One model (Apache-2.0, Qwen-based, https://github.com/jaredpalmer/kev). It serves the same `POST /v1/systemone` API as Jev, so the resolver uses one adapter for both and only switches the base URL. Kev is the fallback when Jev is unreachable and the default for open-source installs.
 
 Source: the Kev README (checked 2026-10-08). Nothing here was run as part of lane I: no weights were downloaded.
@@ -63,7 +65,7 @@ For an install without a Jev key, set `"default": "kev"` (the resolver skips Jev
 
 ## 6. Keep it running (optional)
 
-A user LaunchAgent (`~/Library/LaunchAgents/ai.kev.serve.plist`) with `ProgramArguments` set to the `uv run ...` command above, `WorkingDirectory` set to the clone, and `KeepAlive` true. Wave 2 decides whether `pp up` starts Kev itself.
+`pp up` starts an installed Kev when it is not answering and stops it on exit (only if it started it). For an always-on Kev instead: a user LaunchAgent (`~/Library/LaunchAgents/ai.kev.serve.plist`) with `ProgramArguments` set to the `uv run ...` command above, `WorkingDirectory` set to the clone, and `KeepAlive` true; `pp up` then leaves it alone.
 
 ## 7. Evaluate against Jev and the LLM
 

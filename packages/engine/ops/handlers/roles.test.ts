@@ -41,7 +41,7 @@ describe('roles.add', () => {
     const role = e.db.prepare('SELECT * FROM role WHERE id = ?').get('acme-robotics_principal-pm-data') as Record<string, unknown>;
     expect(role).toMatchObject({ status: 'inbox', ats_job_id: '9900001', remote_ok: 1, company_id: 'acme-robotics' });
     expect(e.db.prepare(`SELECT * FROM company WHERE id = 'acme-robotics'`).get()).toMatchObject({
-      name: 'Acme Robotics',
+      name: 'Acme Robotics, Inc.',
       domain: 'acme.dev',
       ats_type: 'greenhouse',
       ats_board: 'acme',
@@ -110,6 +110,35 @@ describe('roles.add', () => {
       archive_reason: 'duplicate',
     });
     expect(events('role_skipped', id)).toBe(0);
+  });
+
+  it('keeps the company display name as given; legal suffixes only shape the slug and dedupe', async () => {
+    const a = okOut(
+      await e.runOp('roles.add', { candidates: [{ company_name: '  Example Co ', title: 'Data PM', source: 'link' }] }, ctxAt()),
+    ) as { added: string[] };
+    expect(a.added).toEqual(['example_data-pm']);
+    expect(e.db.prepare(`SELECT id, slug, name FROM company WHERE id = 'example'`).get()).toEqual({
+      id: 'example',
+      slug: 'example',
+      name: 'Example Co',
+    });
+    const b = okOut(
+      await e.runOp(
+        'roles.add',
+        {
+          candidates: [
+            { company_name: 'Acme, Inc.', title: 'Head of Data', source: 'link' },
+            { company_name: 'Acme', title: 'Head of AI Platform', source: 'link' },
+            { company_name: 'Acme', title: 'Head of Data', source: 'link' },
+          ],
+        },
+        ctxAt(),
+      ),
+    ) as { added: string[]; duplicates: { index: number; existing_id: string; match: string }[] };
+    expect(b.added).toEqual(['acme_head-of-data', 'acme_head-of-ai-platform']);
+    expect(b.duplicates).toEqual([{ index: 2, existing_id: 'acme_head-of-data', match: 'company_title' }]);
+    expect(e.db.prepare(`SELECT name FROM company WHERE id = 'acme'`).get()).toEqual({ name: 'Acme, Inc.' });
+    expect((e.db.prepare(`SELECT count(*) n FROM company WHERE id LIKE 'acme%'`).get() as { n: number }).n).toBe(1);
   });
 
   it('suffixes colliding role ids', () => {
