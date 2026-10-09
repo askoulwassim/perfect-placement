@@ -23,7 +23,8 @@ Wave 2); this skill is the judgment the loop asks for when an LLM backend is an 
      `before` from the data anyway).
    - `evidence`: short factual lines pointing at the event(s): role id, stage, quoted feedback. No speculation.
    - Return nothing when on reflection nothing should change.
-   - Keep the component's schema (see `packages/engine/profile/components.ts`). Never change `criterion_weights` by more
+   - Keep the component's schema: the same keys and value types `profile.get` returns (the op validates it; the
+     schema is `packages/engine/profile/components.ts` in the repo, never in the vault). Never change `criterion_weights` by more
      than 3 points per criterion from one event.
 3. Then call `profile.propose_diff` `{ component, before, after, evidence, event_id }`, and `profile.apply_diff { diff_id }`
    with your confidence: routing is policy, never your call.

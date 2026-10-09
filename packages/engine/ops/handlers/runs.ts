@@ -2,7 +2,17 @@ import { vaultPath } from '@perfect-placement/contracts';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
 import { get, insert, select, update } from '../rows.js';
-import { buildRunnerSpec, createSpawnLauncher, DEFAULT_SKILLS_DIR, defaultMcpServer, gmailDraftPrompt, skillPrompt } from '../runner.js';
+import {
+  buildRunnerSpec,
+  createSpawnLauncher,
+  DEFAULT_SKILLS_DIR,
+  defaultMcpServer,
+  deniedTools,
+  deniedToolsError,
+  gmailDraftPrompt,
+  type RunnerExit,
+  skillPrompt,
+} from '../runner.js';
 import { defineHandler } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { getRole } from './shared.js';
@@ -91,9 +101,31 @@ export const runsStart = defineHandler('runs.start', {
       const launcher = h.services.launcher ?? createSpawnLauncher();
       const runOp = h.runOp;
       const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+      const skill = input.skill;
+      /** The runner exited and the run is still open: finish it as error, naming denied tools and the fix. */
+      const failIfOpen = async (r: RunnerExit) => {
+        const got = await runOp('runs.get', { run_id: id }, ctx);
+        if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
+        const denied = spec.command === 'claude' ? deniedTools(r.output) : [];
+        const error = denied.length
+          ? deniedToolsError(skill, denied)
+          : `runner ${spec.command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
+        await runOp(
+          'runs.finish',
+          {
+            run_id: id,
+            status: 'error',
+            summary: { error, ...(denied.length ? { denied_tools: denied } : {}), ...(r.logFile ? { runner_log: r.logFile } : {}) },
+            note: `${error}${r.logFile ? `\n\nRunner output: ${r.logFile}` : ''}`,
+          },
+          ctx,
+        );
+      };
       h.afterCommit(async () => {
         try {
-          await launcher.launch(spec);
+          const started = await launcher.launch(spec);
+          // Never awaited: the runner outlives this op. If it ends without runs.finish, fail the run loudly.
+          started.exit?.then((r) => failIfOpen(r)).catch(() => {});
         } catch (e) {
           await runOp(
             'runs.finish',

@@ -1,13 +1,23 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { SKILLS, type Skill } from '@perfect-placement/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ctxAt, type FixtureEngine, fakeLauncher, okOut, openFixtureEngine } from '../testing/index.js';
 import {
   buildRunnerSpec,
+  cursorPermissions,
   DEFAULT_SKILLS_DIR,
   defaultMcpServer,
+  deniedTools,
+  deniedToolsError,
   GMAIL_DRAFT_TOOL,
   gmailDraftPrompt,
   gmailStepSection,
   MCP_SERVER_NAME,
+  resolveRepoRoot,
+  SKILL_ASSETS,
+  SKILL_TOOLS,
+  skillAllowedTools,
   skillPrompt,
 } from './runner.js';
 
@@ -26,7 +36,9 @@ describe('runner command lines', () => {
     expect(cfg).toEqual({
       mcpServers: { [MCP_SERVER_NAME]: { command: 'node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home' } } },
     });
-    expect(s.args).toEqual(expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__pp', '--permission-prompts', 'none']));
+    expect(s.args).toEqual(
+      expect.arrayContaining(['--strict-mcp-config', '--allowedTools', 'mcp__pp,WebSearch,WebFetch', '--permission-prompts', 'none']),
+    );
     expect(s.args).not.toContain('--chrome');
     expect(s.cwd).toBe('/tmp/pp-home');
     expect(s.env).toMatchObject({ PP_HOME: '/tmp/pp-home', PP_RUN_ID: 'rn_1' });
@@ -39,6 +51,9 @@ describe('runner command lines', () => {
       mcp,
     });
     expect(connect.args).toEqual(expect.arrayContaining(['--chrome', '--model', 'opus']));
+    // connect keeps its Chrome handling: pp pre-approved, built-ins not narrowed.
+    expect(connect.args[connect.args.indexOf('--allowedTools') + 1]).toBe('mcp__pp');
+    expect(connect.args).not.toContain('--tools');
   });
 
   it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
@@ -51,6 +66,7 @@ describe('runner command lines', () => {
         'mcp_servers.pp.args=["/x/mcp/dist/bin.js"]',
         'mcp_servers.pp.env.PP_HOME="/tmp/pp-home"',
         'approval_policy="never"',
+        'web_search="live"',
       ]),
     );
     expect(s.args.at(-1)).toBe('P');
@@ -58,10 +74,15 @@ describe('runner command lines', () => {
 
   it('cursor-agent: print mode, MCP config in a temp project dir, approvals off', () => {
     const s = buildRunnerSpec({ runner: { command: 'cursor-agent' }, prompt: 'P', runId: 'rn_1', skill: 'fill', home: '/h', mcp });
-    expect(s.args).toEqual(['-p', 'P', '--output-format', 'text', '--approve-mcps', '--force']);
+    expect(s.args).toEqual(['-p', 'P', '--output-format', 'text', '--trust', '--approve-mcps', '--force']);
     expect(s.cwd).toBeNull();
     expect(s.files[0]?.path).toBe('.cursor/mcp.json');
     expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp.command).toBe('node');
+    expect(s.files[1]?.path).toBe('.cursor/cli.json');
+    expect(JSON.parse(s.files[1]?.content as string).permissions).toEqual({
+      allow: ['Mcp(pp:*)', 'WebFetch(*)'],
+      deny: ['Shell(*)', 'Write(**)'],
+    });
   });
 
   it('the prompt is the skill file plus the run ids', () => {
@@ -71,6 +92,150 @@ describe('runner command lines', () => {
     expect(p).toContain('# Research');
     expect(p).toContain('runs.finish');
     expect(defaultMcpServer('/h').env).toEqual({ PP_HOME: '/h' });
+  });
+});
+
+const spec = (runner: 'claude' | 'codex' | 'cursor-agent', skill: Skill) =>
+  buildRunnerSpec({ runner: { command: runner }, prompt: 'P', runId: 'rn_1', skill, home: '/h', mcp });
+const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+
+describe('per-skill tools (#20)', () => {
+  const WEB: Skill[] = ['scout', 'research', 'freshness'];
+  const FETCH: Skill[] = ['tailor', 'score', 'fill'];
+  const PP_ONLY: Skill[] = ['inbox', 'learn', 'onboard'];
+
+  it('the allowlist covers every skill: web search + fetch for scout/research/freshness, fetch for JD/portal reads, pp only otherwise', () => {
+    expect(Object.keys(SKILL_TOOLS).sort()).toEqual([...SKILLS].sort());
+    for (const s of WEB) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebSearch', 'WebFetch']);
+    for (const s of FETCH) expect(skillAllowedTools(s)).toEqual(['mcp__pp', 'WebFetch']);
+    for (const s of [...PP_ONLY, 'connect' as const]) expect(skillAllowedTools(s)).toEqual(['mcp__pp']);
+  });
+
+  it('claude: each skill pre-approves exactly its tools, narrows built-ins to them, denies the rest (dontAsk)', () => {
+    for (const skill of SKILLS) {
+      if (skill === 'connect') continue;
+      const { args } = spec('claude', skill);
+      expect(flag(args, '--allowedTools')).toBe(skillAllowedTools(skill).join(','));
+      expect(flag(args, '--tools')).toBe(SKILL_TOOLS[skill].web.join(','));
+      expect(flag(args, '--permission-mode')).toBe('dontAsk');
+      expect(flag(args, '--permission-prompts')).toBe('none');
+      expect(args).toContain('--strict-mcp-config');
+      for (const broad of ['Bash', 'Write', 'Edit', 'Read']) {
+        expect(flag(args, '--allowedTools')?.split(',')).not.toContain(broad);
+        expect(flag(args, '--tools')?.split(',')).not.toContain(broad);
+      }
+    }
+    expect(flag(spec('claude', 'scout').args, '--allowedTools')).toBe('mcp__pp,WebSearch,WebFetch');
+    expect(flag(spec('claude', 'inbox').args, '--tools')).toBe('');
+  });
+
+  it('codex: live web search for web skills, disabled otherwise; cursor: WebFetch only for web skills, never shell or writes', () => {
+    for (const skill of SKILLS) {
+      const web = SKILL_TOOLS[skill].web.length > 0;
+      expect(spec('codex', skill).args).toContain(web ? 'web_search="live"' : 'web_search="disabled"');
+      const perms = JSON.parse(spec('cursor-agent', skill).files[1]?.content as string).permissions;
+      expect(perms).toEqual(cursorPermissions(skill));
+      expect(perms.allow.includes('WebFetch(*)')).toBe(web);
+      expect(perms.deny).toEqual(['Shell(*)', 'Write(**)']);
+    }
+  });
+});
+
+describe('skill assets in the prompt (#20)', () => {
+  it('scout: the prompt inlines SKILL.md and plan.md read from the repo, and names its web tools', () => {
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'scout' });
+    const skillMd = readFileSync(join(DEFAULT_SKILLS_DIR, 'scout', 'SKILL.md'), 'utf8').trim();
+    const plan = readFileSync(join(DEFAULT_SKILLS_DIR, 'scout', 'plan.md'), 'utf8').trim();
+    expect(p).toContain(skillMd);
+    expect(p).toContain(plan);
+    expect(p).toContain(join(DEFAULT_SKILLS_DIR, 'scout', 'plan.md'));
+    expect(p).toContain('WebSearch, WebFetch');
+    expect(p).toContain('never look for them with vault.read');
+    expect(p).toMatch(/tool denied: <tool>/);
+    expect(p).not.toContain('(not found at');
+  });
+
+  it('every skill prompt has its SKILL.md and listed assets (none missing)', () => {
+    for (const skill of SKILLS) {
+      const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill });
+      expect(p).not.toContain('not found at');
+      for (const a of SKILL_ASSETS[skill] ?? []) expect(existsSync(join(DEFAULT_SKILLS_DIR, skill, a))).toBe(true);
+    }
+  });
+
+  it('the repo root resolves from the source and the dist location of the engine', () => {
+    const root = resolveRepoRoot();
+    expect(existsSync(join(root, 'skills', 'scout', 'plan.md'))).toBe(true);
+    expect(DEFAULT_SKILLS_DIR).toBe(join(root, 'skills'));
+    expect(resolveRepoRoot(join(root, 'packages', 'engine', 'dist', 'ops'))).toBe(root);
+    expect(resolveRepoRoot(join(root, 'packages', 'engine', 'ops'))).toBe(root);
+  });
+
+  it('no skill reads repo files through vault.read; every companion file is inlined or a human runbook', () => {
+    for (const skill of readdirSync(DEFAULT_SKILLS_DIR)) {
+      const files = readdirSync(join(DEFAULT_SKILLS_DIR, skill));
+      for (const f of files) {
+        const text = readFileSync(join(DEFAULT_SKILLS_DIR, skill, f), 'utf8');
+        for (const line of text.split('\n').filter((l) => /vault[._]read/.test(l)))
+          expect(line, `${skill}/${f}`).toMatch(/never look for|never in the vault|not in the vault/i);
+      }
+      const companions = files.filter((f) => f !== 'SKILL.md' && f !== 'RUNBOOK.md');
+      expect(companions, skill).toEqual([...(SKILL_ASSETS[skill as Skill] ?? [])]);
+    }
+  });
+});
+
+describe('fail loudly when a tool is denied (#20)', () => {
+  const denialJson = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    permission_denials: [{ tool_name: 'WebSearch', tool_use_id: 't1', tool_input: { query: 'x' } }],
+  });
+
+  it('parses Claude Code permission_denials and names the tool and the fix', () => {
+    expect(deniedTools(`noise\n${denialJson}\n`)).toEqual(['WebSearch']);
+    expect(deniedTools('{"permission_denials":[]}')).toEqual([]);
+    const granted = deniedToolsError('scout', ['WebSearch']);
+    expect(granted).toContain('tool denied: WebSearch');
+    expect(granted).toContain('permissions.deny');
+    const notGranted = deniedToolsError('inbox', ['WebSearch']);
+    expect(notGranted).toContain('SKILL_TOOLS');
+    expect(notGranted).toContain('config.runner.args');
+  });
+
+  it('a runner that exits with the run still open finishes it as error with the denied tool in summary_json.error', async () => {
+    const launcher = fakeLauncher(undefined, { result: { code: 0, output: denialJson, logFile: '/tmp/pp-runs/x.log' } });
+    e = openFixtureEngine({ services: { launcher } });
+    const run = okOut(await e.runOp('runs.start', { skill: 'scout' }, ctxAt('human'))).run;
+    await Promise.all(launcher.exited);
+    await vi.waitFor(async () => {
+      const row = okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human')));
+      expect(row.run.status).toBe('error');
+    });
+    const row = okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human')));
+    expect(row.run.summary_json).toMatchObject({ denied_tools: ['WebSearch'], runner_log: '/tmp/pp-runs/x.log' });
+    expect(String(row.run.summary_json.error)).toMatch(/^tool denied: WebSearch .*Fix:/);
+    expect(row.log_md).toContain('tool denied: WebSearch');
+  });
+
+  it('a run the agent already finished is left alone; a silent exit still fails an open run', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const launcher = fakeLauncher(undefined, { result: { code: 0, output: '{}' }, exitAfter: gate });
+    e = openFixtureEngine({ services: { launcher } });
+    const done = okOut(await e.runOp('runs.start', { skill: 'scout' }, ctxAt('human'))).run;
+    okOut(await e.runOp('runs.finish', { run_id: done.id, status: 'ok', summary: { added: 2 } }, ctxAt('agent')));
+    const open = okOut(await e.runOp('runs.start', { skill: 'inbox' }, ctxAt('human'))).run;
+    release();
+    await Promise.all(launcher.exited);
+    await vi.waitFor(async () => {
+      expect(okOut(await e.runOp('runs.get', { run_id: open.id }, ctxAt('human'))).run.status).toBe('error');
+    });
+    expect(okOut(await e.runOp('runs.get', { run_id: done.id }, ctxAt('human'))).run).toMatchObject({ status: 'ok' });
+    const failed = okOut(await e.runOp('runs.get', { run_id: open.id }, ctxAt('human'))).run;
+    expect(failed.summary_json.error).toBe('runner claude exited (code 0) without calling runs.finish');
   });
 });
 

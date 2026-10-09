@@ -5,7 +5,7 @@ import type { Actor, Answer, AskRequest, DecisionBackend, OpContext, OpOutcome, 
 import { FIXTURE_NOW, FIXTURE_SEED_SQL, FIXTURE_VAULT_DIR } from '@perfect-placement/fixtures';
 import { BackendUnavailableError } from '@perfect-placement/resolver';
 import { type OpenEngineOptions, openEngine } from '../ops/index.js';
-import type { RunnerLauncher, RunnerSpec } from '../ops/runner.js';
+import type { RunnerExit, RunnerLauncher, RunnerSpec } from '../ops/runner.js';
 import type { EngineServices } from '../ops/services.js';
 import { deepMerge } from '../ops/vault.js';
 import type { ProfileLlm } from '../profile/deps.js';
@@ -43,15 +43,26 @@ export function fakeBackend(name: 'kev' | 'jev' | 'llm', script: FakeScript | 'd
   };
 }
 
-/** Records runner launches instead of spawning anything. */
-export function fakeLauncher(fail?: string): RunnerLauncher & { specs: RunnerSpec[] } {
+/**
+ * Records runner launches instead of spawning anything. With `exit`, each launch reports that the
+ * runner ended with this result (after `exitAfter`, so a test can finish the run first).
+ */
+export function fakeLauncher(
+  fail?: string,
+  exit?: { result: RunnerExit; exitAfter?: Promise<unknown> },
+): RunnerLauncher & { specs: RunnerSpec[]; exited: Promise<void>[] } {
   const specs: RunnerSpec[] = [];
+  const exited: Promise<void>[] = [];
   return {
     specs,
+    exited,
     async launch(spec) {
       specs.push(spec);
       if (fail) throw new Error(fail);
-      return { pid: 4242 };
+      if (!exit) return { pid: 4242 };
+      const p = Promise.resolve(exit.exitAfter).then(() => exit.result);
+      exited.push(p.then(() => undefined));
+      return { pid: 4242, exit: p };
     },
   };
 }

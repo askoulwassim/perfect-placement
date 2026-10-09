@@ -28,13 +28,22 @@ export { ALL_HANDLERS } from './registry.js';
 export {
   buildRunnerSpec,
   createSpawnLauncher,
+  cursorPermissions,
   DEFAULT_SKILLS_DIR,
   defaultMcpServer,
+  deniedTools,
+  deniedToolsError,
   MCP_SERVER_NAME,
   type McpServerSpec,
+  type RunnerExit,
   type RunnerLauncher,
   type RunnerSpec,
+  resolveRepoRoot,
+  SKILL_ASSETS,
+  SKILL_TOOLS,
+  skillAllowedTools,
   skillPrompt,
+  type WebTool,
 } from './runner.js';
 export {
   ALL_OPS,
