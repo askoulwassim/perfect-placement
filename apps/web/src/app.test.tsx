@@ -272,7 +272,12 @@ describe('click paths', () => {
     expect(save.getAttribute('data-op')).toBe('profile.set_defaults');
     expect(save.disabled).toBe(true);
     fireEvent.change($<HTMLInputElement>(box, 'input[name="sponsorship"]'), { target: { value: 'no' } });
-    fireEvent.change($<HTMLInputElement>(box, 'input[name="authorized_countries"]'), { target: { value: 'United States, Canada' } });
+    const countries = $<HTMLInputElement>(box, 'input[name="authorized_countries"]');
+    fireEvent.change(countries, { target: { value: 'United States' } });
+    fireEvent.keyDown(countries, { key: 'Enter' });
+    expect(within(box).getByRole('button', { name: 'Remove United States' }).getAttribute('data-op')).toBe('local');
+    // Typed but not yet committed still counts on Save.
+    fireEvent.change(countries, { target: { value: 'Canada' } });
     fireEvent.click(save);
     await waitFor(() =>
       expect(live?.calls.filter((c) => c.name === 'profile.set_defaults').at(-1)?.body).toMatchObject({
@@ -676,6 +681,50 @@ describe('click paths', () => {
     expect($(container, '.onboard-q__for').textContent).toBe('Q 4 · Network');
   });
 
+  it('Onboarding: a list question keeps chips (Enter, paste, remove) and sends an array (#75)', async () => {
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['company'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which company stages appeal to you?'));
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How big a company do you want to join, by headcount?'));
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which companies would you love to work at?'));
+    const entry = $<HTMLInputElement>(container, '.onboard-q .chip-input input');
+    expect(primary(container).disabled).toBe(true);
+    fireEvent.change(entry, { target: { value: 'Anthropic' } });
+    fireEvent.keyDown(entry, { key: 'Enter' });
+    fireEvent.paste(entry, { clipboardData: { getData: () => 'Stripe, Figma\nanthropic' } });
+    expect(Array.from(container.querySelectorAll('.chip-input__chip')).map((c) => c.textContent)).toEqual([
+      'Anthropic×',
+      'Stripe×',
+      'Figma×',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Stripe' }));
+    // An entry still being typed counts: Next sends it with the chips.
+    fireEvent.change(entry, { target: { value: 'Linear' } });
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.filter((c) => c.name === 'onboard.answer')).toHaveLength(3));
+    const last = live?.calls.filter((c) => c.name === 'onboard.answer').at(-1);
+    expect(last?.status).toBe('ok');
+    expect(last?.body).toEqual({ question_id: 'company.dream', value: ['Anthropic', 'Figma', 'Linear'] });
+  });
+
+  it('Onboarding: comp is typed exactly or slid, shown as $212.5k, never "300,000k" (#73)', async () => {
+    const { container } = await boot('#/you/interview', (l) => l.client.run('onboard.start', { components: ['terms'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('What is the lowest base salary you would accept?'));
+    const value = () => $(container, '.slider-input__value').textContent;
+    expect(value()).toBe('$300k');
+    expect(container.textContent).not.toMatch(/\d,\d{3}k/i);
+    fireEvent.change(screen.getByRole('textbox', { name: /\(exact\)$/ }), { target: { value: '212500' } });
+    expect(value()).toBe('$212.5k');
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowLeft', shiftKey: true });
+    expect(value()).toBe('$207.5k');
+    expect(container.textContent).not.toMatch(/\d,\d{3}k/i);
+    fireEvent.click(primary(container));
+    await waitFor(() => expect(live?.calls.some((c) => c.name === 'onboard.answer')).toBe(true));
+    expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toEqual({ question_id: 'terms.floor', value: 207500 });
+  });
+
   it('You setup: four steps end to end', async () => {
     const { container } = await boot('#/you/setup', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));
@@ -691,8 +740,13 @@ describe('click paths', () => {
       const q = (await waitFor(() => $(container, '.onboard-q__text'))).textContent;
       const chip = container.querySelector('.onboard-q .chip');
       const text = container.querySelector('.onboard-q textarea');
+      const entry = container.querySelector('.onboard-q .chip-input input');
       if (chip) fireEvent.click(chip);
       if (text) fireEvent.change(text, { target: { value: 'Short and direct.' } });
+      if (entry) {
+        fireEvent.change(entry, { target: { value: 'Acme' } });
+        fireEvent.keyDown(entry, { key: 'Enter' });
+      }
       fireEvent.click(primary(container));
       await waitFor(() =>
         expect(container.querySelector('.calibrate') ?? container.querySelector('.onboard-q__text')?.textContent).not.toBe(q),

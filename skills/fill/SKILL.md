@@ -65,5 +65,6 @@ Denied outright (`--disallowedTools`): every Chrome tool that acts on a page (`c
 
 - Truth only. Never state a fact Story does not hold; never reword a number to pass the check.
 - No em dashes; punchy (hook, reframe, close).
+- Money: `$212.5k` / `$300k` or in full `$300,000`; never a `k` after a full number (`300,000k`).
 - Standard answers are set once (onboarding, or You > Terms > Application defaults) and reused; never re-ask them per application.
 - Never submit an application or send an email. After the user submits, the inbox skill moves the role to `applied` from the confirmation email.

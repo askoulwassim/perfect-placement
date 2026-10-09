@@ -39,4 +39,5 @@ A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops
 - Truth only: reframe and emphasize, never invent. Gaps go in the fit map, not the resume.
 - Years of experience only if the source states it. Never compute it from dates.
 - Writing in the user's voice: no em dashes; punchy (hook, reframe, close).
+- Money: `$212.5k` / `$300k` or in full `$300,000`; never a `k` after a full number (`300,000k`).
 - Every write is an op. Never submit an application or send an email. The user reviews and submits; `apply.mark_submitted` is human only.

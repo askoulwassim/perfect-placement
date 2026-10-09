@@ -1,6 +1,7 @@
 import {
   type Criterion,
   cleanDictation,
+  formatMoneyRange,
   type OpContext,
   type OpInput,
   type OpOutput,
@@ -142,6 +143,8 @@ export function stateOf(s: OnboardSession, parseRunId: string | null = null): On
           ...(options ? { options } : {}),
           ...(q.min != null ? { min: q.min } : {}),
           ...(q.max != null ? { max: q.max } : {}),
+          ...(q.step != null ? { step: q.step } : {}),
+          ...(q.unit ? { unit: q.unit } : {}),
           ...(q.max_items != null ? { max_items: q.max_items } : {}),
           ...(q.max_chars != null ? { max_chars: q.max_chars } : {}),
           ...(q.items ? { items: q.items(s.draft) } : {}),
@@ -749,13 +752,7 @@ export function onboardState(deps: ProfileDeps): OnboardState {
   return { step: 'resume', components_filled: [], resume_drafts: [], next_question: null };
 }
 
-const money = (n: number) => `$${Math.round(n / 1000)}k`;
-function compLabel(min: number | null | undefined, max: number | null | undefined): string {
-  if (min && max) return `${money(min)} to ${money(max)}`;
-  if (min) return `${money(min)}+`;
-  if (max) return `up to ${money(max)}`;
-  return 'Not listed';
-}
+const compLabel = (min: number | null | undefined, max: number | null | undefined): string => formatMoneyRange(min, max) ?? 'Not listed';
 
 /** onboard.samples (read-only): the calibration cards and the baseline weights the bars start from. */
 export function onboardSamples(deps: ProfileDeps): OpOutput<'onboard.samples'> {

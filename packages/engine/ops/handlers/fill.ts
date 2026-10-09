@@ -2,6 +2,7 @@ import {
   AnswerSource,
   type ApplicationDefaults,
   EEO_DEFAULT,
+  formatMoney,
   isRemoteOnly,
   type OpInput,
   type OpOutput,
@@ -106,10 +107,8 @@ const countryKey = (c: string) => {
 const yes = (v: string | null) => !!v && /^(yes|y|true)\b/i.test(v);
 const no = (v: string | null) => !!v && /^(no|n|false)\b/i.test(v);
 
-function money(n: number, currency: string) {
-  const sym = currency === 'USD' ? '$' : currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '';
-  return `${sym}${n.toLocaleString('en-US')}${sym ? '' : ` ${currency}`}`;
-}
+/** A portal answer writes money in full (`$300,000`), via the shared formatter (#73). */
+const money = (n: number, currency: string) => formatMoney(n, { full: true, currency });
 
 const questionKey = (q: string) =>
   q

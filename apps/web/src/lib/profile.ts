@@ -1,5 +1,5 @@
-import type { ProfileComponentKey } from '@perfect-placement/contracts';
-import { humanize, k } from './format';
+import { formatMoney, type ProfileComponentKey, parseMoney } from '@perfect-placement/contracts';
+import { humanize } from './format';
 
 export const COMPONENT_NAME: Record<ProfileComponentKey, string> = {
   story: 'Story',
@@ -30,6 +30,9 @@ export const DEFAULT_FIELDS = [
 ] as const;
 export type DefaultField = (typeof DEFAULT_FIELDS)[number][0];
 
+/** Defaults kept as lists: edited as chips (#75). */
+export const LIST_DEFAULTS: ReadonlySet<DefaultField> = new Set<DefaultField>(['authorized_countries']);
+
 /** The editor's text for each field (lists comma-joined). */
 export function defaultsText(d: Record<string, unknown> | undefined): Record<DefaultField, string> {
   const out = {} as Record<DefaultField, string>;
@@ -44,15 +47,25 @@ export function defaultsText(d: Record<string, unknown> | undefined): Record<Def
 export function defaultsInput(t: Record<DefaultField, string>): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
   for (const [f] of DEFAULT_FIELDS)
-    out[f] =
-      f === 'authorized_countries'
-        ? t[f]
-            .split(',')
-            .map((x) => x.trim())
-            .filter(Boolean)
+    out[f] = LIST_DEFAULTS.has(f)
+      ? t[f]
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : f === 'comp_expectation'
+        ? compText(t[f])
         : t[f].trim();
   return out;
 }
+
+/** A comp expectation typed as a bare amount ("300k", "300,000k") is saved in full ("$300,000", #73); other text is kept. */
+const compText = (t: string) => {
+  const n = parseMoney(t);
+  return n != null && n > 0 ? formatMoney(n, { full: true }) : t.trim();
+};
+
+/** Money fields in profile data (#73): shown through the shared formatter. */
+const MONEY_KEY = /^comp_|salary|^base/;
 
 /** A list item as a chip: text, or a role as "Company · Title". */
 const itemLabel = (x: unknown): string | null => {
@@ -74,7 +87,7 @@ export function chipsOf(data: Record<string, unknown>): Array<{ label: string; v
         const l = itemLabel(x);
         if (l) out.push({ label: l });
       }
-    else if (typeof v === 'number') out.push({ label, value: v >= 1000 ? k(v) : String(v) });
+    else if (typeof v === 'number') out.push({ label, value: MONEY_KEY.test(key) ? formatMoney(v) : v.toLocaleString('en-US') });
     else if (typeof v === 'boolean') out.push({ label, value: v ? 'Yes' : 'No' });
     else if (v && typeof v === 'object') for (const [kk, vv] of Object.entries(v)) out.push({ label: humanize(kk), value: String(vv) });
     else if (v != null) out.push({ label, value: String(v) });

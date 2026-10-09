@@ -25,7 +25,8 @@ import { deepEqual } from './json.js';
  */
 
 export type Draft = Partial<Record<ProfileComponentKey, Record<string, unknown>>>;
-export type AnswerType = 'chips' | 'multi_chips' | 'slider' | 'text';
+/** `list` (#75): free entries the UI keeps as chips; a string[] answer (a comma separated string still parses). */
+export type AnswerType = 'chips' | 'multi_chips' | 'slider' | 'text' | 'list';
 export type AnswerValue = string | number | string[];
 
 export type QuestionKind = 'ask' | 'confirm' | 'follow_up';
@@ -48,6 +49,10 @@ export interface QuestionDef {
   dictated?: boolean;
   min?: number;
   max?: number;
+  /** Slider step (#73: 1k for money; the UI moves 5k with Shift). */
+  step?: number;
+  /** What a slider measures, so the UI formats it (#73). */
+  unit?: 'money' | 'percent';
   /** List text question: a string answer appends one item, a string[] answer replaces the list. */
   max_items?: number;
   max_chars?: number;
@@ -71,8 +76,10 @@ const has = (d: Draft, k: ProfileComponentKey, f: string) => {
   if (typeof v === 'object') return Object.keys(v).length > 0;
   return true;
 };
-export const asList = (v: AnswerValue): string[] =>
-  (Array.isArray(v) ? v : String(v).split(',')).map((s) => String(s).trim()).filter(Boolean);
+/** A list answer: a string[] (#75 chips), or a comma / new line separated string (older callers). Duplicates dropped. */
+export const asList = (v: AnswerValue): string[] => [
+  ...new Set((Array.isArray(v) ? v : String(v).split(/[,\n]/)).map((s) => String(s).trim()).filter(Boolean)),
+];
 const asNum = (v: AnswerValue): number => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(/[^0-9.]/g, ''));
   if (!Number.isFinite(n)) throw new Error(`not a number: ${String(v)}`);
@@ -272,7 +279,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'work_mode',
     label: 'Which cities or regions can you work from?',
     example: 'Example: New York, US remote.',
-    answer_type: 'text',
+    answer_type: 'list',
     fields: ['locations'],
     known: known('work_mode', 'locations'),
     apply: set('work_mode', 'locations', asList),
@@ -284,6 +291,8 @@ export const QUESTION_BANK: QuestionDef[] = [
     answer_type: 'slider',
     min: 0,
     max: 100,
+    step: 5,
+    unit: 'percent',
     fields: ['travel_max_pct'],
     known: known('work_mode', 'travel_max_pct'),
     apply: set('work_mode', 'travel_max_pct', asNum),
@@ -296,6 +305,8 @@ export const QUESTION_BANK: QuestionDef[] = [
     answer_type: 'slider',
     min: 0,
     max: 600000,
+    step: 1000,
+    unit: 'money',
     fields: ['comp_floor'],
     known: known('terms', 'comp_floor'),
     apply: set('terms', 'comp_floor', asNum),
@@ -307,6 +318,8 @@ export const QUESTION_BANK: QuestionDef[] = [
     answer_type: 'slider',
     min: 0,
     max: 800000,
+    step: 1000,
+    unit: 'money',
     fields: ['comp_target'],
     known: known('terms', 'comp_target'),
     apply: set('terms', 'comp_target', asNum),
@@ -347,7 +360,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'company',
     label: 'Which companies would you love to work at?',
     example: 'Example: Anthropic, Stripe, Figma.',
-    answer_type: 'text',
+    answer_type: 'list',
     fields: ['dream_companies'],
     known: known('company', 'dream_companies'),
     apply: (d, v) => {
@@ -364,7 +377,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'network',
     label: 'Where do you already know people who could introduce you?',
     example: 'Companies where a friend or former colleague works now.',
-    answer_type: 'text',
+    answer_type: 'list',
     fields: ['warm_companies'],
     known: known('network', 'warm_companies'),
     apply: set('network', 'warm_companies', asList),
@@ -434,7 +447,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     id: 'dealbreakers.other',
     component: 'dealbreakers',
     label: 'Name the other things that rule a role out for you.',
-    answer_type: 'text',
+    answer_type: 'list',
     known: () => false,
     when: (d) => ((d.dealbreakers?.hard_nos as string[] | undefined) ?? []).includes('other'),
     apply: (d, v) => {
@@ -484,8 +497,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     component: 'terms',
     label: 'Which countries can you work in without sponsorship?',
     example: 'Example: United States, Canada.',
-    answer_type: 'text',
-    dictated: false,
+    answer_type: 'list',
     known: knownDefault('authorized_countries'),
     apply: setDefault('authorized_countries', asList),
   },
@@ -722,6 +734,7 @@ export function suggestedFor(q: QuestionDef, d: Draft, plan?: InterviewPlan | nu
   }
   if (q.answer_type === 'slider') return typeof v === 'number' ? v : undefined;
   const xs = list(v);
+  if (q.answer_type === 'list') return xs.length ? xs : undefined;
   return xs.length ? (f === 'wins' ? xs[0] : xs.join(', ')) : undefined;
 }
 
@@ -743,6 +756,10 @@ export function checkAnswer(q: QuestionDef, v: AnswerValue, d: Draft = {}): void
     const list = asList(v);
     if (!list.length) throw new Error(`${q.id}: pick at least one`);
     if (options) for (const x of list) if (!options.includes(x)) throw new Error(`${q.id}: unknown option '${x}'`);
+    return;
+  }
+  if (q.answer_type === 'list') {
+    if (!asList(v).length) throw new Error(`${q.id}: add at least one`);
     return;
   }
   if (q.max_items) {

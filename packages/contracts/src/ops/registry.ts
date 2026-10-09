@@ -165,12 +165,18 @@ const OnboardState = z.object({
       id: z.string(),
       component: ProfileComponentKey,
       label: z.string(),
-      answer_type: z.enum(['chips', 'multi_chips', 'slider', 'text']),
+      /**
+       * `list` (#75): free entries kept as chips (Enter adds one); answered with a string[] (a comma
+       * separated string is still accepted).
+       */
+      answer_type: z.enum(['chips', 'multi_chips', 'slider', 'text', 'list']),
       options: z.array(z.string()).optional(),
       min: z.number().optional(),
       max: z.number().optional(),
       /** Slider step (Wave 2, lane D request). */
       step: z.number().optional(),
+      /** Added (#73): what a slider measures, so the UI formats it (`money`: `$212.5k`; `percent`: `40%`). */
+      unit: z.enum(['money', 'percent']).optional(),
       /**
        * Added (outreach voice): a text question that keeps a list (voice.sample). A string answer appends
        * one item; a string[] answer replaces the list (removes items). Up to `max_items` of `max_chars`.
