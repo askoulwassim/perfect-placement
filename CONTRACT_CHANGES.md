@@ -472,3 +472,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: no v1 data is ever imported (wave1-decisions #26); these existed only for the v1 importer.
 - Shim: none (003 maps leftovers).
 - Status: accepted
+
+## First-run experience
+
+### Kev model choice in config
+- Lane: first-run
+- Date: 2026-10-08
+- Contract: packages/contracts/src/policy.ts (`BackendsConfig.kev`)
+- Change: optional `backends.kev.model: string` (e.g. `kev-0.8b`, `kev-4b`). `pp kev install --model` / `pp kev start --model` store it with `config.update`; `pp kev start` and `pp up` serve that checkpoint. Absent means `kev-4b`. `DEFAULT_CONFIG` unchanged.
+- Why: pp now manages the Kev process (`pp kev install|start|stop|status`, `pp up` starts it on demand); 16 GB machines need `kev-0.8b`, and the choice must survive restarts.
+- Shim: none.
+- Status: accepted

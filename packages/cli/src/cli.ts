@@ -1,18 +1,25 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { db, ops } from '@perfect-placement/engine';
 import { openFixtureDemo, type ToolNameStyle } from '@perfect-placement/mcp';
 import { type Args, parseArgs } from './args.js';
 import { renderDoctor } from './commands/doctor.js';
+import { init } from './commands/init.js';
+import { kevCommand, kevForUp } from './commands/kev.js';
+import { setupCommand } from './commands/setup.js';
 import { fresh, inbox, op, score, scout } from './commands/skills.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 
-export const COMMANDS = ['up', 'init', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
+export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
 
-  up       [--port ${DEFAULT_PORT}] [--web <dir>] [--fixtures] [--kev]   API /api/ops, MCP /mcp, web / on 127.0.0.1
+  setup    [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop]
+                                           first run: vault, optional Kev, MCP for your agents (safe to rerun)
+  up       [--port ${DEFAULT_PORT}] [--web <dir>] [--fixtures] [--no-kev] [--kev]
+                                           API /api/ops, MCP /mcp, web / on 127.0.0.1; starts Kev if installed
   init                                     create an empty vault with the default config
+  kev      install [--model m] [--yes] | start [--model m] [--wait] | stop | status
   scout    --in <file|-> [--note <text>]   roles.add (dedupe into inbox)
   score    --in <file|->                   roles.score
   fresh    [--role <id>]...                roles.check_freshness
@@ -46,6 +53,10 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
     switch (cmd) {
       case 'init':
         return init(home, io);
+      case 'setup':
+        return await setupCommand(args, home, io);
+      case 'kev':
+        return await kevCommand(args, home, io);
       case 'doctor': {
         if (!existsSync(db.dbPath(home))) {
           io.err(`pp doctor: no vault at ${home} (run pp init)`);
@@ -87,22 +98,6 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
   }
 }
 
-/** `pp init`: a new vault with the default config.json and a migrated pp.db. Refuses an existing one. */
-function init(home: string, io: Io): number {
-  if (existsSync(home) && readdirSync(home).length > 0) {
-    io.err(`pp init: ${home} already exists and is not empty; refusing to touch it`);
-    return 1;
-  }
-  const git = db.findGitRoot(home);
-  if (git) {
-    io.err(`pp init: ${home} is inside the git repo ${git}; personal data must never live in a repo`);
-    return 1;
-  }
-  ops.openEngine({ home, ...(io.services ? { services: io.services } : {}) }).close();
-  io.out(`pp init: created ${home}`);
-  return 0;
-}
-
 async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForStop): Promise<number> {
   const port = Number(args.get('port') ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new CliError(`--port must be 0 to 65535, got ${args.get('port')}`);
@@ -123,6 +118,8 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
   }
 
   let running: Running;
+  // Kev on demand: only for a real vault, only if installed and not already answering; stopped on exit only if started here.
+  const stopKev = args.has('fixtures') || args.has('no-kev') ? null : await kevForUp(engine.home, io);
   try {
     if (args.has('kev')) io.out((await checkKev(engine)).line);
     running = await up({
@@ -133,12 +130,14 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
     });
   } catch (e) {
     closeEngine();
+    stopKev?.();
     throw e;
   }
   io.out(`pp up: ${running.url} (api ${running.url}/api/ops, mcp ${running.url}/mcp, home ${engine.home})`);
   await waitForStop();
   await running.close();
   closeEngine();
+  stopKev?.();
   io.out('pp up: stopped');
   return 0;
 }
