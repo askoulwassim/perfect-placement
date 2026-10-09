@@ -858,10 +858,15 @@ export const companiesGet = defineOp({
 export const companiesDossierWrite = defineOp({
   name: 'companies.dossier.write',
   description: 'Write or refresh a company dossier.',
-  input: z.object({ company_id: Id, markdown: z.string().min(1) }),
+  input: z.object({
+    company_id: Id,
+    markdown: z.string().min(1),
+    /** Added (#105): the role the research is for (at this company). An active or held role is picked: -> on-deck, `role_picked`. */
+    role_id: Id.optional(),
+  }),
   output: z.object({ md_path: VaultPath }),
   impact: 'low',
-  emits: [],
+  emits: ['role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 
@@ -903,7 +908,7 @@ export const applyTailor = defineOp({
       .default({ checked: 0, needs_you: [] }),
   }),
   impact: 'low',
-  emits: ['application_tailored', 'role_moved', 'role_promoted'],
+  emits: ['application_tailored', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 
@@ -1213,7 +1218,8 @@ export const peopleFind = defineOp({
       .optional(),
   }),
   impact: 'low',
-  emits: ['contact_found'],
+  /** #105: an active or held role is picked first (-> on-deck, `role_picked`); not on `dry_run`. */
+  emits: ['contact_found', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'H',
 });
 
@@ -1454,7 +1460,8 @@ export const peopleFallback = defineOp({
     reason: z.string().nullable(),
   }),
   impact: 'low',
-  emits: ['contact_found'],
+  /** #105: an active or held role is picked first (-> on-deck, `role_picked`). */
+  emits: ['contact_found', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'H',
 });
 
@@ -1758,7 +1765,8 @@ export const runsStart = defineOp({
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
   impact: 'low',
-  emits: ['run_started'],
+  /** #105: `research`, `tailor` or `connect` for an active or held role picks it first (-> on-deck, `role_picked`). */
+  emits: ['run_started', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 

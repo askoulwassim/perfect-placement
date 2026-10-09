@@ -825,3 +825,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: a Chrome session left its first tab empty and opened another one for the work, and runs never closed their tabs (#107).
 - Shim: none for callers (`tabs` optional; a run that reports no tabs finishes as before).
 - Status: accepted
+
+## On deck = picked
+
+### `companies.dossier.write.role_id`; apply stage starts emit `role_picked` (#105)
+- Lane: r3/05-on-deck-picked (B, H, runs, D)
+- Date: 2026-10-09
+- Contract: registry `companiesDossierWrite.input.role_id` (optional Id, a role at that company); `emits` gains `role_moved`, `role_picked`, `role_promoted` on `runs.start`, `companies.dossier.write`, `people.find`, `people.fallback`, and `role_picked` on `apply.tailor`. No new event kind (`role_picked` is already a `LEARNING_EVENTS` member). Not contracts: engine status `MoveVia` `pick` and `PICKABLE_STATUSES` (`active`, `held`); handler `pickRole(h, role, stage)`, `PICK_STAGES`; web `STATUS_LABEL['on-deck']` = "In progress", `TileData.tag`.
+- Change: **On deck = picked.** Starting an apply stage on an `active` or `held` role moves it to `on-deck` first (`role_moved` with `via: 'pick'`, `stage`) and emits `role_picked { from, stage }` (stage `research`, `tailor` or `connect`), whoever starts it: `runs.start` for `research`, `tailor` or `connect` with a `role_id` (a human's queued run or an agent's own), `companies.dossier.write` with `role_id`, `apply.tailor`, and `people.find` (not on `dry_run`) / `people.fallback`. Idempotent: a role already at `on-deck` or later is never moved (no downgrade), and `inbox` / `archived` roles are left as they are. Held is pickable: on-deck is outside the per-company cap, so picking a held role takes no slot and the active roles keep theirs; picking an active role frees its slot and the best held role is promoted (`role_promoted`). `apply.tailor` therefore goes active/held -> on-deck -> draft-ready (and accepts a held role). `people.find` on an active role picks it instead of answering `conflict`. Manual River drags (`MANUAL_MOVES`) are unchanged; on-deck stays protected from rescore (wave1-decisions #13). UI (not a contract): River, Role and Now label on-deck **In progress**; Now's Top picks include on-deck roles with an In progress line. `skills/research` (passes `role_id`), `skills/connect` and `skills/tailor`, the blueprint and the design handoff say so.
+- Why: on-deck was only set by a manual drag and Tailor skipped it, so it meant nothing (#105; owner's decision: picked = on deck, through the apply stage).
+- Shim: none for callers (`role_id` optional; events are additive).
+- Status: accepted

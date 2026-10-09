@@ -24,7 +24,7 @@ import {
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
-import { applicationFor, getRole } from './shared.js';
+import { applicationFor, getRole, PICK_STAGES, type PickStage, pickRole } from './shared.js';
 
 /**
  * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
@@ -67,7 +67,10 @@ export const runsStart = defineHandler('runs.start', {
     if (input.schedule && SCHEDULE_SKILL[input.schedule] !== input.skill)
       throw new OpError('invalid_input', `schedule ${input.schedule} runs ${SCHEDULE_SKILL[input.schedule]}, not ${input.skill}`);
     const outreachId = input.outreach_id;
-    const role = input.role_id ? getRole(h.db, input.role_id) : null;
+    const found = input.role_id ? getRole(h.db, input.role_id) : null;
+    // #105 On deck = picked: starting Research, Tailor or Connect on an active or held role picks it
+    // (-> on-deck, role_picked), whoever starts it. Idempotent; never moves a role at on-deck or later.
+    const role = found && PICK_STAGES.includes(input.skill) ? pickRole(h, found, input.skill as PickStage) : found;
     if (input.contact_id && !get(h.db, 'contact', input.contact_id)) throw notFound('contact', input.contact_id);
     const parent = input.triggered_by ? get(h.db, 'run', input.triggered_by) : null;
     if (input.triggered_by && !parent) throw notFound('run', input.triggered_by);

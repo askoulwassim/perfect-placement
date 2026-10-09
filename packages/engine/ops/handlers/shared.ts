@@ -1,6 +1,6 @@
 import type { Application, ArchiveReason, Company, Role, RoleStatus, Score } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
-import { checkTransition, type MoveVia } from '../../status/index.js';
+import { checkTransition, type MoveVia, PICKABLE_STATUSES } from '../../status/index.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
 import { rebalance } from '../lanes/scoring.js';
@@ -118,6 +118,24 @@ export function moveRole(h: HandlerContext, role: Role, to: RoleStatus, opts: Mo
     h.emit('role_archived', 'role', role.id, { ...payload, reason: opts.archiveReason }, opts.decisionId);
   else h.emit('role_moved', 'role', role.id, to === 'archived' ? { ...payload, reason: opts.archiveReason } : payload, opts.decisionId);
   if (CAP_STATUSES.includes(from) || CAP_STATUSES.includes(to)) rebalance(h, role.company_id);
+  return moved;
+}
+
+/** The apply stages whose start picks a role (#105). */
+export type PickStage = 'research' | 'tailor' | 'connect';
+export const PICK_STAGES: readonly string[] = ['research', 'tailor', 'connect'] satisfies readonly PickStage[];
+
+/**
+ * #105 On deck = picked: starting an apply stage on an active or held role moves it to on-deck and emits
+ * `role_picked` (a learning signal) with the stage. Idempotent: a role already on-deck or later (never
+ * downgraded), in the inbox or archived is returned unchanged. Leaving `active` re-applies the company cap,
+ * so the best held role takes the freed slot.
+ */
+export function pickRole(h: HandlerContext, role: Role, stage: PickStage): Role {
+  if (!(PICKABLE_STATUSES as readonly RoleStatus[]).includes(role.status)) return role;
+  const from = role.status;
+  const moved = moveRole(h, role, 'on-deck', { via: 'pick', note: `${stage} started`, payload: { stage } });
+  h.emit('role_picked', 'role', role.id, { from, stage });
   return moved;
 }
 

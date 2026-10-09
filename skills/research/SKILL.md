@@ -1,6 +1,6 @@
 ---
 name: research
-description: Build or refresh a company dossier for a picked role (mission, products, stage, funding, leadership, news, culture, risks, remote and comp reality, authentic hooks, interview themes) and save it with the `companies.dossier.write` op. Reuses an existing dossier unless a refresh is asked for or an interview is near. Never moves the role.
+description: Build or refresh a company dossier for a picked role (mission, products, stage, funding, leadership, news, culture, risks, remote and comp reality, authentic hooks, interview themes) and save it with the `companies.dossier.write` op. Reuses an existing dossier unless a refresh is asked for or an interview is near. Starting it picks an active or held role (on-deck).
 ---
 
 # Research
@@ -9,7 +9,7 @@ A crisp, current, sourced dossier that feeds tailoring, outreach and interview p
 
 ## When
 
-On pick (role moved to on-deck), before tailoring, or before an interview (refresh time-sensitive facts only).
+On pick (starting Research, Tailor or Connect moves an active or held role to on-deck, "In progress", #105), before tailoring, or before an interview (refresh time-sensitive facts only).
 
 ## Skip check (first)
 
@@ -26,7 +26,7 @@ On pick (role moved to on-deck), before tailoring, or before an interview (refre
    5. Culture and how they interview.
    6. Authentic fit hooks mapped to the Story component (for the cover letter and outreach).
    7. Interview themes and 3 to 5 sharp questions to ask.
-3. `companies.dossier.write { company_id, markdown }`. The op writes `companies/<slug>/dossier.md`, sets the company's `md_path` and links the dossier into every open application at that company.
+3. `companies.dossier.write { company_id, markdown, role_id }`. The op writes `companies/<slug>/dossier.md`, sets the company's `md_path` and links the dossier into every open application at that company.
 4. `runs.finish { run_id, status: "ok" }`.
 
 ## Tools
@@ -40,5 +40,5 @@ A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops
 ## Rules
 
 - Never fabricate funding, news or people. Flag anything stale or unverifiable.
-- The dossier never changes a role's status.
+- The dossier never changes a role's status beyond the pick: `runs.start` (or `companies.dossier.write` with `role_id`) moves an active or held role to on-deck; later statuses are never touched.
 - Every write is an op. Never submit an application or send an email.

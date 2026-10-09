@@ -15,6 +15,8 @@ export interface TileData {
   band: string;
   /** The job posting (#34): Cmd/Ctrl-click a tile, card or dot opens it in a new tab. */
   url?: string | null;
+  /** #105: "In progress" for a picked (on-deck) role, shown on the Now card. */
+  tag?: string | null;
 }
 
 /**
@@ -28,6 +30,15 @@ function openTile(e: MouseEvent, r: TileData, onOpen?: () => void, onSelect?: ()
 }
 
 // ------------------------------------------------------------ RoleCard (top picks)
+
+/** #105: the "In progress" line on a picked role's card. */
+function CardTag({ text }: { text: string }) {
+  return (
+    <span className="role-card__tag" style={{ display: 'block', marginTop: 4, ...eyebrow(STATUS_HEX['on-deck'], 9.5) }}>
+      {text}
+    </span>
+  );
+}
 
 export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => void; mobile?: boolean }) {
   if (mobile)
@@ -55,6 +66,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 14, fontWeight: 600, ...ellipsis }}>{r.title}</span>
           <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{r.co}</span>
+          {r.tag && <CardTag text={r.tag} />}
         </span>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.band }} />
         <span style={display(26, 800, 'normal')}>{r.fit ?? '—'}</span>
@@ -85,6 +97,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 16, fontWeight: 600, ...ellipsis }}>{r.title}</span>
         <span style={{ display: 'block', fontSize: 13, color: C.muted, marginTop: 3 }}>{r.co}</span>
+        {r.tag && <CardTag text={r.tag} />}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: r.band }} />

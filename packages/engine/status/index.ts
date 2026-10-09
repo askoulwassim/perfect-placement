@@ -10,7 +10,7 @@ import {
 /*
  * Role status machine (lane B). Pure rules, no db.
  * Every status change in the system is checked here first: roles.move, roles.archive,
- * apply.tailor, apply.mark_submitted, inbox.ingest (lane B), roles.score (lane F),
+ * apply.tailor, apply stage starts (the pick), apply.mark_submitted, inbox.ingest (lane B), roles.score (lane F),
  * roles.check_freshness (lane G) and held promotion.
  */
 
@@ -48,6 +48,11 @@ export type MoveVia =
   | 'score'
   /** Automatic held -> active when a company slot frees. */
   | 'promote'
+  /**
+   * #105: starting an apply stage (Research, Tailor, Connect) picks the role: active or held -> on-deck.
+   * Any actor (the human's button, the agent's run); on-deck is outside the company cap.
+   */
+  | 'pick'
   /** `decisions.undo` of an auto + undo decision: restore the exact prior status (and archive reason). */
   | 'undo';
 
@@ -78,6 +83,13 @@ export function isDowngrade(from: RoleStatus, to: RoleStatus): boolean {
   if (!isProtected(from)) return false;
   return to === 'archived' || FUNNEL_RANK[to] < FUNNEL_RANK[from];
 }
+
+/**
+ * #105: statuses an apply stage start moves to on-deck (the pick). Held is included: on-deck takes no
+ * company slot, so picking a held role displaces no active one. Later statuses are already picked (never
+ * downgraded); inbox and archived are not picked by a stage start.
+ */
+export const PICKABLE_STATUSES = ['active', 'held'] as const satisfies readonly RoleStatus[];
 
 /** Statuses a human may restore an archived role to. */
 export const RESTORE_TARGETS = ['inbox', 'active', 'on-deck'] as const satisfies readonly RoleStatus[];
@@ -137,6 +149,9 @@ export function checkTransition(req: TransitionRequest): TransitionCheck {
     }
     case 'promote':
       return from === 'held' && to === 'active' ? ok : no('promotion is held -> active only');
+    case 'pick':
+      if (to !== 'on-deck') return no('a pick moves only to on-deck');
+      return (PICKABLE_STATUSES as readonly RoleStatus[]).includes(from) ? ok : no(`cannot pick a role in ${from}`);
     case 'undo':
       // Authorized by the decision being undone (inside its window); restores what was there before.
       return ok;

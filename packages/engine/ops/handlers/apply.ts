@@ -7,13 +7,19 @@ import { select, update } from '../rows.js';
 import { defineHandler } from '../runtime.js';
 import { renderMarkdown } from '../vault.js';
 import { type DocClaim, factSources, queueFactChecks, roleContext } from './claims.js';
-import { appendRoleLog, applicationFor, getCompany, getRole, laterStage, moveRole, upsertApplication } from './shared.js';
+import { appendRoleLog, applicationFor, getCompany, getRole, laterStage, moveRole, pickRole, upsertApplication } from './shared.js';
 
 // ------------------------------------------------------- companies.dossier.write
 
 export const companiesDossierWrite = defineHandler('companies.dossier.write', {
   run(input, h) {
     const company = getCompany(h.db, input.company_id);
+    // #105: research for a role picks it (active or held -> on-deck, role_picked).
+    if (input.role_id) {
+      const role = getRole(h.db, input.role_id);
+      if (role.company_id !== company.id) throw new OpError('invalid_input', `role ${role.id} is not at company ${company.id}`);
+      pickRole(h, role, 'research');
+    }
     const md_path = vaultPath.dossier(company.slug);
     h.vault.write(md_path, renderMarkdown({ id: company.id, type: 'dossier' }, input.markdown));
     if (company.md_path !== md_path) update(h.db, 'company', company.id, { md_path });
@@ -49,9 +55,11 @@ function factSection(resumePath: string | null, supported: DocClaim[], needsYou:
 
 export const applyTailor = defineHandler('apply.tailor', {
   async run(input, h) {
-    const role = getRole(h.db, input.role_id);
-    if (role.status !== 'draft-ready' && role.status !== 'active' && role.status !== 'on-deck')
-      throw new OpError('forbidden_transition', `${role.id}: cannot tailor a role in ${role.status}`);
+    const found = getRole(h.db, input.role_id);
+    if (found.status !== 'draft-ready' && found.status !== 'active' && found.status !== 'held' && found.status !== 'on-deck')
+      throw new OpError('forbidden_transition', `${found.id}: cannot tailor a role in ${found.status}`);
+    // #105: Tailor is an apply stage: an active or held role is picked first (-> on-deck), then -> draft-ready.
+    const role = pickRole(h, found, 'tailor');
     const existing = applicationFor(h.db, role.id);
     const company = getCompany(h.db, role.company_id);
 

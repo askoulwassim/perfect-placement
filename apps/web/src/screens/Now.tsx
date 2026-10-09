@@ -17,7 +17,7 @@ export function Now() {
   const act = useAct();
   const sum = useOp('pipeline.summary', {});
   const queue = useOp('decisions.queue', {});
-  const top = useOp('roles.list', { status: ['active', 'draft-ready'], sort: 'fit', limit: 3 });
+  const top = useOp('roles.list', { status: ['active', 'on-deck', 'draft-ready'], sort: 'fit', limit: 3 });
   const all = useOp('roles.list', { limit: 500 });
   const t = now();
 

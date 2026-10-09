@@ -46,6 +46,6 @@ Mobile (390): Now, Needs you, Role (plus River, You, Outreach) with a bottom Tab
 - Company cap is drawn on the visible tile: a stacked tile with a gold "+N held" chip.
 - Archived reasons show as count chips under the collapsed archived count.
 - A Terms diff can be resolved from Needs you or You; resolving in one clears both.
-- Stage by status: active/held -> Tailor next, draft-ready -> Connect next, on-deck/inbox -> Research next, applied -> done. Creating a Gmail draft marks Connect done.
+- Stage by status: active/held -> Tailor next, draft-ready -> Connect next, on-deck/inbox -> Research next (Tailor once the company has a dossier; the application stage wins when one exists), applied -> done. On-deck is labelled **In progress** in River, Role and Now (#105): starting Research, Tailor or Connect on an active or held role picks it (-> on-deck, `role_picked`). Creating a Gmail draft marks Connect done.
 - Added a "Setup" rail icon to re-enter onboarding, and a back arrow on Role, People, Draft.
 - People are placeholders (first name + last initial).

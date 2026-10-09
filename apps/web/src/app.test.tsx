@@ -509,6 +509,20 @@ describe('click paths', () => {
     expect(window.location.hash).toBe(`#/role/${id}`);
   });
 
+  it('River and Now label on-deck as In progress (#105)', async () => {
+    const { container } = await boot('#/river');
+    const col = await waitFor(() => $(container, '.river-col[data-status="on-deck"]'));
+    await waitFor(() => expect(col.textContent).toContain('In progress'));
+    expect(container.textContent).not.toContain('On deck');
+    await go('#/now');
+    await waitFor(() => expect(container.querySelectorAll('.role-card').length).toBe(3));
+    const card = (id: string) => container.querySelector(`.role-card[data-role="${id}"]`);
+    const onDeck = [R.stripeOnDeck, R.airtableOnDeck].find((id) => card(id));
+    expect(onDeck, 'an on-deck role in Top picks').toBeDefined();
+    expect(card(onDeck as string)?.querySelector('.role-card__tag')?.textContent).toBe('In progress');
+    expect(container.querySelectorAll('.role-card__tag').length).toBeLessThanOrEqual(2);
+  });
+
   it('River has a Held column and stacks held roles on the capped company tile', async () => {
     const { container } = await boot('#/river');
     await waitFor(() => expect($(container, '.held-chip').textContent).toBe('+2 held'));

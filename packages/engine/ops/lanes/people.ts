@@ -11,6 +11,7 @@ import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
 import { notFound, OpError } from '../errors.js';
+import { getRole, pickRole } from '../handlers/shared.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
 
 /*
@@ -19,6 +20,11 @@ import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js
  * ops outreach.get / outreach.list / contacts.get. outreach.send has no handler: it is unimplemented
  * by contract (the human sends from Gmail).
  */
+
+/** #105: Connect is an apply stage: finding people for an active or held role picks it (-> on-deck, role_picked). */
+function pickForConnect(h: HandlerContext, roleId: string): void {
+  pickRole(h, getRole(h.db, roleId), 'connect');
+}
 
 export function peopleDeps(h: HandlerContext): PeopleDeps {
   return {
@@ -78,7 +84,12 @@ const TONE_TIER: Record<(typeof OUTREACH_TONES)[number], ContactTier> = {
 };
 
 export const LANE_H_HANDLERS = {
-  'people.find': defineHandler('people.find', { run: async (i, h) => unwrap(await findPeople(i, h.ctx, peopleDeps(h))) }),
+  'people.find': defineHandler('people.find', {
+    run: async (i, h) => {
+      if (!i.dry_run) pickForConnect(h, i.role_id);
+      return unwrap(await findPeople(i, h.ctx, peopleDeps(h)));
+    },
+  }),
   'people.link': defineHandler('people.link', { run: async (i, h) => unwrap(await linkContact(i, h.ctx, peopleDeps(h))) }),
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
   'people.find_email': defineHandler('people.find_email', {
@@ -96,7 +107,12 @@ export const LANE_H_HANDLERS = {
   'people.email_checked': defineHandler('people.email_checked', {
     run: async (i, h) => unwrap(await emailChecked(i, h.ctx, peopleDeps(h))),
   }),
-  'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
+  'people.fallback': defineHandler('people.fallback', {
+    run: async (i, h) => {
+      pickForConnect(h, i.role_id);
+      return unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h)));
+    },
+  }),
   'people.set_path': defineHandler('people.set_path', { run: async (i, h) => unwrap(await setPath(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
   'outreach.to_gmail': defineHandler('outreach.to_gmail', {

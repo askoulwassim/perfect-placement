@@ -39,7 +39,7 @@ Every surface calls ops. Skills are SKILL.md files: they supply judgment (search
 | 10 | Interview | scheduled | prep, retro |
 | 11 | Learn | continuous | profile diffs -> rescore |
 
-Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule from v1 stays: an automated rescore never moves a role backwards out of `draft-ready` or later.
+Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `on-deck` = picked (UI label **In progress**, #105): starting an apply stage (Research, Tailor or Connect, the op or `runs.start`, human or agent) on an active or held role moves it there and emits `role_picked`; Tailor then moves it to `draft-ready`. On-deck takes no company slot and a rescore never moves it. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule from v1 stays: an automated rescore never moves a role backwards out of `draft-ready` or later.
 
 Learning signals: role picked or skipped from active, closed while waiting, rejected (and at which stage), interview retro, outreach replied or ignored, offer terms.
 

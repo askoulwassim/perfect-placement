@@ -1,4 +1,5 @@
 import type { Decision, ProfileDiff, ProfileVersion } from '@perfect-placement/contracts';
+import { STATUS_LABEL } from '../components/controls';
 import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
 import type { TileData } from '../components/roles';
@@ -27,6 +28,7 @@ export const tile = (v: RoleView, now: Date, bands?: Bands): TileData => {
     fit,
     band: bandColor(fit, bands),
     url: v.role.url,
+    tag: v.role.status === 'on-deck' ? STATUS_LABEL['on-deck'] : null,
   };
 };
 

@@ -11,7 +11,7 @@ You supply judgment (who is in the JD, who you read on LinkedIn, the draft text)
 
 ## Steps
 
-1. **Check the role is picked.** `roles.get { role_id }`. Status must be `on-deck` or later (not archived). `people.find` refuses anything else.
+1. **Check the role is picked.** `roles.get { role_id }`. Starting Connect (`runs.start` or `people.find`) on an `active` or `held` role picks it (-> on-deck, `role_picked`, #105); `inbox` and `archived` roles are refused.
 2. **Collect hints (judgment).** Read the JD (`roles/<role_id>.md`) and, if useful, the company team page. List people named there: name, headline, URL or email if shown. Do not search for personal emails (the email step below looks for work addresses only).
 3. **Read LinkedIn (judgment, read-only, #82).** Only when the prompt's LinkedIn line says it is on (`config.linkedin.mode: "live"`) and only for this picked role. Use Claude in Chrome's read and navigate tools (listed under Tools); nothing that clicks, types or runs script is granted. Start with `tabs_context_mcp` and reuse the tab this Chrome session created (`navigate` it); create one with `tabs_create_mcp` only if none is usable, so no empty extra tab is left. Then, waiting the stated delay (`min_delay_s` to 2x) before every page, read in this order and stop at the page cap (`max_pages_per_run`) or the profile budget the prompt states:
    - **Your 1st-degree connections at the company:** `https://www.linkedin.com/search/results/people/?keywords=<Company>&network=["F"]`.
@@ -117,7 +117,7 @@ The Chrome tools load with `--chrome` only when `config.linkedin.mode` is `live`
 - Never store more than name, headline, URL, relationship and email (with its source and confidence).
 - Gmail is search, read and draft only. Never send, reply, forward, delete, trash or label.
 - Never contact a mail server or a verification site (SMTP, mailbox probes, test emails, email checkers). Evidence is passive: the user's own mail (addresses only) and public pages.
-- Never run people.find on a role the user has not picked.
+- Never run people.find on a role the user has not picked (an inbox or archived role); starting Connect on an active or held role is the pick.
 - Never commit anything from the vault. Placeholders only in examples.
 
 First live LinkedIn run (owner present): see `RUNBOOK.md`.

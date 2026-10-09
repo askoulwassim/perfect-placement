@@ -42,7 +42,7 @@ docs/v2/                the build brief
 5. **No personal data in this repo.** Nothing from a user's profile, pipeline, applications, interviews, resume, `.docx` or vault is ever committed. Fixtures are synthetic. Tests use temp dirs and never touch the real `PP_HOME`. `.gitignore` blocks vaults, `*.db`, `.env`, resumes, `.pdf` and `.docx`; do not weaken it.
 6. **Writing in the user's voice:** no em dashes; punchy (hook, reframe, close). Grounded in the Story and Voice components only; never invent facts.
 7. **UI copy:** no explanatory text, no tips, labels of one to three words (buttons and labels; onboarding interview questions are full sentences with an optional one-line example, wave1-decisions #28). One primary action per screen. Every button calls exactly one op. Dark only, tokens from `@perfect-placement/contracts`.
-8. **No-downgrade:** automated actors never move a role backwards out of `draft-ready` or later, and a rescore never moves an `on-deck` pick.
+8. **No-downgrade:** automated actors never move a role backwards out of `draft-ready` or later, and a rescore never moves an `on-deck` pick. On-deck = picked (#105): starting Research, Tailor or Connect on an active or held role moves it there (`role_picked`), never from on-deck or later.
 
 ## How to run
 
