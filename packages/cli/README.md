@@ -57,7 +57,7 @@ node packages/cli/dist/index.js up --fixtures            # http://127.0.0.1:5177
 | Linux | `~/.config/systemd/user/pp-<key>.{service,timer}` (`OnCalendar`, `Persistent=true`) | `systemctl --user daemon-reload`, `enable --now` |
 | other | none: `pp schedules install` prints crontab lines to add | you |
 
-- `pp setup` asks before installing (`--yes` installs, `--no-schedules` skips). `pp schedules install` rewrites and reloads every job; `remove` unloads and deletes them (config untouched); `status` shows spec, next run, last scheduled run and job state (`installed`, `missing`, `stale`, `off`, `orphan`, `manual`).
+- `pp setup` asks before installing (`--yes` installs, `--no-schedules` skips). `pp schedules install` rewrites and reloads every job; `remove` unloads and deletes them (config untouched); `status` shows spec, next run, last scheduled run and job state (`installed`, `missing`, `stale`, `off`, `orphan`, `manual`). Paths compare by file identity (realpath), so a repo, vault or node reached through a symlink is not `stale`.
 - Settings toggles save `config.update`; when `schedules` change, `pp up` (and `pp op`) sync the jobs after commit: a schedule turned `off` loses its job, one turned on gets it. Jobs already installed as is are left alone.
 - `pp up` catches up: a schedule that is on, ran before, and fired since its last run started (machine off, no job) is queued once at start (`--no-catch-up` skips). A schedule that never ran waits for its job or a Run button.
 - `pp doctor` (`schedule_jobs`): fails when installed jobs do not match `config.schedules` (stale, missing next to installed ones, or left over for a schedule turned off). No jobs at all passes with a hint (declined in setup).
