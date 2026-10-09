@@ -643,6 +643,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'warm_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0002',
@@ -653,6 +655,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'warm_other',
     via_contact_id: null,
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0003',
@@ -663,6 +667,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'bridge',
     via_contact_id: 'ct_0002',
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0004',
@@ -673,6 +679,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0005',
@@ -683,6 +691,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_other',
     via_contact_id: null,
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0006',
@@ -693,6 +703,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
 ];
 

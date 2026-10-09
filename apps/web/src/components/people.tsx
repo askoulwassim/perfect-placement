@@ -1,4 +1,4 @@
-import type { ConnectFallback, ContactTier, OutreachStatus } from '@perfect-placement/contracts';
+import type { ConnectFallback, ConnectPath, ConnectPaths, ContactTier, OutreachStatus } from '@perfect-placement/contracts';
 import { Fragment } from 'react';
 import { FALLBACK_LABEL } from '../lib/people';
 import { Btn } from './Btn';
@@ -431,6 +431,71 @@ export function ConnectFallbackBar({
           style={{ fontSize: mobile ? 12 : 13, borderRadius: 999 }}
         />
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ Path choice (#98)
+
+const firstName = (name: string) => name.split(' ')[0] ?? name;
+
+/**
+ * Direct vs bridge for a 2nd-degree hiring-team target: the recommended path first, each with its one-line
+ * reason; **Use** (`people.set_path`) switches before drafting. A blocked bridge has no button.
+ */
+export function PathChoice({
+  paths,
+  onPick,
+  mobile,
+}: {
+  paths: ConnectPaths;
+  onPick?: ((path: ConnectPath) => void) | null;
+  mobile?: boolean;
+}) {
+  return (
+    <div className="connect-paths" style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '4px 0 14px' }}>
+      <div style={{ ...eyebrow(), margin: '0 0 4px 12px' }}>Path</div>
+      {paths.options.map((o) => {
+        const chosen = o.path === paths.chosen;
+        return (
+          <div
+            key={o.path}
+            className="connect-path"
+            data-path={o.path}
+            data-chosen={chosen}
+            data-recommended={o.path === paths.recommended}
+            data-blocked={o.blocked}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: mobile ? '8px 4px' : '8px 12px',
+              borderRadius: 10,
+              background: chosen ? X.deep35 : 'transparent',
+              border: `1px solid ${chosen ? C.emerald : C.line}`,
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 14, fontWeight: 600 }}>
+                {o.path === 'direct' ? `To ${firstName(o.name)}` : `Via ${firstName(o.name)}`}
+                {o.path === paths.recommended && <span style={{ ...eyebrow(C.emerald, 9.5) }}>Recommended</span>}
+              </span>
+              <span className="connect-path__reason" style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>
+                {o.reason}
+              </span>
+            </span>
+            {!chosen && !o.blocked && onPick && (
+              <SecondaryButton
+                op="people.set_path"
+                label="Use"
+                height={mobile ? 26 : 30}
+                onClick={() => onPick(o.path)}
+                style={{ fontSize: mobile ? 12 : 13, borderRadius: 999 }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

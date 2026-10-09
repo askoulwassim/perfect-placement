@@ -1235,6 +1235,61 @@ describe('run status (#21)', () => {
     assertButtons(container);
   });
 
+  /** #98, synthetic: a VP on the hiring team (2nd degree, likely pattern email) and a 1st-degree mutual elsewhere. */
+  const hopperLike = (mutualEmail: boolean) => async (l: Live) => {
+    await quiet(l);
+    const db = l.engine.db;
+    db.prepare('DELETE FROM outreach WHERE role_id = ?').run(R.linearDraft);
+    db.prepare('DELETE FROM contact_link WHERE role_id = ?').run(R.linearDraft);
+    const person = db.prepare(
+      `INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES (?, ?, ?, NULL, ?, 'linkedin', NULL, ?, ?)`,
+    );
+    person.run('ct_rowan', 'Rowan Vale', 'VP Product', 'rowan.vale@linear.example', 'pattern', 0.6);
+    person.run(
+      'ct_kit',
+      'Kit Moss',
+      'Account Manager at Otherco',
+      ...(mutualEmail ? ['kit@otherco.example', 'gmail', 1] : [null, null, null]),
+    );
+    db.prepare(
+      `INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team) VALUES ('cl_rowan', 'ct_rowan', 'linear', ?, '2', 'bridge', 'ct_kit', 1)`,
+    ).run(R.linearDraft);
+  };
+
+  it('People: a reachable hiring leader defaults to a direct note; the weak bridge is the alternative (#98)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(false));
+    const direct = await waitFor(() => $(container, '.connect-path[data-path="direct"]'));
+    expect(direct.getAttribute('data-chosen')).toBe('true');
+    expect(direct.getAttribute('data-recommended')).toBe('true');
+    expect(direct.textContent).toContain('To Rowan');
+    expect($(direct, '.connect-path__reason').textContent).toBe('Hiring team · Email likely');
+    const bridge = $(container, '.connect-path[data-path="bridge"]');
+    expect(bridge.textContent).toContain('Via Kit');
+    expect($(bridge, '.connect-path__reason').textContent).toBe('Other company · No email');
+    // No email for the mutual while the target is reachable: no switch to the bridge.
+    expect(bridge.getAttribute('data-blocked')).toBe('true');
+    expect(container.querySelector('button[data-op="people.set_path"]')).toBeNull();
+    expect(primary(container).textContent).toBe('Draft for Rowan');
+    assertButtons(container);
+  });
+
+  it('People: Use switches to the bridge before drafting (#98)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(true));
+    const use = await waitFor(() => $<HTMLButtonElement>(container, '.connect-path[data-path="bridge"] button[data-op="people.set_path"]'));
+    expect(use.textContent).toBe('Use');
+    expect(primary(container).textContent).toBe('Draft for Rowan');
+    assertButtons(container);
+    fireEvent.click(use);
+    await waitFor(() => expect($(container, '.connect-path[data-path="bridge"]').getAttribute('data-chosen')).toBe('true'));
+    expect(live?.calls.filter((c) => c.name === 'people.set_path').map((c) => c.body)).toEqual([
+      { contact_id: 'ct_rowan', role_id: R.linearDraft, path: 'bridge' },
+    ]);
+    await waitFor(() => expect(primary(container).textContent).toBe('Draft for Kit'));
+    // The recommendation stays direct; Use now switches back.
+    expect($(container, '.connect-path[data-path="direct"]').getAttribute('data-recommended')).toBe('true');
+    expect($(container, '.connect-path[data-path="direct"] button[data-op="people.set_path"]').textContent).toBe('Use');
+  });
+
   it('Role -> Answers: Add questions saves the pasted questions and queues a fill run that uses them (#81)', async () => {
     const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Connect'));

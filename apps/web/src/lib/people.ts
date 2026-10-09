@@ -1,8 +1,16 @@
-import type { ConnectFallback, Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
+import type { ConnectFallback, ConnectPaths, Contact, ContactLink, ContactTier, EmailSource, Run } from '@perfect-placement/contracts';
 
 export interface Person {
   contact: Contact;
   link: ContactLink;
+  /** #98: direct vs bridge for a 2nd-degree hiring-team target (roles.get), else null. */
+  paths?: ConnectPaths | null;
+}
+
+/** Who a draft for this person goes to (#98): the chosen path's recipient, else the person. */
+export function recipientOf(p: Person): { id: string; name: string } {
+  const o = p.paths?.options.find((x) => x.path === p.paths?.chosen);
+  return o ? { id: o.contact_id, name: o.name } : { id: p.contact.id, name: p.contact.name };
 }
 
 /** Warmest route first. A bridge (2nd degree) beats a warm non-hiring 1st degree for reaching the team. */
@@ -35,12 +43,19 @@ export const initials = (name: string) =>
 
 export const sortPeople = (people: readonly Person[]) => [...people].sort((a, b) => TIER_RANK[a.link.tier] - TIER_RANK[b.link.tier]);
 
-/** The best path to the hiring team: target person plus the hop names from You. */
+/** The best path to the hiring team: target person plus the hop names from You (#98: the chosen path's hops). */
 export function bestPath(people: readonly Person[]): { target: Person; path: string[] } | null {
   const target = sortPeople(people)[0];
   if (!target) return null;
-  const via = target.link.via_contact_id ? people.find((p) => p.contact.id === target.link.via_contact_id) : undefined;
-  return { target, path: ['You', ...(via ? [via.contact.name] : []), target.contact.name] };
+  const paths = target.paths;
+  const via = paths
+    ? paths.chosen === 'bridge'
+      ? paths.options.find((o) => o.path === 'bridge')?.name
+      : undefined
+    : target.link.via_contact_id
+      ? people.find((p) => p.contact.id === target.link.via_contact_id)?.contact.name
+      : undefined;
+  return { target, path: ['You', ...(via ? [via] : []), target.contact.name] };
 }
 
 /** Email source in one word (#37). */

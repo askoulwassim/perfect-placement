@@ -103,6 +103,8 @@ Tiers and default drafts:
 | **Bridge (2nd degree)** | Note to the mutual + forwardable blurb | same |
 | **Cold** | Positioning note: their problem, one proof, one ask | Skip unless asked |
 
+A 2nd-degree hiring-team target has two paths (#98): a **direct** note to them, or a **bridge** intro through the mutual. Code ranks them: direct when the target's email is confirmed or likely and the mutual is a weak tie (other company, no history); bridge only for a strong mutual (same company as the target, or history) with an email. Never a draft to a mutual with no email while a direct path exists. People shows both with one-line reasons; the user can switch before drafting.
+
 Sources: LinkedIn (browser automation, read-only: connections, company People page, mutuals), Gmail contacts, the JD and company team page. Output: contacts + `contact_role` links + Gmail **drafts** (never send). Replies come back through the inbox monitor as `outreach_replied` events.
 
 ## UI

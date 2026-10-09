@@ -6,6 +6,7 @@ import {
   Backend,
   Band,
   ComponentKind,
+  ConnectPath,
   ContactDegree,
   ContactSource,
   ContactTier,
@@ -219,6 +220,18 @@ export const Contact = z.object({
 });
 export type Contact = z.infer<typeof Contact>;
 
+/**
+ * Added (#98): the tie between the user's 1st-degree mutual and a 2nd-degree target (judgment from the
+ * connect skill's read). `same_company`: the mutual works where the target works; `same_industry`: same
+ * industry; `history`: the mutual and the target have worked or talked together.
+ */
+export const BridgeTie = z.object({
+  same_company: z.boolean().default(false),
+  same_industry: z.boolean().default(false),
+  history: z.boolean().default(false),
+});
+export type BridgeTie = z.infer<typeof BridgeTie>;
+
 export const ContactLink = z.object({
   id: Id,
   contact_id: Id,
@@ -228,6 +241,10 @@ export const ContactLink = z.object({
   tier: ContactTier,
   via_contact_id: Id.nullable(),
   is_hiring_team: z.boolean(),
+  /** Added (#98): the path the user picked for a 2nd-degree hiring target; null = the ranked default. */
+  path: ConnectPath.nullable().default(null),
+  /** Added (#98): the mutual's tie to the target (degree 2 with a via only). */
+  via_tie_json: BridgeTie.nullable().default(null),
 });
 export type ContactLink = z.infer<typeof ContactLink>;
 

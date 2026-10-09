@@ -16,6 +16,7 @@ Contacts, contact_link, tier classification via resolver, outreach drafts (Hook 
 | `templates.ts` | Per-tier templates; LLM writer prompt with CONTEXT (contact headline, role JD, dossier highlights; facts about them) apart from STORY (the only facts about the user) and VOICE (style, notes, every writing sample as a tone exemplar); deterministic natural-shape fallback. |
 | `style.ts` | Mechanical writing checks: no em/en dashes, length limits, Proof at most 3 sentences, Proof numbers in Story, Hook numbers in Story or CONTEXT, no stock flattery; `composeBody` (greeting, Hook, Proof, Ask, sign-off). |
 | `tier.ts` | `tierFor(degree, hiringTeam)`. |
+| `path.ts` | Direct vs bridge for a 2nd-degree hiring-team target (#98): `rankPaths` (pure), `connectPathsFor` (roles.get `paths`), `draftTierFor` (the tier `outreach.draft` requires: `cold_hiring` direct, `bridge` bridge), `people.set_path`. |
 | `queries.ts` | Row access over lane A repositories, runOp's emitter and staged vault. |
 
 ## Handler contract

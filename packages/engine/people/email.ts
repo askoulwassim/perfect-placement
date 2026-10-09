@@ -293,7 +293,7 @@ export const isKnownSource = (s: EmailSource | null): boolean => s !== null && s
  * with no source counts as known.
  */
 export function draftRecipient(
-  deps: PeopleDeps,
+  deps: Pick<PeopleDeps, 'repos' | 'config'>,
   c: Contact,
 ): { email: string | null; guess: string | null; reason: string | null; confirmed: boolean } {
   if (!c.email) return { email: null, guess: null, reason: 'no email found', confirmed: false };

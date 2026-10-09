@@ -1,6 +1,5 @@
 import {
   type Contact,
-  type ContactTier,
   type OpContext,
   type OpOutcome,
   type OpOutput,
@@ -10,6 +9,7 @@ import {
   vaultPath,
 } from '@perfect-placement/contracts';
 import { draftRecipient } from './email.js';
+import { draftTierFor } from './path.js';
 import {
   advanceConnectToFill,
   emitEvent,
@@ -135,7 +135,15 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
   const role = getRole(db, input.role_id);
   if (!role) return err('not_found', `role ${input.role_id}`);
   const link = getLinkForRole(db, input.contact_id, input.role_id);
-  if (link && link.tier !== input.tier) return err('invalid_input', `tier ${input.tier} does not match the contact link tier ${link.tier}`);
+  // #98: a 2nd-degree hiring target is drafted on its chosen path (direct: cold_hiring, bridge: bridge).
+  const expected = link ? draftTierFor(deps, link) : null;
+  if (link && expected !== input.tier)
+    return err(
+      'invalid_input',
+      expected === link.tier
+        ? `tier ${input.tier} does not match the contact link tier ${link.tier}`
+        : `tier ${input.tier} does not match the chosen path (tier ${expected}); switch with people.set_path`,
+    );
   if (input.tier === 'bridge' && !link?.via_contact_id)
     return err('invalid_input', 'bridge drafts need a contact_link with via_contact_id (the mutual)');
 
@@ -292,13 +300,15 @@ export function draftContext(deps: PeopleDeps, contactId: string, roleId: string
   const link = getLinkForRole(deps.repos, contactId, roleId);
   if (!contact || !role || !link) return { error: `contact ${contactId} is not linked to role ${roleId}` };
   const company = getCompany(deps.repos, role.company_id);
-  const via = link.via_contact_id ? getContact(deps.repos, link.via_contact_id) : undefined;
+  const tier = draftTierFor(deps, link);
+  // A direct note to a 2nd-degree target names no mutual (#98).
+  const via = tier === 'bridge' && link.via_contact_id ? getContact(deps.repos, link.via_contact_id) : undefined;
   const story = getComponent(deps, 'story') ?? { data: {}, text: '' };
   const voice = getComponent(deps, 'voice') ?? { data: {}, text: '' };
   const ctx = roleContext(deps, roleId);
   const fallback = fallbackOf(deps.repos, roleId, contactId);
   return {
-    tier: link.tier as ContactTier,
+    tier,
     fallback,
     cover: fallback ? coverExcerpt(coverLetter(deps, roleId)) : null,
     contact: { name: contact.name, headline: contact.headline },

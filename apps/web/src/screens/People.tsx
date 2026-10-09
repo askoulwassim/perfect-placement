@@ -1,8 +1,8 @@
 import { useAct, useApp, useOp } from '../client/context';
-import { ConnectFallbackBar, PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
+import { ConnectFallbackBar, PathChoice, PeopleGraph, PersonRow, TIER_ORDER } from '../components/people';
 import { eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { bestPath, emailTag, initials, linkedinState } from '../lib/people';
+import { bestPath, emailTag, initials, linkedinState, recipientOf } from '../lib/people';
 import { activeLabel } from '../lib/runs';
 import { stageOf } from '../lib/stage';
 import { graphLayout } from '../lib/view';
@@ -39,7 +39,8 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   const drafting = best && activeRun({ skill: 'connect', role_id: role.id, contact_id: best.target.contact.id });
   const primary = best
     ? {
-        label: drafting ? activeLabel(drafting) : `Draft for ${best.target.contact.name.split(' ')[0]}`,
+        // #98: named for who the note goes to (the mutual on a bridge).
+        label: drafting ? activeLabel(drafting) : `Draft for ${recipientOf(best.target).name.split(' ')[0]}`,
         op: 'runs.start' as const,
         disabled: !!drafting,
         onClick: () => void draft(best.target.contact.id),
@@ -67,6 +68,22 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       }
     />
   );
+  // #98: direct vs bridge for the best target; switch before drafting (no switch once its draft is in Gmail).
+  const bestPaths = best?.target.paths ?? null;
+  const pathChoice =
+    best && bestPaths ? (
+      <PathChoice
+        mobile={mobile}
+        paths={bestPaths}
+        onPick={
+          bestDraft && bestDraft.status !== 'drafted'
+            ? null
+            : async (path) => {
+                await act('people.set_path', { contact_id: best.target.contact.id, role_id: role.id, path });
+              }
+        }
+      />
+    ) : null;
   const li = finds.data ? linkedinState(finds.data.items, role.id) : null;
   const linkedin = li ? (
     <div className="people-linkedin" data-linkedin={li.read ? 'read' : 'not-read'} style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>
@@ -94,6 +111,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
     return (
       <Screen label="People · mobile" {...header} primary={primary}>
         {fallback}
+        {pathChoice}
         {linkedin}
         <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {rows}
@@ -108,6 +126,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
         <PeopleGraph nodes={g.nodes} edges={g.edges} bestTarget={g.best} onOpen={open} />
         <div style={{ flex: '0 1 340px', minWidth: 300 }}>
           {fallback}
+          {pathChoice}
           {linkedin}
           <div style={{ ...eyebrow(), margin: '4px 0 12px 12px' }}>List</div>
           <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

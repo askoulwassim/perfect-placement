@@ -587,6 +587,7 @@ describe('end to end on a picked role (dry run)', () => {
       'people.find',
       'people.find_email',
       'people.link',
+      'people.set_path',
     ]);
   });
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   Application,
+  BridgeTie,
   Company,
   Contact,
   ContactLink,
@@ -18,6 +19,7 @@ import {
   ArchiveReason,
   Band,
   ConnectFallback,
+  ConnectPath,
   ContactDegree,
   ContactRole,
   ContactTier,
@@ -748,6 +750,31 @@ export const ConnectState = z.object({
 });
 export type ConnectState = z.infer<typeof ConnectState>;
 
+/** Added (#98): one way to reach a 2nd-degree hiring-team target, with its one-line reason. */
+export const ConnectPathOption = z.object({
+  path: ConnectPath,
+  /** Who the note goes to: the target (direct) or the mutual (bridge). */
+  contact_id: Id,
+  name: z.string(),
+  /** The tier the draft uses: `cold_hiring` for a direct note, `bridge` for an intro. */
+  tier: ContactTier,
+  score: z.number(),
+  /** One line, e.g. "Hiring team · Email likely" or "Other company · No email". */
+  reason: z.string(),
+  /** A bridge to a mutual with no email while the target is reachable: never drafted. */
+  blocked: z.boolean(),
+});
+export type ConnectPathOption = z.infer<typeof ConnectPathOption>;
+
+/** Added (#98): the ranked paths for a target; `options` lists the recommended one first. */
+export const ConnectPaths = z.object({
+  recommended: ConnectPath,
+  /** The user's pick when set and allowed, else `recommended`. Drafts follow it. */
+  chosen: ConnectPath,
+  options: z.array(ConnectPathOption),
+});
+export type ConnectPaths = z.infer<typeof ConnectPaths>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -760,7 +787,8 @@ export const rolesGet = defineOp({
   input: z.object({ role_id: Id }),
   output: RoleSummary.extend({
     application: Application.nullable(),
-    contacts: z.array(z.object({ contact: Contact, link: ContactLink })),
+    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team target with a mutual, else null. */
+    contacts: z.array(z.object({ contact: Contact, link: ContactLink, paths: ConnectPaths.nullable().default(null) })),
     md_body: z.string().nullable(),
     /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
     connect: ConnectState.nullable().default(null),
@@ -1062,7 +1090,13 @@ export const PeopleFindHint = z.object({
   degree: ContactDegree.optional(),
   /** LinkedIn only, degree 2: the 1st-degree mutual this person is reachable through. */
   via: z
-    .object({ name: z.string().min(1), headline: z.string().nullable().optional(), linkedin_url: z.string().url() })
+    .object({
+      name: z.string().min(1),
+      headline: z.string().nullable().optional(),
+      linkedin_url: z.string().url(),
+      /** Added (#98): the mutual's tie to this person (same company, same industry, history). Default none. */
+      tie: BridgeTie.optional(),
+    })
     .nullable()
     .optional(),
   /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
@@ -1116,6 +1150,18 @@ export const peopleLink = defineOp({
   description: 'Link a contact to a company or role.',
   input: ContactLink.omit({ id: true }),
   output: z.object({ link: ContactLink }),
+  impact: 'low',
+  emits: [],
+  owner: 'H',
+});
+
+/** Added (#98): pick direct or bridge for a 2nd-degree hiring-team target before drafting. */
+export const peopleSetPath = defineOp({
+  name: 'people.set_path',
+  description:
+    'Pick how to reach a 2nd-degree hiring-team contact: a direct note to them or a bridge intro through the mutual (null: back to the ranked default).',
+  input: z.object({ contact_id: Id, role_id: Id, path: ConnectPath.nullable() }),
+  output: z.object({ link: ContactLink, paths: ConnectPaths }),
   impact: 'low',
   emits: [],
   owner: 'H',
@@ -1727,6 +1773,7 @@ export const OPS = {
   'people.classify': peopleClassify,
   'people.find_email': peopleFindEmail,
   'people.fallback': peopleFallback,
+  'people.set_path': peopleSetPath,
   'contacts.get': contactsGet,
   'outreach.get': outreachGet,
   'outreach.list': outreachList,

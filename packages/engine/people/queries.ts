@@ -115,7 +115,14 @@ export function insertLink(R: Repos, l: ContactLink): void {
 }
 
 export function updateLink(R: Repos, l: ContactLink): void {
-  R.contact_link.update(l.id, { degree: l.degree, tier: l.tier, via_contact_id: l.via_contact_id, is_hiring_team: l.is_hiring_team });
+  R.contact_link.update(l.id, {
+    degree: l.degree,
+    tier: l.tier,
+    via_contact_id: l.via_contact_id,
+    is_hiring_team: l.is_hiring_team,
+    path: l.path,
+    via_tie_json: l.via_tie_json,
+  });
 }
 
 // -------------------------------------------------------------------- outreach

@@ -20,7 +20,7 @@ Lane H "done when": on one real picked role, correct tiers and four drafts in Gm
    - up to 3 "mutual connections" lists (`/search/results/people/?...`) for top 2nd-degree people
    No profile page, messaging, invitation, feed or follow page; no clicks.
 4. The run calls `people.find { role_id, hints: [... source: "linkedin" ...], linkedin: { pages_opened } }`, then classifies, finds emails and writes drafts as SKILL.md says. Wassim resolves any Needs-you picks and confirms the tiers (the "correct tiers" check).
-5. Gmail: up to four drafts (warm_hiring, warm_other, bridge, cold_hiring). Wassim opens Gmail, checks To (bridge = the mutual; empty when the address is unconfirmed), edits, sends himself or deletes.
+5. Gmail: up to four drafts (warm_hiring, warm_other, bridge, cold_hiring). A 2nd-degree hiring-team target is drafted on its chosen path (#98): People shows **Path** with the recommended one and the alternative; **Use** switches before drafting. Wassim opens Gmail, checks To (direct = the target; bridge = the mutual; empty when the address is unconfirmed), edits, sends himself or deletes.
 
 ## Verify
 

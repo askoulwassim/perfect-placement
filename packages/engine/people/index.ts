@@ -4,6 +4,7 @@ import { findEmail } from './email.js';
 import { fallbackPeople } from './fallback.js';
 import { findPeople } from './find.js';
 import { draftOutreach, outreachSendHandler, outreachToGmailHandler } from './outreach.js';
+import { setPath } from './path.js';
 
 export const OWNER_LANE = 'H' as const;
 
@@ -14,6 +15,7 @@ export const handlers = {
   'people.classify': classifyContact,
   'people.find_email': findEmail,
   'people.fallback': fallbackPeople,
+  'people.set_path': setPath,
   'outreach.draft': draftOutreach,
   'outreach.to_gmail': outreachToGmailHandler,
   'outreach.send': outreachSendHandler,
@@ -52,6 +54,22 @@ export {
   renderOutreachMd,
   resolveDraft,
 } from './outreach.js';
+export {
+  connectPathsFor,
+  draftTierFor,
+  LIKELY_EMAIL_P,
+  PATH_TIER,
+  type PathFacts,
+  type RankedPath,
+  REACH_POINTS,
+  type Reach,
+  rankPaths,
+  reachOf,
+  STRONG_TIE,
+  setPath,
+  TIE_POINTS,
+  tiePoints,
+} from './path.js';
 export {
   CONNECT_FALLBACK_OPS,
   connectStateFor,

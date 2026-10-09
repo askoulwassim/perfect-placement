@@ -37,6 +37,8 @@ export const COMPONENTS = {
   StageRail: { props: ['stage: 0..5'], states: ['done', 'current', 'future'] },
   ContactAvatar: { props: ['initials', 'tier'] },
   BestPathPill: { props: ['path[]'] },
+  /** Added (#98): direct vs bridge for a 2nd-degree hiring target, recommended first; Use switches (`people.set_path`). */
+  PathChoice: { props: ['paths', 'onPick'], states: ['direct', 'bridge', 'blocked'] },
   PeopleGraph: { props: ['nodes', 'edges'] },
   DraftStatusChip: { props: ['status: none|drafted|in_gmail|replied'] },
   OutreachBlock: { props: ['label: Hook|Proof|Ask', 'text'] },

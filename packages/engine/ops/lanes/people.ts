@@ -5,6 +5,7 @@ import { draftRecipient, findEmail } from '../../people/email.js';
 import { fallbackPeople } from '../../people/fallback.js';
 import { findPeople } from '../../people/find.js';
 import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import { setPath } from '../../people/path.js';
 import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
@@ -55,6 +56,7 @@ export const LANE_H_HANDLERS = {
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
   'people.find_email': defineHandler('people.find_email', { run: async (i, h) => unwrap(await findEmail(i, h.ctx, peopleDeps(h))) }),
   'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
+  'people.set_path': defineHandler('people.set_path', { run: async (i, h) => unwrap(await setPath(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
   'outreach.to_gmail': defineHandler('outreach.to_gmail', {
     decisionKind: 'outreach.to_gmail',

@@ -230,6 +230,14 @@ export const CONNECT_FALLBACKS = ['team_inbox', 'cold_leader', 'skipped'] as con
 export const ConnectFallback = z.enum(CONNECT_FALLBACKS);
 export type ConnectFallback = z.infer<typeof ConnectFallback>;
 
+/**
+ * Added (#98): how to reach a 2nd-degree hiring-team target: a `direct` note to them, or a `bridge`
+ * intro through the 1st-degree mutual. Code ranks the two (engine people/path.ts); the user can switch.
+ */
+export const CONNECT_PATHS = ['direct', 'bridge'] as const;
+export const ConnectPath = z.enum(CONNECT_PATHS);
+export type ConnectPath = z.infer<typeof ConnectPath>;
+
 export const OUTREACH_STATUSES = ['drafted', 'in_gmail', 'replied', 'ignored'] as const;
 export const OutreachStatus = z.enum(OUTREACH_STATUSES);
 export type OutreachStatus = z.infer<typeof OutreachStatus>;
