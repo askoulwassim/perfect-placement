@@ -52,6 +52,21 @@ describe('install.sh --check', () => {
     expect(existsSync(join(tmp, 'bin'))).toBe(false);
   });
 
+  it('reports uv as optional (for Kev): a note with the fix when missing, never a MISS', () => {
+    const bin = join(tmp, 'tools');
+    mkdirSync(bin);
+    const missing = check({ HOME: tmp, PATH: `${dirname(process.execPath)}:${sysPath}` });
+    if (whichIn('uv', sysPath) === null) {
+      expect(missing.stdout).toMatch(/note {2}uv not found: optional, needed only for Kev .+install: /);
+      expect(missing.stdout).not.toMatch(/MISS {2}uv/);
+    }
+    writeFileSync(join(bin, 'uv'), '#!/bin/sh\necho "uv 0.9.0"\n');
+    chmodSync(join(bin, 'uv'), 0o755);
+    const found = check({ HOME: tmp, PATH: `${bin}:${dirname(process.execPath)}:${sysPath}` });
+    expect(found.stdout).toContain('ok    uv 0.9.0 (for Kev)');
+    expect(existsSync(join(tmp, 'bin'))).toBe(false);
+  });
+
   it.skipIf(whichIn('shellcheck', process.env.PATH) === null)('is shellcheck-clean', () => {
     const r = spawnSync('shellcheck', ['-s', 'sh', INSTALL], { encoding: 'utf8' });
     expect(r.stdout + r.stderr).toBe('');

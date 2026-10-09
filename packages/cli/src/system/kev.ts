@@ -102,8 +102,13 @@ export function serveArgs(model: KevModel, port: number): string[] {
   return ['run', '--extra', 'serve', 'python', '-m', 'kev.serve', '--run', `${m.hub}@${m.revision}`, '--port', String(port)];
 }
 
+export const UV_INSTALLER = 'curl -LsSf https://astral.sh/uv/install.sh | sh';
 export const UV_INSTALL_HINT = (d: Pick<SystemDeps, 'platform' | 'which'>) =>
-  d.platform === 'darwin' && d.which('brew') ? 'brew install uv' : 'curl -LsSf https://astral.sh/uv/install.sh | sh';
+  d.platform === 'darwin' && d.which('brew') ? 'brew install uv' : UV_INSTALLER;
+
+/** Where the official uv installer puts `uv` when that dir is not on PATH yet. */
+export const uvFallbackDirs = (d: Pick<SystemDeps, 'home' | 'env'>): string[] =>
+  [d.env.XDG_BIN_HOME, join(d.home, '.local', 'bin'), join(d.home, '.cargo', 'bin')].filter((x): x is string => !!x);
 
 /** Clone (once) + `uv sync --extra serve`, then mark installed. Throws with a fix-it message on failure. */
 export async function installKev(home: string, d: SystemDeps, log: (line: string) => void): Promise<void> {

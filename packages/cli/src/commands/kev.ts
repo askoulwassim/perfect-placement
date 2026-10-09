@@ -3,6 +3,7 @@
  * The model choice is config (`backends.kev.model`, written with the config.update op).
  */
 import { existsSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { db, ops } from '@perfect-placement/engine';
 import type { Args } from '../args.js';
 import { CliError, confirm, type Io } from '../io.js';
@@ -25,6 +26,8 @@ import {
   stopKev,
   suggestedModel,
   UV_INSTALL_HINT,
+  UV_INSTALLER,
+  uvFallbackDirs,
 } from '../system/kev.js';
 
 export const sysOf = (io: Io): SystemDeps => io.sys ?? realDeps(io.env);
@@ -92,8 +95,52 @@ export async function kevInstall(home: string, io: Io, opts: { yes: boolean; mod
     return 1;
   }
   await saveModel(home, io, model);
-  io.out('kev: installed. pp up starts it on demand; or run pp kev start.');
+  io.out('kev: installed. The model downloads on the first start (pp up starts it on demand; or pp kev start).');
   return 0;
+}
+
+export interface UvCheck {
+  ok: boolean;
+  /** Why uv is still missing (for the setup summary). */
+  detail?: string;
+  /** The command that fixes it. */
+  fix?: string;
+}
+
+/**
+ * Kev needs uv. If it is missing, offer to install it, asking first (`brew install uv` on macOS with
+ * Homebrew, else the official installer). The official installer puts uv in ~/.local/bin, which may
+ * not be on PATH yet: that dir is added to PATH for the rest of this run, with a note.
+ */
+export async function ensureUv(io: Io, yes: boolean): Promise<UvCheck> {
+  const d = sysOf(io);
+  if (d.which('uv')) return { ok: true };
+  const hint = UV_INSTALL_HINT(d);
+  const fix = `${hint} && pp kev install`;
+  if (!(await confirm(io, yes, `Kev needs uv (Python package manager), which is missing. Install it now with: ${hint}?`, false))) {
+    io.out(`kev: needs uv; install it with: ${hint}, then run pp kev install`);
+    return { ok: false, detail: 'uv is missing (not installed)', fix };
+  }
+  io.out(`kev: installing uv: ${hint}`);
+  const brew = d.which('brew');
+  const code = hint === 'brew install uv' && brew ? await d.run(brew, ['install', 'uv']) : await d.run('sh', ['-c', UV_INSTALLER]);
+  if (code !== 0) {
+    io.err(`kev: installing uv failed (exit ${code})`);
+    return { ok: false, detail: `uv install failed (exit ${code})`, fix };
+  }
+  if (!d.which('uv')) {
+    const dir = uvFallbackDirs(d).find((x) => existsSync(join(x, 'uv')));
+    if (dir) {
+      d.env.PATH = d.env.PATH ? `${dir}${delimiter}${d.env.PATH}` : dir;
+      io.out(`kev: uv is in ${dir}, which is not on your PATH; add it to your shell profile: export PATH="${dir}:$PATH"`);
+    }
+  }
+  if (!d.which('uv')) {
+    io.err('kev: uv installed but not found on PATH; open a new terminal, then run pp kev install');
+    return { ok: false, detail: 'uv installed but not on PATH', fix: 'open a new terminal, then pp kev install' };
+  }
+  io.out(`kev: uv ready (${d.which('uv')})`);
+  return { ok: true };
 }
 
 export interface KevStart {
@@ -183,7 +230,11 @@ export async function kevCommand(args: Args, home: string, io: Io): Promise<numb
  * when this call started it (so `pp up` stops only what it started).
  */
 export async function kevForUp(home: string, io: Io): Promise<(() => void) | null> {
-  if (!kevInstalled(home)) return null;
+  if (!kevInstalled(home)) {
+    if (!(await kevReachable(kevConfig(home).baseUrl, sysOf(io))))
+      io.out('kev: not installed (pp kev install adds it); decisions fall back to the agent or Needs you');
+    return null;
+  }
   try {
     const r = await kevStart(home, io);
     if (!r.started) return null;

@@ -10,6 +10,7 @@ import { fresh, inbox, op, score, scout } from './commands/skills.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
+import { kevInstalled } from './system/kev.js';
 
 export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
 
@@ -125,7 +126,7 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
   // Kev on demand: only for a real vault, only if installed and not already answering; stopped on exit only if started here.
   const stopKev = args.has('fixtures') || args.has('no-kev') ? null : await kevForUp(engine.home, io);
   try {
-    if (args.has('kev')) io.out((await checkKev(engine)).line);
+    if (args.has('kev')) io.out((await checkKev(engine, args.has('fixtures') ? {} : { installed: kevInstalled(engine.home) })).line);
     running = await up({
       engine,
       port,

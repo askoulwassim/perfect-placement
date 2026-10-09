@@ -216,8 +216,8 @@ export function up(opts: UpOptions): Promise<Running> {
   });
 }
 
-/** `pp up --kev`: report whether Kev answers (never starts it). */
-export async function checkKev(engine: ops.Engine): Promise<{ ok: boolean; line: string }> {
+/** `pp up --kev`: report whether Kev answers (never starts it). `installed: false` says "not installed" instead of "unreachable". */
+export async function checkKev(engine: ops.Engine, opts: { installed?: boolean } = {}): Promise<{ ok: boolean; line: string }> {
   const o = await engine.runOp('system.backends', {}, { actor: 'human', now: () => new Date() });
   if (o.status !== 'ok') return { ok: false, line: `kev: unknown (${o.status === 'error' ? o.message : o.status})` };
   const items = (o.output as { items: Array<{ name: string; status: string; latencyMs: number | null }> }).items;
@@ -229,6 +229,8 @@ export async function checkKev(engine: ops.Engine): Promise<{ ok: boolean; line:
     ok,
     line: ok
       ? `kev: ${kev.status} at ${baseUrl}${kev.latencyMs === null ? '' : ` (${kev.latencyMs} ms)`}`
-      : `kev: unreachable at ${baseUrl} (start Kev yourself; decisions fall back to the agent or Needs you)`,
+      : opts.installed === false
+        ? 'kev: not installed (run pp kev install); decisions fall back to the agent or Needs you'
+        : `kev: unreachable at ${baseUrl} (start Kev yourself; decisions fall back to the agent or Needs you)`,
   };
 }

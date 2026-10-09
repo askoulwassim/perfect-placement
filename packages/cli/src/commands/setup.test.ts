@@ -1,16 +1,17 @@
 /*
  * pp setup / pp kev / Kev in pp up: temp HOME + temp PP_HOME, fake spawn, no network, no downloads.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fakeBackend, fakeLauncher, noNetwork } from '@perfect-placement/engine/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from '../cli.js';
 import type { Io } from '../io.js';
+import { whichIn } from '../system/deps.js';
 import { type FakeDeps, fakeDeps } from '../system/fake-deps.test-helpers.js';
 import { kevPaths, serveArgs } from '../system/kev.js';
-import { restartHint } from './setup.js';
+import { restartHint, summaryLines } from './setup.js';
 
 let root: string;
 let home: string;
@@ -119,6 +120,91 @@ describe('pp setup', () => {
     expect(await runCli(['setup', '--no-kev', '--mcp', 'cursor'], io)).toBe(0);
     expect(text()).toContain('mcp: Cursor: skipped');
     expect(text()).not.toContain('restart Cursor');
+  });
+
+  it('ends with a summary of every step, failures marked with the fix, and exits 1 on a failure', async () => {
+    mkdirSync(join(home, '.cursor'));
+    writeFileSync(join(home, '.cursor', 'mcp.json'), '{not json');
+    expect(await runCli(['setup', '--yes', '--no-kev', '--mcp', 'cursor,codex'], io)).toBe(1);
+    const tail = out.slice(out.indexOf('Setup summary:'));
+    expect(out.at(-1)).toBe('setup: 1 step(s) failed (fixes above); rerun pp setup when done');
+    expect(tail.join('\n')).toMatch(/ok {4}vault +.+\(created\)/);
+    expect(tail.join('\n')).toMatch(/skip {2}kev +--no-kev/);
+    expect(tail.join('\n')).toMatch(/FAIL {2}mcp Cursor +not valid JSON/);
+    expect(tail.join('\n')).toMatch(/fix: fix .+mcp\.json, then pp setup --mcp cursor/);
+    expect(tail.join('\n')).toMatch(/skip {2}mcp Codex +not found on this machine/);
+    expect(summaryLines([{ step: 'vault', result: 'ok', detail: 'x' }]).at(-1)).toBe('setup: all done');
+  });
+
+  it('yes to Kev with uv missing: declining uv ends in a marked failure with the fix', async () => {
+    d.which = (c) => (c === 'git' || c === 'brew' ? `/usr/bin/${c}` : null);
+    answers = [true, false]; // Kev? yes. Install uv? no.
+    expect(await runCli(['setup', '--no-mcp'], io)).toBe(1);
+    expect(asked[1]).toBe('Kev needs uv (Python package manager), which is missing. Install it now with: brew install uv?');
+    expect(d.runs).toEqual([]);
+    expect(existsSync(kevPaths(ppHome).state)).toBe(false);
+    expect(text()).toMatch(/FAIL {2}kev +not installed: uv is missing/);
+    expect(text()).toContain('fix: brew install uv && pp kev install');
+    expect(out.at(-1)).toContain('1 step(s) failed');
+  });
+
+  it('yes to Kev with uv missing: installs uv with brew (after asking), then Kev', async () => {
+    const bins = new Set(['git', 'brew']);
+    d.which = (c) => (bins.has(c) ? `/usr/bin/${c}` : null);
+    const run = d.run;
+    d.run = async (cmd, args, opts) => {
+      if (cmd === '/usr/bin/brew') bins.add('uv');
+      return run(cmd, args, opts);
+    };
+    answers = [true, true];
+    expect(await runCli(['setup', '--no-mcp'], io)).toBe(0);
+    expect(d.runs.map((r) => [r.cmd, r.args[0]])).toEqual([
+      ['/usr/bin/brew', 'install'],
+      ['/usr/bin/git', 'clone'],
+      ['/usr/bin/uv', 'sync'],
+    ]);
+    expect(existsSync(kevPaths(ppHome).state)).toBe(true);
+    expect(text()).toContain('The model downloads on the first start');
+    expect(text()).toMatch(/ok {4}kev +installed \(model kev-4b\); the model downloads on first start/);
+    expect(out.at(-1)).toBe('setup: all done');
+  });
+
+  it('uv via the official installer into ~/.local/bin (not on PATH) is picked up for this run', async () => {
+    d.platform = 'linux';
+    d.arch = 'x64';
+    d.env = { PATH: '/usr/bin' };
+    const fake = join(root, 'fakebin');
+    mkdirSync(fake);
+    for (const b of ['git', 'nvidia-smi']) {
+      writeFileSync(join(fake, b), '#!/bin/sh\n');
+      chmodSync(join(fake, b), 0o755);
+    }
+    d.env.PATH = fake;
+    d.which = (c) => whichIn(c, d.env.PATH);
+    const run = d.run;
+    d.run = async (cmd, args, opts) => {
+      if (cmd === 'sh') {
+        mkdirSync(join(home, '.local', 'bin'), { recursive: true });
+        writeFileSync(join(home, '.local', 'bin', 'uv'), '#!/bin/sh\n');
+        chmodSync(join(home, '.local', 'bin', 'uv'), 0o755);
+      }
+      return run(cmd, args, opts);
+    };
+    expect(await runCli(['setup', '--yes', '--kev', '--no-mcp'], io)).toBe(0);
+    expect(d.runs[0]).toMatchObject({ cmd: 'sh', args: ['-c', 'curl -LsSf https://astral.sh/uv/install.sh | sh'] });
+    expect(d.runs[2]?.cmd).toBe(join(home, '.local', 'bin', 'uv'));
+    expect(text()).toContain(`add it to your shell profile: export PATH="${join(home, '.local', 'bin')}:$PATH"`);
+  });
+
+  it('a failed uv install is a marked failure, not silent', async () => {
+    d.which = (c) => (c === 'git' ? '/usr/bin/git' : null);
+    d.run = async (cmd, args) => {
+      d.runs.push({ cmd, args });
+      return 7;
+    };
+    expect(await runCli(['setup', '--yes', '--kev', '--no-mcp'], io)).toBe(1);
+    expect(err.join('\n')).toContain('kev: installing uv failed (exit 7)');
+    expect(text()).toContain('fix: curl -LsSf https://astral.sh/uv/install.sh | sh && pp kev install');
   });
 
   it('says Kev is unsupported off Apple Silicon / CUDA and carries on', async () => {
@@ -240,9 +326,13 @@ describe('pp up and Kev', () => {
     expect(d.spawned).toEqual([]);
   });
 
-  it('does nothing when Kev is not installed', async () => {
+  it('says Kev is not installed (not down) and starts nothing', async () => {
     await runCli(['setup', '--yes', '--no-kev', '--no-mcp'], io);
-    expect(await upOnce([])).toBe(0);
+    out.length = 0;
+    expect(await upOnce(['--kev'])).toBe(0);
     expect(d.spawned).toEqual([]);
+    expect(text()).toContain('kev: not installed (pp kev install adds it)');
+    expect(text()).toContain('kev: not installed (run pp kev install)');
+    expect(text()).not.toContain('unreachable');
   });
 });
