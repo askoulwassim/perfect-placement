@@ -7,6 +7,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { ops } from '@perfect-placement/engine';
 import type { SystemDeps } from './deps.js';
 
 export const CLIENT_IDS = ['claude-code', 'codex', 'cursor', 'claude-desktop'] as const;
@@ -248,4 +249,92 @@ export function registerClient(client: ClientId, spec: McpServerSpec, d: SystemD
       return registerJsonClient('claude-desktop', file, spec, d);
     }
   }
+}
+
+/** The `pp` entry's command as registered in one client's config (read only; never runs the client). */
+export interface RegisteredNode {
+  client: ClientId;
+  file: string;
+  command: string;
+}
+
+function readJsonCommand(file: string): string | null {
+  if (!existsSync(file)) return null;
+  try {
+    const doc = JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: Record<string, { command?: unknown }> };
+    const c = doc?.mcpServers?.[SERVER_KEY]?.command;
+    return typeof c === 'string' ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCodexCommand(file: string): string | null {
+  if (!existsSync(file)) return null;
+  let inPp = false;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const h = HEADER.exec(line);
+    if (h) {
+      inPp = (h[1] as string).replace(/\s+/g, '').replace(/"pp"|'pp'/g, 'pp') === `mcp_servers.${SERVER_KEY}`;
+      continue;
+    }
+    const m = inPp ? /^\s*command\s*=\s*("(?:[^"\\]|\\.)*")\s*(#.*)?$/.exec(line) : null;
+    if (m) {
+      try {
+        return JSON.parse(m[1] as string) as string;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+/** Every agent config that registers the `pp` server, with the node it points at. Claude Code: `~/.claude.json` user scope. */
+export function registeredNodes(d: Pick<SystemDeps, 'platform' | 'home' | 'env'>): RegisteredNode[] {
+  const found: RegisteredNode[] = [];
+  const json = (client: ClientId, file: string | null) => {
+    const command = file ? readJsonCommand(file) : null;
+    if (file && command) found.push({ client, file, command });
+  };
+  json('claude-code', join(d.home, '.claude.json'));
+  const codex = codexConfigPath(d);
+  const codexCmd = readCodexCommand(codex);
+  if (codexCmd) found.push({ client: 'codex', file: codex, command: codexCmd });
+  json('cursor', cursorConfigPath(d));
+  json('claude-desktop', claudeDesktopConfigPath(d));
+  return found;
+}
+
+/** Why a node path will not (or soon will not) start: missing, or inside a versioned Homebrew keg. Null when fine. */
+export function nodePathProblem(command: string, exists: (p: string) => boolean = existsSync): string | null {
+  if (!exists(command)) return `${command} no longer exists`;
+  if (ops.CELLAR_NODE.test(command)) return `${command} is a versioned Homebrew path (breaks on brew upgrade)`;
+  return null;
+}
+
+/**
+ * `pp doctor` machine checks (#33): the runner's node and each registered agent's node must exist and
+ * not sit in a versioned Homebrew folder. The fix for either is rerunning `./install.sh` and `pp setup`.
+ */
+export function nodePathChecks(
+  ppHome: string,
+  d: Pick<SystemDeps, 'platform' | 'home' | 'env'>,
+  exists: (p: string) => boolean = existsSync,
+): { name: string; ok: boolean; detail?: string }[] {
+  const runner = ops.defaultMcpServer(ppHome, ops.stableNodePath(d.env, process.execPath, exists)).command;
+  const runnerProblem = nodePathProblem(runner, exists);
+  const registered = registeredNodes(d);
+  const bad = registered.flatMap((r) => {
+    const p = nodePathProblem(r.command, exists);
+    return p ? [`${CLIENT_LABEL[r.client]} (${r.file}): ${p}`] : [];
+  });
+  return [
+    runnerProblem
+      ? { name: 'runner_node', ok: false, detail: `${runnerProblem}; rerun ./install.sh` }
+      : { name: 'runner_node', ok: true, detail: runner },
+    bad.length
+      ? { name: 'mcp_node', ok: false, detail: `${bad.join('; ')}; rerun pp setup` }
+      : { name: 'mcp_node', ok: true, detail: `${registered.length} agent config${registered.length === 1 ? '' : 's'}` },
+  ];
 }

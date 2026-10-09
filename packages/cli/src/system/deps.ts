@@ -7,6 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, openSync, statSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { ops } from '@perfect-placement/engine';
 
 export interface SystemDeps {
   platform: NodeJS.Platform;
@@ -51,19 +52,8 @@ export function whichIn(cmd: string, path: string | undefined): string | null {
   return null;
 }
 
-/**
- * The node to write into MCP client configs: PP_NODE (set by the install.sh launcher), else this
- * process's node with a Homebrew Cellar path mapped to its stable `opt/` link (survives brew upgrade).
- */
-export function stableNodePath(env: NodeJS.ProcessEnv, execPath: string, exists: (p: string) => boolean = existsSync): string {
-  if (env.PP_NODE && exists(env.PP_NODE)) return env.PP_NODE;
-  const m = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/.exec(execPath);
-  if (m) {
-    const opt = `${m[1]}/opt/${m[2]}/bin/node`;
-    if (exists(opt)) return opt;
-  }
-  return execPath;
-}
+/** The node to write into MCP client configs (PP_NODE, else a Cellar path mapped to `opt/`): one rule with the runner. */
+export const stableNodePath = ops.stableNodePath;
 
 export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
   return {

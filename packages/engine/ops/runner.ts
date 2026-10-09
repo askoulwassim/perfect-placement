@@ -77,9 +77,31 @@ const REPO_ROOT = resolveRepoRoot();
 /** `skills/` at the repo root. */
 export const DEFAULT_SKILLS_DIR = join(REPO_ROOT, 'skills');
 
-/** The pp MCP server over stdio (packages/mcp, built), pointed at this vault. */
-export function defaultMcpServer(home: string): McpServerSpec {
-  return { command: process.execPath, args: [join(REPO_ROOT, 'packages/mcp/dist/bin.js')], env: { PP_HOME: home } };
+/** A node inside a versioned Homebrew keg (`.../Cellar/<formula>/<version>/bin/node`): gone after `brew upgrade`. */
+export const CELLAR_NODE = /^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/;
+
+/**
+ * The node to write into any config (runner `--mcp-config`, agent MCP registrations): PP_NODE (set by
+ * the install.sh launcher), else `execPath` with a Homebrew Cellar path mapped to its stable `opt/`
+ * link, so a `brew upgrade` does not break it (#33).
+ */
+export function stableNodePath(
+  env: Record<string, string | undefined> = process.env,
+  execPath: string = process.execPath,
+  exists: (p: string) => boolean = existsSync,
+): string {
+  if (env.PP_NODE && exists(env.PP_NODE)) return env.PP_NODE;
+  const m = CELLAR_NODE.exec(execPath);
+  if (m) {
+    const opt = `${m[1]}/opt/${m[2]}/bin/node`;
+    if (exists(opt)) return opt;
+  }
+  return execPath;
+}
+
+/** The pp MCP server over stdio (packages/mcp, built), pointed at this vault, on a stable node path. */
+export function defaultMcpServer(home: string, nodePath: string = stableNodePath()): McpServerSpec {
+  return { command: nodePath, args: [join(REPO_ROOT, 'packages/mcp/dist/bin.js')], env: { PP_HOME: home } };
 }
 
 export interface PromptContext {

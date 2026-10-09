@@ -19,6 +19,7 @@ import {
   SKILL_TOOLS,
   skillAllowedTools,
   skillPrompt,
+  stableNodePath,
 } from './runner.js';
 
 /* runs.start launches the configured headless runner (fake launcher: nothing spawns in tests or CI). */
@@ -92,6 +93,25 @@ describe('runner command lines', () => {
     expect(p).toContain('# Research');
     expect(p).toContain('runs.finish');
     expect(defaultMcpServer('/h').env).toEqual({ PP_HOME: '/h' });
+  });
+
+  it('the runner MCP server uses a stable node path, never a versioned Homebrew one (#33)', () => {
+    const cellar = '/opt/homebrew/Cellar/node@22/22.23.3_1/bin/node';
+    const opt = '/opt/homebrew/opt/node@22/bin/node';
+    const node = stableNodePath({}, cellar, (p) => p === opt);
+    expect(node).toBe(opt);
+    expect(stableNodePath({ PP_NODE: '/l/node' }, cellar, () => true)).toBe('/l/node');
+    expect(stableNodePath({ PP_NODE: '/gone' }, cellar, (p) => p === opt)).toBe(opt);
+    const s = buildRunnerSpec({
+      runner: { command: 'claude' },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'scout',
+      home: '/h',
+      mcp: defaultMcpServer('/h', node),
+    });
+    expect(s.args.join(' ')).not.toContain('/Cellar/');
+    expect(defaultMcpServer('/h').command).toBe(stableNodePath());
   });
 });
 

@@ -4,11 +4,12 @@ import { openFixtureDemo, type ToolNameStyle } from '@perfect-placement/mcp';
 import { type Args, parseArgs } from './args.js';
 import { renderDoctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
-import { kevCommand, kevForUp } from './commands/kev.js';
+import { kevCommand, kevForUp, sysOf } from './commands/kev.js';
 import { setupCommand } from './commands/setup.js';
 import { fresh, inbox, op, score, scout } from './commands/skills.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
+import { nodePathChecks } from './system/clients.js';
 
 export const COMMANDS = ['setup', 'up', 'init', 'kev', 'doctor', 'scout', 'score', 'fresh', 'inbox', 'op'] as const;
 
@@ -66,7 +67,10 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
         try {
           const o = await engine.runOp('system.doctor', {}, { actor: 'human', now: () => new Date() });
           if (o.status !== 'ok') throw new Error(o.status === 'error' ? o.message : 'requires a human');
-          return renderDoctor(o.output as db.DoctorResult, home, io, args.has('json'));
+          const res = o.output as db.DoctorResult;
+          // Machine checks (#33): node paths in the runner and agent MCP configs survive a brew upgrade.
+          const checks = [...res.checks, ...nodePathChecks(home, sysOf(io))];
+          return renderDoctor({ ...res, checks, ok: checks.every((c) => c.ok) }, home, io, args.has('json'));
         } finally {
           engine.close();
         }

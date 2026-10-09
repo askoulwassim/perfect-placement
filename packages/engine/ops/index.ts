@@ -27,6 +27,7 @@ export { changedKeys, hardHumanHint } from './policy.js';
 export { ALL_HANDLERS } from './registry.js';
 export {
   buildRunnerSpec,
+  CELLAR_NODE,
   createSpawnLauncher,
   cursorPermissions,
   DEFAULT_SKILLS_DIR,
@@ -43,6 +44,7 @@ export {
   SKILL_TOOLS,
   skillAllowedTools,
   skillPrompt,
+  stableNodePath,
   type WebTool,
 } from './runner.js';
 export {
