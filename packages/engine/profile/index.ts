@@ -6,6 +6,7 @@ export * from './components.js';
 export * from './deps.js';
 export * from './errors.js';
 export * from './facts.js';
+export * from './hints.js';
 export * from './learn.js';
 export * from './markdown.js';
 export * from './onboard.js';

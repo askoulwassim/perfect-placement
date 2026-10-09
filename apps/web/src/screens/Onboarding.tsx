@@ -103,7 +103,8 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
   const parseLabel = parseRun ? (isActive(parseRun.status) ? activeLabel(parseRun) : runOutcome(parseRun)) : null;
 
   const q = state?.next_question ?? null;
-  const val = q ? answers[q.id] : undefined;
+  // A resume suggestion pre-fills an open question (#22); the user still confirms it with Next.
+  const val = q ? (answers[q.id] ?? q.suggested) : undefined;
   const sliderMid = q ? Math.round(((q.min ?? 150) + (q.max ?? 300)) / 2) : 200;
   const qVal = q
     ? (val ??
@@ -180,6 +181,23 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
     }
     setStep((s) => Math.min(3, s + 1));
   };
+
+  /** "I don't know" (#23): the question is answered with nothing. */
+  const skip = async () => {
+    if (!q) return;
+    const o = await act('onboard.answer', { question_id: q.id, skip: true });
+    if (o.status !== 'ok') return;
+    setPending('');
+    setState(o.output);
+    if (o.output.step === 'calibrate') setStep(2);
+    else if (o.output.step === 'confirm') {
+      setReinterview(q.component);
+      setStep(3);
+    } else setQn((n) => n + 1);
+  };
+  /** What the resume gave each component (#22), shown before and during the interview. */
+  const pulled = state?.resume_drafts ?? [];
+  const pulledOf = (key: ProfileComponentKey) => pulled.find((d) => d.component === key);
 
   const lit = (key: string) => {
     if (step > 0) return true;
@@ -331,17 +349,37 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
             accept=".pdf,.md,.txt,.docx"
             onChange={(e) => void ingest(e.target.files?.[0] ?? null)}
           />
-          <MiniConstellation nodes={nodes} lit={lit} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+            <MiniConstellation nodes={nodes} lit={lit} />
+            {state && parsed >= NODE_COUNT && pulled.length > 0 && (
+              <div className="resume-drafts" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={eyebrow()}>From resume</div>
+                {pulled.map((d) => (
+                  <ResumeDraft key={d.component} name={COMPONENT_NAME[d.component]} conf={d.confidence} items={d.items} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {step === 1 && q && (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 240px', gap: 48, marginTop: 90, alignItems: 'start' }}>
           <div>
-            <div style={eyebrow()}>Q {qn + 1}</div>
-            <div className="onboard-q__text" style={{ ...display(72, 800, '-0.04em'), lineHeight: 1, margin: '14px 0 44px' }}>
+            <div className="onboard-q__for" style={eyebrow()}>
+              Q {qn + 1} · {COMPONENT_NAME[q.component]}
+            </div>
+            <div
+              className="onboard-q__text"
+              style={{ ...display(44, 800, '-0.03em'), lineHeight: 1.08, margin: `14px 0 ${q.example ? 14 : 40}px`, maxWidth: 860 }}
+            >
               {q.label}
             </div>
+            {q.example && (
+              <div className="onboard-q__example" style={{ fontSize: 16, color: C.muted, marginBottom: 36 }}>
+                {q.example}
+              </div>
+            )}
             {(q.answer_type === 'chips' || q.answer_type === 'multi_chips') && (
               <div className="onboard-q" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 {q.options?.map((o) => {
@@ -373,7 +411,7 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                       }}
                       hover={{ borderColor: C['emerald-2'] }}
                     >
-                      {o}
+                      {q.kind === 'confirm' ? (CONFIRM_LABEL[o] ?? o) : o}
                     </Btn>
                   );
                 })}
@@ -497,22 +535,36 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
                 />
               </div>
             )}
+            <Btn
+              op="onboard.answer"
+              className="onboard-q__skip"
+              onClick={() => void skip()}
+              style={{ marginTop: 28, background: 'transparent', border: 'none', color: C.muted, fontSize: 15, padding: 0 }}
+              hover={{ color: C.fg }}
+            >
+              I don't know
+            </Btn>
           </div>
-          <QuestionNode
-            name={COMPONENT_NAME[q.component]}
-            color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
-            conf={
-              q.answer_type === 'slider'
-                ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
-                : Array.isArray(qVal)
-                  ? qVal.includes('Any')
-                    ? 55
-                    : 72
-                  : qVal
-                    ? 95
-                    : 0
-            }
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <QuestionNode
+              name={COMPONENT_NAME[q.component]}
+              color={KIND_HEX[PROFILE_COMPONENT_KIND[q.component]]}
+              conf={
+                q.answer_type === 'slider'
+                  ? Math.round(60 + ((typeof qVal === 'number' ? qVal : sliderMid) - (q.min ?? 150)) / 5)
+                  : Array.isArray(qVal)
+                    ? qVal.includes('Any')
+                      ? 55
+                      : 72
+                    : qVal
+                      ? 95
+                      : 0
+              }
+            />
+            {pulledOf(q.component) && (
+              <ResumeDraft name="From resume" conf={pulledOf(q.component)?.confidence ?? 0} items={pulledOf(q.component)?.items ?? []} />
+            )}
+          </div>
         </div>
       )}
 
@@ -731,6 +783,30 @@ export function Onboarding({ calibrate: startAtCalibrate }: { calibrate?: boolea
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const CONFIRM_LABEL: Record<string, string> = { yes: 'Yes', edit: 'Edit' };
+
+/** One component's resume draft: name, confidence, the lines pulled (#22). */
+function ResumeDraft({ name, conf, items }: { name: string; conf: number; items: string[] }) {
+  return (
+    <div
+      className="resume-draft"
+      style={{ background: C.panel, border: `1px solid ${C['line-2']}`, borderRadius: 12, padding: '14px 16px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{name}</span>
+        <span className="resume-draft__conf" style={{ ...mono(11, conf >= 0.7 ? C.emerald : C.gold), ...tab }}>
+          {Math.round(conf * 100)}%
+        </span>
+      </div>
+      {items.slice(0, 3).map((x) => (
+        <div key={x} style={{ fontSize: 13, color: C.muted, marginTop: 6, overflowWrap: 'anywhere' }}>
+          {x}
+        </div>
+      ))}
     </div>
   );
 }

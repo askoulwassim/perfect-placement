@@ -33,6 +33,8 @@ const common = {
   open_questions: TextList.optional(),
   /** Added (#38): dictated answers as spoken, by question id (provenance; the cleaned text is the value). */
   dictated: z.record(z.string(), z.string()).optional(),
+  /** Added (#22): answers to the onboard agent's follow-up questions, as asked. Not scored. */
+  follow_ups: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
 };
 
 export const StoryRole = z.looseObject({

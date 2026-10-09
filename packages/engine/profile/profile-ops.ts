@@ -147,7 +147,7 @@ export function profileProposeDiff(
 // ------------------------------------------------------------------ apply
 
 /** Component keys no score reads: a diff that only changes these never rescores (#42). */
-const UNSCORED_KEYS = new Set(['application_defaults', 'notes', 'open_questions', 'dictated']);
+const UNSCORED_KEYS = new Set(['application_defaults', 'notes', 'open_questions', 'dictated', 'follow_ups']);
 
 /** Effective impact: never lower than what the component kind implies (guards a tampered row). */
 export function diffImpact(diff: ProfileDiff): Impact {

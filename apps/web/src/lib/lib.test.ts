@@ -37,6 +37,13 @@ describe('stageOf', () => {
     expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'drafted' })).toBe(2);
     expect(stageOf({ status: 'draft-ready' }, { stage: 'connect' }, { status: 'in_gmail' })).toBe(3);
   });
+  it('treats Research as done when the company has a dossier (#61)', () => {
+    expect(stageOf({ status: 'on-deck' }, null, null, true)).toBe(1);
+    expect(stageOf({ status: 'on-deck' }, { stage: 'research' }, null, true)).toBe(1);
+    expect(stageOf({ status: 'on-deck' }, null, null, false)).toBe(0);
+    expect(stageOf({ status: 'draft-ready' }, { stage: 'fill' }, null, true)).toBe(3);
+    expect(stageOf({ status: 'archived' }, null, null, true)).toBe(-1);
+  });
 });
 
 describe('bestPath', () => {

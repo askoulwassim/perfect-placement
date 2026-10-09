@@ -55,9 +55,16 @@ Applying a weighted or filter diff returns the unapplied roles to rescore (`acti
 ## Onboarding
 
 1. `onboard.ingest_resume` keeps the resume in `files/` (original + extracted text, Story `source_path`), drafts an instant preview (LLM if injected, else heuristic) and, for a human upload, queues a headless `onboard` run whose `onboard.extract` replaces the preview with facts copied verbatim (checked against the text). Draft is seeded from the current profile. Dictated text answers are stored clean (`cleanDictation`), the raw kept in `dictated`.
-2. `onboard.answer` walks `QUESTION_BANK` in component order. A question is skipped when the draft already answers it
+2. `onboard.answer` walks `QUESTION_BANK` in component order (full-sentence questions with an optional example, #23;
+   `skip: true` answers "I don't know"). A question is skipped when the draft already answers it
    (resume, profile, earlier answer). Follow-ups are conditional (`when`). `startComponentInterview([key])` re-asks one
    component and goes straight to confirm.
+   Resume-adaptive (#22, `hints.ts`): the session's interview plan (`interview_json`) keeps per-component resume drafts
+   (Story, Craft, Domain, Growth, Voice) with a confidence. At 0.7 or more a component opens with a confirm question
+   (`confirm.<key>`: "Looks like ... Right?", `yes` keeps the draft, `edit` asks its questions pre-filled); below, the
+   draft only pre-fills (`suggested`). The onboard agent run replaces the preview drafts (`onboard.extract { drafts }`)
+   and proposes follow-ups (`onboard.propose_questions`, asked after the component's bank questions, answers in
+   `follow_ups`). `state.resume_drafts` lists what was pulled per component.
 3. `onboard.calibrate` records yes / no / maybe on 12 samples (default: scored roles, round-robin across bands).
 4. `onboard.confirm` writes a new version with all 11 components. When a profile exists and the actor is not human,
    changed filters are not written; they become pending high-impact diffs.

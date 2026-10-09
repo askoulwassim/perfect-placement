@@ -50,6 +50,28 @@ export const SYNTH_RESUME_NO_YEARS = `# Riley Sample
 - MBA, Example Business School, 2000
 `;
 
+/**
+ * A SYNTHETIC resume unlike SYNTH_RESUME (#22): an engineer in healthcare who writes long, formal
+ * sentences without metrics. Its interview must differ noticeably from Jordan's.
+ */
+export const SYNTH_RESUME_ENGINEER = `# Casey Placeholder
+
+**Title:** Staff Software Engineer, Clinical Systems
+
+## Summary
+
+Engineer who has spent the better part of a decade designing dependable clinical software that hospital care teams rely upon during every shift, with a particular focus on interoperability between electronic health record systems and bedside devices.
+
+## Experience
+
+### Mercy Example Health — Staff Software Engineer — 2021–Present
+- Led the redesign of the medication administration workflow so that nurses and clinicians could verify patient identity and dosage information without leaving the bedside device they were already using.
+- Partnered with clinical informatics and hospital compliance teams to define the integration contracts between the EHR and the pharmacy systems used across the network.
+
+### Sample Clinic Software — Software Engineer — 2017–2021
+- Maintained the scheduling services that patients and front desk staff used to book and reschedule appointments across the clinic network and its affiliated hospitals.
+`;
+
 const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** A minimal SYNTHETIC .docx (zip, stored or deflated) with one paragraph per entry; `#` marks a heading, `- ` a list item. */

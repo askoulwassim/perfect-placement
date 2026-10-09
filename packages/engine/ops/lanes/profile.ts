@@ -8,6 +8,7 @@ import {
   onboardConfirm,
   onboardExtract,
   onboardIngestResume,
+  onboardProposeQuestions,
   onboardSamples,
   onboardStart,
   onboardState,
@@ -121,4 +122,7 @@ export const LANE_E_HANDLERS = {
   'onboard.calibrate': defineHandler('onboard.calibrate', { run: (i, h) => onboardCalibrate(profileDeps(h), i, h.ctx) }),
   'onboard.confirm': defineHandler('onboard.confirm', { run: (i, h) => onboardConfirm(profileDeps(h), i, h.ctx) }),
   'onboard.extract': defineHandler('onboard.extract', { run: (i, h) => onboardExtract(profileDeps(h), i, h.ctx) }),
+  'onboard.propose_questions': defineHandler('onboard.propose_questions', {
+    run: (i, h) => onboardProposeQuestions(profileDeps(h), i, h.ctx),
+  }),
 } as const;

@@ -15,8 +15,14 @@ description: Build or refresh the user's profile. Resume in, short adaptive inte
    instant preview and returns the onboarding state. When a person uploads it, the op also queues a headless
    `onboard` run that extracts the facts verbatim (`extract.md`); in a live session you may do that extraction
    yourself with `onboard.extract`.
-2. **Interview.** While `state.next_question` is not null, show it as given (label, chips, slider) and call
-   `onboard.answer` with `{ question_id, value }`:
+2. **Interview.** First show what was pulled from the resume per component (`state.resume_drafts`: component,
+   confidence, items). While `state.next_question` is not null, show it as given (the full-sentence label, its
+   `example` if any, which component it fills, chips or slider; pre-fill `suggested`) and call `onboard.answer`
+   with `{ question_id, value }`, or `{ question_id, skip: true }` when the user says "I don't know":
+   - `kind: 'confirm'`: the resume implies the answer with high confidence ("Looks like ... Right?"). `yes` keeps
+     it; `edit` asks that component's questions with the resume's draft pre-filled.
+   - `kind: 'follow_up'`: a question the onboard agent proposed from the resume; the answer is kept in the
+     component's `follow_ups`.
    - `chips`: one option string. `multi_chips`: array of option strings (order = rank). `slider`: a number in `[min, max]`.
      `text`: a short string.
    - Never ask a question the op did not return. The op already skips what the resume or profile answers.
@@ -38,13 +44,15 @@ then loop step 2 and confirm. Calibration is skipped.
 
 ## Headless run (no user present)
 
-Do only the resume extraction in `extract.md`: read the kept resume, `onboard.extract`, `runs.finish`. Do not
-answer interview questions, calibrate or confirm: those are the user's.
+Do only the resume extraction in `extract.md`: read the kept resume, `onboard.extract` (facts plus per-component
+drafts with a confidence), optionally `onboard.propose_questions` (follow-ups where the resume is silent or
+ambiguous), `runs.finish`. Do not answer interview questions, calibrate or confirm: those are the user's.
 
 ## Rules
 
 - The user is the only source of preferences. If you run this as an agent (not on the user's behalf in a live session),
   any change to Work mode, Terms or Dealbreakers becomes a pending diff for the user, never a direct write.
-- UI copy: labels of one to three words, no tips, one primary action per screen.
+- UI copy: buttons and labels of one to three words, no tips, one primary action per screen. Interview questions
+  are full, plain sentences with an optional one-line example (wave1-decisions #28).
 - Writing in the user's voice: no em dashes.
 - Facts come from the resume or the user, verbatim. Never infer a number.

@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine, tickingClock } from '../testing/index.js';
 import { type CalibrationSample, deriveWeights } from './calibration.js';
 import { rubricWeights } from './components.js';
-import { nextSamples } from './questions.js';
+import { questionOverlap } from './onboard.js';
+import { nextSamples, QUESTION_BANK } from './questions.js';
 import { parseResumeHeuristic } from './resume.js';
-import { SYNTH_RESUME, SYNTH_RESUME_NO_YEARS, synthDocx, synthPdf } from './synthetic.js';
+import { SYNTH_RESUME, SYNTH_RESUME_ENGINEER, SYNTH_RESUME_NO_YEARS, synthDocx, synthPdf } from './synthetic.js';
 
 type State = OpOutput<'onboard.ingest_resume'>;
 const clock = tickingClock();
@@ -279,9 +280,17 @@ describe('the resume is kept, parsed by an agent, and never guessed (#38)', () =
     await new Promise((r) => setTimeout(r, 20));
     const spec = ee.launcher.specs.find((x) => x.args.join(' ').includes('extract.md'));
     expect(spec).toBeDefined();
+    // The resume's headline is confirmed first (#22), then years.
+    expect(state.next_question).toMatchObject({
+      id: 'confirm.story',
+      kind: 'confirm',
+      label: 'Looks like your headline is "Senior Product Manager". Right?',
+      options: ['yes', 'edit'],
+    });
+    const after = (await op('onboard.answer', { question_id: 'confirm.story', value: 'yes' })) as State;
     // The instant preview never guesses: years only from the role dates, asked for confirmation.
-    expect(state.next_question?.id).toBe('story.years');
-    expect(state.next_question?.options).toEqual(['10', 'leave out']);
+    expect(after.next_question?.id).toBe('story.years');
+    expect(after.next_question?.options).toEqual(['10', 'leave out']);
     // An agent ingest (e.g. the skill in a live session) does not queue another run.
     const runs = (ee.db.prepare(`SELECT COUNT(*) AS n FROM run WHERE op = 'onboard'`).get() as { n: number }).n;
     await op('onboard.ingest_resume', upload('r.pdf', synthPdf(['Riley Sample', 'Senior Product Manager'])), ctx('agent'));
@@ -326,7 +335,8 @@ describe('the resume is kept, parsed by an agent, and never guessed (#38)', () =
       craft: { level: 'senior' },
     });
     expect(out.target).toBe('session');
-    expect(out.state.next_question.id).toBe('story.years');
+    expect(out.state.next_question.id).toBe('confirm.story');
+    expect(out.state.resume_drafts.find((d: { component: string }) => d.component === 'story')).toMatchObject({ by: 'agent' });
     const draft = (ee.db.prepare('SELECT draft_json FROM onboard_session ORDER BY started_at DESC LIMIT 1').get() as { draft_json: string })
       .draft_json;
     const story = JSON.parse(draft).story;
@@ -358,5 +368,205 @@ describe('the resume is kept, parsed by an agent, and never guessed (#38)', () =
     const again = (await comps()).components.find((c) => c.key === 'story')?.data_json ?? {};
     expect(again.wins).toEqual(['Cut pipeline cost 38%.']);
     expect((again.dictated as Record<string, string>)['story.win']).toBe('uh cut pipeline cost 38%');
+  });
+});
+
+describe('question wording (#23)', () => {
+  it('every question is a full sentence with at most a one-line example; no dashes', () => {
+    for (const q of QUESTION_BANK) {
+      expect(q.label.split(' ').length, q.id).toBeGreaterThanOrEqual(4);
+      expect(q.label, q.id).toMatch(/^[A-Z].*[?.]$/);
+      expect(q.label + (q.example ?? ''), q.id).not.toMatch(/[\u2014\u2013]/);
+      if (q.example) expect(q.example, q.id).not.toMatch(/\n/);
+    }
+  });
+  it('no two questions ask for the same thing; Company and Network are sequenced and distinct', () => {
+    for (const [i, a] of QUESTION_BANK.entries())
+      for (const b of QUESTION_BANK.slice(i + 1)) expect(questionOverlap(a.label, b.label), `${a.id} / ${b.id}`).toBeLessThan(0.5);
+    const ids = QUESTION_BANK.map((q) => q.id);
+    expect(ids.indexOf('network.warm')).toBe(ids.indexOf('company.dream') + 1);
+    expect(QUESTION_BANK.find((q) => q.id === 'company.dream')?.label).toBe('Which companies would you love to work at?');
+    expect(QUESTION_BANK.find((q) => q.id === 'network.warm')?.label).toMatch(/^Where do you already know people/);
+    // Industries are asked once (Domain), not again as dealbreakers.
+    const nos = QUESTION_BANK.find((q) => q.id === 'dealbreakers.hard_nos')?.options ?? [];
+    for (const industry of QUESTION_BANK.find((q) => q.id === 'domain.avoid')?.options ?? [])
+      if (industry !== 'other' && industry !== 'none') expect(nos).not.toContain(industry);
+  });
+  it('every question can be skipped ("I don\'t know"): the draft is unchanged', async () => {
+    e = openFixtureEngine();
+    let state = (await op('onboard.start', { components: ['growth'] })) as State;
+    expect(state.next_question?.id).toBe('growth.ceiling');
+    const ee = e as FixtureEngine;
+    expect(await ee.runOp('onboard.answer', { question_id: 'growth.ceiling' }, ctx())).toMatchObject({ code: 'invalid_input' });
+    state = (await op('onboard.answer', { question_id: 'growth.ceiling', skip: true })) as State;
+    expect(state.next_question?.id).toBe('growth.trajectory');
+    state = (await op('onboard.answer', { question_id: 'growth.trajectory', skip: true })) as State;
+    expect(state.step).toBe('confirm');
+    const row = ee.db.prepare('SELECT interview_json FROM onboard_session ORDER BY started_at DESC LIMIT 1').get() as {
+      interview_json: string;
+    };
+    expect(JSON.parse(row.interview_json).skipped).toEqual(['growth.ceiling', 'growth.trajectory']);
+    const before = (await comps()).components.find((c) => c.key === 'growth')?.data_json;
+    await op('onboard.confirm', {});
+    expect((await comps()).components.find((c) => c.key === 'growth')?.data_json).toEqual(before);
+  });
+});
+
+describe('the interview adapts to the resume (#22)', () => {
+  /** Walk an interview: confirm everything the resume implies, skip the rest. */
+  async function walk(text: string) {
+    e?.cleanup();
+    e = openFixtureEngine({ seed: false });
+    let state = (await op('onboard.ingest_resume', { text }, ctx('agent'))) as State;
+    const drafts = state.resume_drafts;
+    const asked: Array<{ id: string; label: string; kind: string; suggested?: unknown }> = [];
+    while (state.next_question) {
+      const q = state.next_question;
+      asked.push({ id: q.id, label: q.label, kind: q.kind, suggested: q.suggested });
+      state = (await op(
+        'onboard.answer',
+        q.kind === 'confirm' ? { question_id: q.id, value: 'yes' } : { question_id: q.id, skip: true },
+      )) as State;
+    }
+    return { asked, drafts };
+  }
+
+  it('two different resumes produce noticeably different interviews', async () => {
+    const pm = await walk(SYNTH_RESUME);
+    const eng = await walk(SYNTH_RESUME_ENGINEER);
+    const confirms = (a: typeof pm.asked) => a.filter((q) => q.kind === 'confirm').map((q) => q.label);
+    expect(confirms(pm.asked)).toEqual([
+      'Looks like your headline is "Principal Product Manager, Data Platforms". Right?',
+      'Looks like you work as a principal PM, as an individual contributor. Right?',
+      'Looks like your strongest domain is data platforms. Right?',
+      'Looks like you write in a punchy style. Right?',
+    ]);
+    expect(confirms(eng.asked)).toEqual([
+      'Looks like your headline is "Staff Software Engineer, Clinical Systems". Right?',
+      'Looks like you work as a staff engineer, as an individual contributor. Right?',
+      'Looks like your strongest domain is healthcare. Right?',
+      'Looks like you write in a formal style. Right?',
+    ]);
+    // Different question sets: years only where the dates imply them; suggestions differ.
+    const ids = (a: typeof pm.asked) => a.map((q) => q.id);
+    expect(ids(pm.asked)).not.toContain('story.years'); // stated in the resume
+    expect(ids(eng.asked)).toContain('story.years'); // from the role dates: confirmed or left out
+    const growth = (a: typeof pm.asked) => a.find((q) => q.id === 'growth.ceiling')?.suggested;
+    expect(growth(pm.asked)).toBe('group PM');
+    expect(growth(eng.asked)).toBe('principal IC');
+    expect(ids(pm.asked)).not.toEqual(ids(eng.asked));
+    // What was pulled is shown per component, with a confidence.
+    expect(pm.drafts.map((d) => d.component)).toEqual(['story', 'craft', 'domain', 'growth', 'voice']);
+    expect(eng.drafts.find((d) => d.component === 'domain')?.items[0]).toMatch(/^healthcare: \d+ mentions$/);
+    for (const d of [...pm.drafts, ...eng.drafts]) expect(d.confidence).toBeGreaterThan(0);
+  });
+
+  it('high confidence is confirmed, not asked; Edit asks the component with the resume pre-filled', async () => {
+    e = openFixtureEngine({ seed: false });
+    let state = (await op('onboard.ingest_resume', { text: SYNTH_RESUME }, ctx('agent'))) as State;
+    state = (await op('onboard.answer', { question_id: 'confirm.story', value: 'yes' })) as State;
+    expect(state.next_question?.id).toBe('confirm.craft');
+    state = (await op('onboard.answer', { question_id: 'confirm.craft', value: 'edit' })) as State;
+    expect(state.next_question).toMatchObject({ id: 'craft.functions', kind: 'ask', suggested: ['PM'] });
+    state = (await op('onboard.answer', { question_id: 'craft.functions', value: ['PM'] })) as State;
+    expect(state.next_question).toMatchObject({ id: 'craft.level', suggested: 'principal' });
+    state = (await op('onboard.answer', { question_id: 'craft.level', value: 'group' })) as State;
+    expect(state.next_question?.id).toBe('craft.mode');
+    state = (await op('onboard.answer', { question_id: 'craft.mode', value: 'lead' })) as State;
+    expect(state.next_question?.id).toBe('craft.facing'); // the resume is silent: asked open
+    state = (await op('onboard.answer', { question_id: 'craft.facing', skip: true })) as State;
+    expect(state.next_question?.id).toBe('confirm.domain');
+    state = (await op('onboard.answer', { question_id: 'confirm.domain', value: 'yes' })) as State;
+    // Domain ranked is confirmed, not asked again.
+    expect(state.next_question?.id).toBe('domain.avoid');
+    const draft = JSON.parse(
+      (
+        (e as FixtureEngine).db.prepare('SELECT draft_json FROM onboard_session ORDER BY started_at DESC LIMIT 1').get() as {
+          draft_json: string;
+        }
+      ).draft_json,
+    );
+    expect(draft.craft).toMatchObject({ functions: ['PM'], level: 'group', mode: 'lead' });
+    expect(draft.domain.ranked).toEqual(['data platforms']);
+  });
+
+  it('the agent run refines the drafts (with confidence) and proposes follow-ups through ops', async () => {
+    e = openFixtureEngine({ seed: false });
+    const ee = e as FixtureEngine;
+    await op('onboard.ingest_resume', { text: SYNTH_RESUME_ENGINEER }, ctx('agent'));
+    const out = await op(
+      'onboard.extract',
+      {
+        story: { headline: 'Staff Software Engineer, Clinical Systems' },
+        craft: { functions: ['Engineering'], level: 'staff', mode: 'ic' },
+        drafts: {
+          domain: {
+            data: { ranked: ['healthcare', 'data platforms'] },
+            confidence: 0.9,
+            evidence: ['EHR integration', 'clinical software'],
+          },
+          growth: { data: { scope_ceiling: 'principal IC' }, confidence: 0.4 },
+        },
+      },
+      ctx('agent'),
+    );
+    expect(out.state.resume_drafts.find((d: { component: string }) => d.component === 'domain')).toMatchObject({
+      by: 'agent',
+      confidence: 0.9,
+      items: ['EHR integration', 'clinical software'],
+    });
+    const proposed = await op(
+      'onboard.propose_questions',
+      {
+        questions: [
+          {
+            component: 'domain',
+            label: 'Would you stay in clinical software, or move to a different part of healthcare?',
+            answer_type: 'chips',
+            options: ['clinical software', 'elsewhere in healthcare', 'either'],
+            reason: 'Every role is clinical software.',
+          },
+          { component: 'company', label: 'Which companies would you really love to work at?', answer_type: 'text' },
+          { component: 'craft', label: 'Lead?', answer_type: 'text' },
+          { component: 'team', label: 'Do you like small teams \u2014 or big ones?', answer_type: 'text' },
+          { component: 'voice', label: 'Which writing do you want us to match?', answer_type: 'chips' },
+        ],
+      },
+      ctx('agent'),
+    );
+    expect(proposed.added).toEqual(['follow.1']);
+    expect(proposed.rejected.map((r: { reason: string }) => r.reason)).toEqual([
+      'duplicate of company.dream',
+      'a question is a full sentence ending in ? or .',
+      'no em or en dashes',
+      'chips need at least two options',
+    ]);
+    const asked: string[] = [];
+    let state = proposed.state as State;
+    while (state.next_question) {
+      const q = state.next_question;
+      asked.push(q.id);
+      if (q.id === 'confirm.domain') expect(q.label).toBe('Looks like your strongest domains are healthcare and data platforms. Right?');
+      if (q.id === 'growth.ceiling') expect(q.suggested).toBe('principal IC');
+      const value = q.kind === 'confirm' ? 'yes' : q.id === 'follow.1' ? 'either' : undefined;
+      state = (await op('onboard.answer', value ? { question_id: q.id, value } : { question_id: q.id, skip: true })) as State;
+    }
+    // The follow-up is asked after Domain's bank questions.
+    expect(asked.indexOf('follow.1')).toBe(asked.indexOf('domain.avoid') + 1);
+    expect(asked).not.toContain('domain.ranked');
+    const draft = JSON.parse(
+      (ee.db.prepare('SELECT draft_json FROM onboard_session ORDER BY started_at DESC LIMIT 1').get() as { draft_json: string }).draft_json,
+    );
+    expect(draft.domain.follow_ups).toEqual([
+      { question: 'Would you stay in clinical software, or move to a different part of healthcare?', answer: 'either' },
+    ]);
+    // Past the interview, no more follow-ups.
+    expect(
+      await ee.runOp(
+        'onboard.propose_questions',
+        { questions: [{ component: 'team', label: 'Do you want a small team?', answer_type: 'text' }] },
+        ctx('agent'),
+      ),
+    ).toMatchObject({ code: 'conflict' });
   });
 });

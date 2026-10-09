@@ -85,6 +85,8 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'system.backends': 'low',
   // #38
   'onboard.extract': 'low',
+  // #22
+  'onboard.propose_questions': 'low',
   // #42, #54
   'profile.set_defaults': 'low',
   'apply.resolve_claim': 'low',

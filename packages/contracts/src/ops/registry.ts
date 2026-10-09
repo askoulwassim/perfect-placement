@@ -177,8 +177,32 @@ const OnboardState = z.object({
       max_chars: z.number().int().positive().optional(),
       /** The list kept so far (list questions only), so the UI can show and remove items. */
       items: z.array(z.string()).optional(),
+      /** Added (#23): an optional one-line example under the question (the label is a full sentence). */
+      example: z.string().optional(),
+      /**
+       * Added (#22): `ask` (the question bank), `confirm` (the resume implies an answer with high
+       * confidence: `yes` keeps it, `edit` asks the component's questions), `follow_up` (proposed by the
+       * onboard agent run through `onboard.propose_questions`). Every kind can be skipped (`skip: true`).
+       */
+      kind: z.enum(['ask', 'confirm', 'follow_up']).default('ask'),
+      /** Added (#22): the answer the resume suggests (low confidence or after `edit`); the UI pre-fills it. */
+      suggested: z.union([z.string(), z.number(), z.array(z.string())]).optional(),
     })
     .nullable(),
+  /**
+   * Added (#22): what was pulled from the resume per component, with a confidence 0..1, shown before
+   * and during the interview. `by`: the instant `preview` or the onboard `agent` run.
+   */
+  resume_drafts: z
+    .array(
+      z.object({
+        component: ProfileComponentKey,
+        confidence: z.number().min(0).max(1),
+        items: z.array(z.string()),
+        by: z.enum(['preview', 'agent']),
+      }),
+    )
+    .default([]),
   /**
    * Added (#38): the kept source resume. `source_path` is its extracted text (vault markdown), `file_path`
    * the original upload (PDF / DOCX), `parse_run_id` the headless `onboard` run queued to parse it
@@ -259,7 +283,10 @@ export const onboardAnswer = defineOp({
   description: 'Answer one interview question for a component.',
   input: z.object({
     question_id: z.string(),
-    value: z.union([z.string(), z.number(), z.array(z.string())]),
+    /** Required unless `skip` (#23). */
+    value: z.union([z.string(), z.number(), z.array(z.string())]).optional(),
+    /** Added (#23): "I don't know": the question is answered with nothing; the draft is unchanged. */
+    skip: z.boolean().optional(),
     /** Added (#38): the dictated original of a text answer whose cleaned `value` the user confirmed (kept for provenance). */
     raw: z.string().optional(),
   }),
@@ -283,12 +310,56 @@ export const onboardExtract = defineOp({
   input: z.object({
     story: z.record(z.string(), z.unknown()),
     craft: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Added (#22): the agent's drafts for components the resume informs (judgment, not facts), each with
+     * a confidence 0..1 and the resume lines it rests on. At or above 0.7 the interview confirms the
+     * draft (Yes / Edit); below, it asks and pre-fills it. Never written to the profile unconfirmed.
+     */
+    drafts: z
+      .partialRecord(
+        z.enum(['craft', 'domain', 'growth', 'voice']),
+        z.object({
+          data: z.record(z.string(), z.unknown()),
+          confidence: z.number().min(0).max(1),
+          evidence: z.array(z.string()).max(6).optional(),
+        }),
+      )
+      .optional(),
   }),
   output: z.object({
     /** `session`: merged into the onboarding draft; `diff`: proposed as a Story diff (onboarding was done). */
     target: z.enum(['session', 'diff']),
     state: OnboardState.optional(),
     diff_id: Id.optional(),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'E',
+});
+
+/**
+ * Added (#22): follow-up questions the onboard agent run proposes from the resume (where it is silent or
+ * ambiguous). Asked after the component's bank questions; answers are kept in the component's
+ * `follow_ups`. Full sentences, no duplicates of an existing question, at most 6 per session.
+ */
+export const OnboardProposedQuestion = z.object({
+  component: ProfileComponentKey,
+  label: z.string().min(1),
+  example: z.string().optional(),
+  answer_type: z.enum(['chips', 'multi_chips', 'text']),
+  options: z.array(z.string().min(1)).max(8).optional(),
+  /** Why the resume prompts it (kept with the session, not shown). */
+  reason: z.string().optional(),
+});
+export const onboardProposeQuestions = defineOp({
+  name: 'onboard.propose_questions',
+  description:
+    'Propose follow-up interview questions from the resume (full sentences, one component each, where the resume is silent or ambiguous). Answers are kept in that component.',
+  input: z.object({ questions: z.array(OnboardProposedQuestion).min(1).max(5) }),
+  output: z.object({
+    added: z.array(z.string()),
+    rejected: z.array(z.object({ label: z.string(), reason: z.string() })),
+    state: OnboardState,
   }),
   impact: 'low',
   emits: [],
@@ -1262,6 +1333,7 @@ export const OPS = {
   'onboard.calibrate': onboardCalibrate,
   'onboard.confirm': onboardConfirm,
   'onboard.extract': onboardExtract,
+  'onboard.propose_questions': onboardProposeQuestions,
   'roles.add': rolesAdd,
   'scout.watchlist_scan': scoutWatchlistScan,
   'roles.score': rolesScore,

@@ -128,7 +128,10 @@ export const SKILL_TOOLS: Readonly<Record<Skill, { web: readonly WebTool[]; why:
   fill: { web: ['WebFetch'], why: 'reads the real portal questions (a headless run has no browser)' },
   inbox: { web: [], why: 'Gmail read-only plus ops' },
   learn: { web: [], why: 'ops only' },
-  onboard: { web: [], why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract' },
+  onboard: {
+    web: [],
+    why: 'ops only: reads the kept resume with vault.read, writes the extraction with onboard.extract, follow-ups with onboard.propose_questions',
+  },
   connect: {
     web: [],
     why: 'LinkedIn via Claude in Chrome (--chrome); Gmail search + read for contact emails (#37); Gmail draft step via the Gmail connector',

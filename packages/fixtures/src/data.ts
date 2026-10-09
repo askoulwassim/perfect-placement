@@ -1091,6 +1091,7 @@ export const onboardSessions: OnboardSession[] = [
     answered_json: ['domain.ranked', 'growth.scope_ceiling'],
     calibration_json: { sample_ids: ['cal_01', 'cal_02', 'cal_03'], choices: { cal_01: 'yes' } },
     version_id: null,
+    interview_json: {},
   },
 ];
 

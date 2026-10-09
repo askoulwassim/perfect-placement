@@ -331,6 +331,11 @@ export const OnboardSession = z.object({
   calibration_json: Json,
   /** Profile version written by `onboard.confirm`; null until then. */
   version_id: Id.nullable(),
+  /**
+   * Added (#22, migration 007): the resume-adaptive interview plan `{ hints, questions, skipped }`:
+   * per-component resume drafts with a confidence, follow-up questions the agent proposed, skipped ids.
+   */
+  interview_json: Json,
 });
 export type OnboardSession = z.infer<typeof OnboardSession>;
 

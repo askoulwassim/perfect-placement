@@ -48,7 +48,7 @@ export function RoleScreen({ roleId }: { roleId: string }) {
   const { role, company, latest_score: score, contacts } = data;
   const tl = tile(data, t, config.scoring);
   const best = bestPath(contacts);
-  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id));
+  const stage = stageOf(role, app, best && drafts.data?.items.find((o) => o.contact_id === best.target.contact.id), !!company.md_path);
   const skill = stage >= 0 && stage < 4 ? STAGE_SKILL[stage] : null;
   // Connect runs are per person (People shows them); Research, Tailor and Fill are per role.
   const runOf = (s: Skill | null | undefined) =>

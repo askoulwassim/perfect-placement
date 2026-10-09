@@ -18,9 +18,16 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const migration = (prefix: string) =>
   readFileSync(join(MIGRATIONS_DIR, listMigrations().find((f) => f.startsWith(prefix)) as string), 'utf8');
 
+/** The fixture seed for a db before 007: onboarding sessions without `interview_json` (#22). */
+const seedBefore007 = () =>
+  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
+    /^(INSERT INTO onboard_session \([^)]*?), interview_json\) VALUES (.*), '[^']*'\);$/gm,
+    '$1) VALUES $2);',
+  );
+
 /** The fixture seed for a db before 006: contact rows without `email_source` / `email_confidence` (#37). */
 const seedBefore006 = () =>
-  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
+  seedBefore007().replace(
     /^(INSERT INTO contact \([^)]*?), email_source, email_confidence\) VALUES (.*), (?:NULL|'[a-z]+'), (?:NULL|[0-9.]+)\);$/gm,
     '$1) VALUES $2);',
   );
@@ -264,5 +271,20 @@ describe('migration 006 (contact email source + confidence, decision kind people
     expect(db5.pragma('foreign_key_check')).toEqual([]);
     expect(db5.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 6 });
     db5.close();
+  });
+});
+
+describe('migration 007 (onboard_session interview plan, #22)', () => {
+  it('adds interview_json with an empty plan and keeps every session', () => {
+    const db6 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006']) db6.exec(migration(v));
+    db6.exec(seedBefore007());
+    const before = db6.prepare('SELECT * FROM onboard_session ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db6.exec(migration('007'));
+    expect(db6.prepare('SELECT * FROM onboard_session ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, interview_json: '{}' })));
+    expect(db6.pragma('foreign_key_check')).toEqual([]);
+    expect(db6.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 7 });
+    db6.close();
   });
 });

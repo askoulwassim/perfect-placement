@@ -7,8 +7,19 @@ const APP_STAGE_INDEX: Record<Application['stage'], number> = { research: 0, tai
 /**
  * Current stage 0..5 (5 = done, -1 = archived). The application row wins when it exists;
  * otherwise the handoff rule: inbox/on-deck -> Research, active/held -> Tailor, draft-ready -> Connect.
+ * Research is done once the role's company has a dossier (#61), even one written for another role.
  */
 export function stageOf(
+  role: Pick<Role, 'status'>,
+  application: Pick<Application, 'stage'> | null,
+  bestDraft?: Pick<Outreach, 'status'> | null,
+  hasDossier = false,
+): number {
+  const stage = baseStage(role, application, bestDraft);
+  return stage === 0 && hasDossier ? 1 : stage;
+}
+
+function baseStage(
   role: Pick<Role, 'status'>,
   application: Pick<Application, 'stage'> | null,
   bestDraft?: Pick<Outreach, 'status'> | null,

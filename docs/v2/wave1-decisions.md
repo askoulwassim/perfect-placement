@@ -51,3 +51,6 @@ Wassim's answers to the questions the ten Wave 1 lanes raised. Wave 2 applies th
 
 ## First launch
 27. **First-visit cues: one-time spotlight on the primary action with a 1-3 word label; logged exception to design.md 'no tips' rule, owner-approved 2026-10-08.** Soft scrim plus an emerald halo on the screen's primary action, dismissed by any click or key, never shown again. Seen cues persist in the vault (`config.ui.cues_seen`); Settings "Show cues" resets them. No paragraphs, no multi-step tour.
+
+## Onboarding interview
+28. **Interview questions are full sentences; the one to three word rule is for buttons and labels.** Clarifies design.md "labels of one to three words" (#23, first-use feedback 2026-10-09: "Warm companies" read as a riddle). Every onboarding question is a complete, plain sentence a first-time user understands without context, with an optional one-line example under it, and every question has an "I don't know" answer. No two questions in one run ask for the same thing (Company: "Which companies would you love to work at?"; Network, right after: "Where do you already know people who could introduce you?"). The interview adapts to the resume (#22): what the resume implies with high confidence is confirmed ("Looks like ... Right?", Yes / Edit), not asked.

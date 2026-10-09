@@ -92,7 +92,9 @@ describe('screens', () => {
     ['#/now', 'Review 7'],
     ['#/needs-you', 'Accept'],
     ['#/river', 'Scout now'],
-    [`#/role/${R.stripeOnDeck}`, 'Research'],
+    // Stripe has a dossier already: Research is done, Tailor is next (#61).
+    [`#/role/${R.stripeOnDeck}`, 'Tailor'],
+    [`#/role/${R.airtableOnDeck}`, 'Research'],
     [`#/role/${R.notionInbox}`, 'Score'],
     [`#/people/${R.linearDraft}`, 'Draft for Maya'],
     ['#/outreach/or_0001', 'Create Gmail draft'],
@@ -438,10 +440,12 @@ describe('click paths', () => {
 
   it('Onboarding: Voice keeps several writing samples (add, remove)', async () => {
     const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['voice'] }));
-    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Style'));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How do you want your writing to sound?'));
     fireEvent.click($(container, '.onboard-q .chip'));
     fireEvent.click(primary(container));
-    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Writing samples'));
+    await waitFor(() =>
+      expect($(container, '.onboard-q__text').textContent).toBe('Paste a few things you have written that sound like you.'),
+    );
     // The fixture's two samples are listed; remove the first, add two more.
     await waitFor(() => expect(container.querySelectorAll('.onboard-q__item')).toHaveLength(2));
     assertButtons(container);
@@ -494,8 +498,17 @@ describe('click paths', () => {
     await waitFor(() => expect(['Queued', 'Setting up']).toContain($(container, '.dropzone__run').textContent));
     await waitFor(() => expect(primary(container).style.opacity).toBe('1'), { timeout: 4000 });
     fireEvent.click(primary(container));
+    // What the resume implies is confirmed first (#22): Yes / Edit, with what was pulled beside it.
+    await waitFor(() =>
+      expect($(container, '.onboard-q__text').textContent).toBe('Looks like your headline is "Senior Product Manager". Right?'),
+    );
+    expect(Array.from(container.querySelectorAll('.onboard-q .chip')).map((c) => c.textContent)).toEqual(['Yes', 'Edit']);
+    expect($(container, '.onboard-q__for').textContent).toBe('Q 1 · Story');
+    expect($(container, '.resume-draft').textContent).toContain('Headline: Senior Product Manager');
+    fireEvent.click($(container, '.onboard-q .chip'));
+    fireEvent.click(primary(container));
     // Years are derived from the role dates, never guessed: the user confirms or leaves them out.
-    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Years'));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toMatch(/^Your role dates add up/));
     const chips = Array.from(container.querySelectorAll('.onboard-q .chip')).map((c) => c.textContent);
     expect(chips).toEqual(['10', 'leave out']);
     assertButtons(container);
@@ -503,7 +516,7 @@ describe('click paths', () => {
 
   it('Onboarding: a dictated answer is shown cleaned, then saved with its raw text (#38)', async () => {
     const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['story'] }));
-    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Headline'));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How would you describe yourself in one line?'));
     fireEvent.change($(container, '.onboard-q textarea'), { target: { value: 'um, data platform uh product lead' } });
     fireEvent.click(primary(container));
     await screen.findByText('Cleaned');
@@ -539,6 +552,26 @@ describe('click paths', () => {
     await waitFor(() => expect($(container, '.resume-source__text').textContent).toContain('Data platform product lead.'));
   });
 
+  it('Onboarding: full-sentence questions with an example, which component they fill, and "I don\'t know" (#23)', async () => {
+    const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', { components: ['company', 'network'] }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which company stages appeal to you?'));
+    expect($(container, '.onboard-q__for').textContent).toBe('Q 1 · Company');
+    const skip = screen.getByRole('button', { name: "I don't know" });
+    expect(skip.getAttribute('data-op')).toBe('onboard.answer');
+    assertButtons(container);
+    fireEvent.click(skip);
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('How big a company do you want to join, by headcount?'));
+    expect(live?.calls.find((c) => c.name === 'onboard.answer')?.body).toEqual({ question_id: 'company.stages', skip: true });
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() => expect($(container, '.onboard-q__text').textContent).toBe('Which companies would you love to work at?'));
+    expect($(container, '.onboard-q__example').textContent).toBe('Example: Anthropic, Stripe, Figma.');
+    fireEvent.click(screen.getByRole('button', { name: "I don't know" }));
+    await waitFor(() =>
+      expect($(container, '.onboard-q__text').textContent).toBe('Where do you already know people who could introduce you?'),
+    );
+    expect($(container, '.onboard-q__for').textContent).toBe('Q 4 · Network');
+  });
+
   it('Onboarding: four steps end to end', async () => {
     const { container } = await boot('#/onboarding', (l) => l.client.run('onboard.start', {}));
     await waitFor(() => expect(primary(container).disabled).toBe(true));
@@ -550,7 +583,7 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).style.opacity).toBe('1'), { timeout: 4000 });
     fireEvent.click(primary(container));
 
-    for (let i = 0; i < 12 && !container.querySelector('.calibrate'); i++) {
+    for (let i = 0; i < 40 && !container.querySelector('.calibrate'); i++) {
       const q = (await waitFor(() => $(container, '.onboard-q__text'))).textContent;
       const chip = container.querySelector('.onboard-q .chip');
       const text = container.querySelector('.onboard-q textarea');
@@ -691,8 +724,8 @@ describe('click paths', () => {
     expect(link.getAttribute('rel')).toContain('noopener');
     expect(link.getAttribute('data-op')).toBe('nav');
     expect(link.textContent).toContain('Open posting');
-    // The submit-stage primary stays the stage action; the link is separate.
-    expect(primary(container).textContent).toBe('Research');
+    // The primary stays the stage action (Tailor: the company has a dossier, #61); the link is separate.
+    expect(primary(container).textContent).toBe('Tailor');
     // River: Cmd/Ctrl-click a tile opens the posting; a plain click opens the Role screen.
     const opened: unknown[][] = [];
     const orig = window.open;
@@ -892,7 +925,7 @@ describe('run status (#21)', () => {
   });
 
   it('Role: Research shows Researching for that role until the run ends', async () => {
-    const { container } = await boot(`#/role/${R.stripeOnDeck}`, quiet);
+    const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Research'));
     fireEvent.click(primary(container));
     await waitFor(() => expect(primary(container).textContent).toBe('Researching'));

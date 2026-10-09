@@ -16,11 +16,24 @@ import { parseComponentData, rubricWeights, weightsByComponent } from './compone
 import { newId, type ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
 import { checkFacts, describeClaims, inSource, storySourceText } from './facts.js';
+import { type ComponentHint, describeData, makeHint, resumeHints, storyHintFrom } from './hints.js';
 import { clone, deepEqual } from './json.js';
 import { componentMdPath, MD_COMPONENTS, renderComponentMd } from './markdown.js';
 import type { FillSource, OnboardSession, OnboardStore } from './onboard-store.js';
 import { profileProposeDiff } from './profile-ops.js';
-import { type AnswerValue, checkAnswer, type Draft, findQuestion, nextQuestion, optionsOf } from './questions.js';
+import {
+  type AnswerValue,
+  answeredFields,
+  checkAnswer,
+  type Draft,
+  emptyPlan,
+  findQuestion,
+  nextQuestion,
+  optionsOf,
+  type ProposedQuestion,
+  QUESTION_BANK,
+  suggestedFor,
+} from './questions.js';
 import { parseResumeHeuristic, statedYears, yearsFromDates } from './resume.js';
 import { extractResumeText, resumeKind } from './resume-text.js';
 import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } from './versions.js';
@@ -28,6 +41,9 @@ import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } 
 /*
  * Onboarding protocol (blueprint.md): resume in -> interview by component -> calibrate -> confirm.
  * Ops: onboard.ingest_resume, onboard.answer, onboard.calibrate, onboard.confirm.
+ * Resume-adaptive (#22): the resume's drafts per component (hints, with a confidence) are confirmed
+ * (yes / edit) or pre-fill the questions; the onboard agent run refines them (onboard.extract drafts)
+ * and proposes follow-ups (onboard.propose_questions).
  * Plus startComponentInterview(): re-interview one component without redoing the rest
  * (no op in the contract yet; CONTRACT_CHANGES lane E).
  */
@@ -69,6 +85,7 @@ function newSession(deps: ProfileDeps, now: Date, scope: ProfileComponentKey[] |
     answered: [],
     calibration: { sample_ids: [], choices: {} },
     version_id: null,
+    interview: emptyPlan(),
   };
 }
 
@@ -88,9 +105,17 @@ function filled(d: Draft): ProfileComponentKey[] {
   return PROFILE_COMPONENT_KEYS.filter((k) => d[k] && Object.keys(d[k] as object).length > 0);
 }
 
+/** The next question of a session (plan-aware). */
+const nextOf = (s: OnboardSession) => nextQuestion(s.draft, s.answered, s.scope, s.interview);
+
 export function stateOf(s: OnboardSession, parseRunId: string | null = null): OnboardState {
-  const q = s.step === 'interview' ? nextQuestion(s.draft, s.answered, s.scope) : null;
+  const q = s.step === 'interview' ? nextOf(s) : null;
   const options = q ? optionsOf(q, s.draft) : undefined;
+  const suggested = q ? suggestedFor(q, s.draft, s.interview) : undefined;
+  const resume_drafts = PROFILE_COMPONENT_KEYS.flatMap((component) => {
+    const h = s.interview.hints[component];
+    return h ? [{ component, confidence: h.confidence, items: h.items, by: h.by }] : [];
+  });
   const story = s.draft.story ?? {};
   return {
     ...(typeof story.source_path === 'string'
@@ -104,11 +129,15 @@ export function stateOf(s: OnboardSession, parseRunId: string | null = null): On
       : {}),
     step: s.step,
     components_filled: filled(s.draft),
+    resume_drafts,
     next_question: q
       ? {
           id: q.id,
           component: q.component,
           label: q.label,
+          kind: q.kind ?? 'ask',
+          ...(q.example ? { example: q.example } : {}),
+          ...(suggested !== undefined ? { suggested } : {}),
           answer_type: q.answer_type,
           ...(options ? { options } : {}),
           ...(q.min != null ? { min: q.min } : {}),
@@ -123,7 +152,7 @@ export function stateOf(s: OnboardSession, parseRunId: string | null = null): On
 
 /** After the interview ends: full onboarding calibrates; a scoped re-interview goes straight to confirm. */
 function advance(s: OnboardSession): void {
-  if (s.step === 'interview' && !nextQuestion(s.draft, s.answered, s.scope)) s.step = s.scope ? 'confirm' : 'calibrate';
+  if (s.step === 'interview' && !nextOf(s)) s.step = s.scope ? 'confirm' : 'calibrate';
 }
 
 // ------------------------------------------------------------------ ops
@@ -210,6 +239,8 @@ export async function onboardIngestResume(
     s.draft[key] = s.sources[key]?.includes('interview') ? { ...fromResume, ...existing } : { ...existing, ...fromResume };
     addSource(s, key, 'resume');
   }
+  // What the resume implies per component, with a confidence (#22). A confirm already answered keeps its hint.
+  setHints(s, resumeHints(text, parsed));
   s.draft.story ??= {};
   const story = s.draft.story;
   delete story.source_path;
@@ -228,6 +259,14 @@ export async function onboardIngestResume(
     if (o.status === 'ok') runId = (o.output as { run: { id: string } }).run.id;
   }
   return stateOf(s, runId);
+}
+
+/** Replace a session's resume hints, except for components whose confirm question was answered. */
+function setHints(s: OnboardSession, hints: Partial<Record<ProfileComponentKey, ComponentHint | null>>): void {
+  for (const [k, h] of Object.entries(hints) as Array<[ProfileComponentKey, ComponentHint | null]>) {
+    if (s.answered.includes(`confirm.${k}`) || !h) continue;
+    s.interview.hints[k] = h;
+  }
 }
 
 /** Story fields an interview question sets (an answer beats an extraction). */
@@ -263,11 +302,20 @@ export async function onboardExtract(
   const story: Record<string, unknown> = { ...input.story };
   for (const k of EXTRACT_RESERVED) delete story[k];
   let craft: Record<string, unknown> = {};
+  const drafts: Partial<Record<ProfileComponentKey, ComponentHint>> = {};
   try {
     parseComponentData('story', story);
     if (input.craft) craft = parseComponentData('craft', input.craft);
+    for (const [k, d] of Object.entries(input.drafts ?? {}) as Array<
+      [ProfileComponentKey, { data: Record<string, unknown>; confidence: number; evidence?: string[] }]
+    >) {
+      const data = parseComponentData(k, d.data);
+      for (const f of ['criterion_weights', 'criteria', 'dictated', 'follow_ups']) delete data[f];
+      const h = makeHint(data, d.confidence, d.evidence?.length ? d.evidence : describeData(data), 'agent');
+      if (h) drafts[k] = h;
+    }
   } catch (e) {
-    throw new OpError('invalid_input', 'story or craft: invalid data', e);
+    throw new OpError('invalid_input', 'story, craft or drafts: invalid data', e);
   }
 
   // Verbatim: every number, date, title, employer and degree must be in the resume.
@@ -307,7 +355,21 @@ export async function onboardExtract(
       delete next.years_basis;
     }
     live.draft.story = next;
-    live.draft.craft = { ...craft, ...(live.draft.craft ?? {}) };
+    // The agent's craft replaces the preview's, except fields the user answered or confirmed.
+    const craftAnswered = live.answered.includes('confirm.craft') ? null : answeredFields('craft', live.answered);
+    live.draft.craft = craftAnswered
+      ? { ...(live.draft.craft ?? {}), ...Object.fromEntries(Object.entries(craft).filter(([f]) => !craftAnswered.has(f))) }
+      : { ...craft, ...(live.draft.craft ?? {}) };
+    if (Object.keys(craft).length && !drafts.craft) {
+      const h = makeHint(
+        Object.fromEntries(['functions', 'level', 'mode'].filter((f) => craft[f] !== undefined).map((f) => [f, craft[f]])),
+        0.85,
+        describeData(craft),
+        'agent',
+      );
+      if (h) drafts.craft = h;
+    }
+    setHints(live, { story: storyHintFrom(text, next), ...drafts });
     addSource(live, 'story', 'resume');
     if (Object.keys(craft).length) addSource(live, 'craft', 'resume');
     if (live.step === 'resume') live.step = 'interview';
@@ -341,6 +403,118 @@ export async function onboardExtract(
   return { target: 'diff', diff_id: profileProposeDiff(deps, diffInput, ctx).output.diff.id };
 }
 
+/** Most follow-up questions one onboarding session takes from the agent. */
+export const FOLLOW_UPS_MAX = 6;
+
+const STOP = new Set([
+  'a',
+  'an',
+  'the',
+  'you',
+  'your',
+  'do',
+  'to',
+  'in',
+  'of',
+  'at',
+  'or',
+  'and',
+  'what',
+  'which',
+  'would',
+  'for',
+  'is',
+  'are',
+  'how',
+  'with',
+  'want',
+  'like',
+  'that',
+]);
+const wordSet = (s: string) =>
+  new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w && !STOP.has(w)),
+  );
+/** Word overlap of two questions (Jaccard over content words). */
+export function questionOverlap(a: string, b: string): number {
+  const x = wordSet(a);
+  const y = wordSet(b);
+  if (!x.size || !y.size) return 0;
+  let both = 0;
+  for (const w of x) if (y.has(w)) both++;
+  return both / (x.size + y.size - both);
+}
+
+/**
+ * onboard.propose_questions (#22): follow-ups the onboard agent run proposes from the resume. Each is a
+ * full sentence for one component, not a duplicate of a bank question or an earlier follow-up; asked after
+ * the component's bank questions, the answer kept in its `follow_ups`.
+ */
+export function onboardProposeQuestions(
+  deps: ProfileDeps,
+  input: OpInput<'onboard.propose_questions'>,
+  ctx: OpContext,
+): OpOutput<'onboard.propose_questions'> {
+  const s = activeSession(deps);
+  if (s.step !== 'resume' && s.step !== 'interview')
+    throw new OpError('conflict', `onboarding is at '${s.step}': follow-ups only before the interview ends`);
+  const added: string[] = [];
+  const rejected: Array<{ label: string; reason: string }> = [];
+  for (const raw of input.questions) {
+    const label = raw.label.trim().replace(/\s+/g, ' ');
+    const reject = (reason: string) => rejected.push({ label, reason });
+    if (s.interview.questions.length >= FOLLOW_UPS_MAX) {
+      reject(`at most ${FOLLOW_UPS_MAX} follow-ups`);
+      continue;
+    }
+    if (/[\u2014\u2013]/.test(label + (raw.example ?? ''))) {
+      reject('no em or en dashes');
+      continue;
+    }
+    if (label.split(' ').length < 4 || !/[?.]$/.test(label)) {
+      reject('a question is a full sentence ending in ? or .');
+      continue;
+    }
+    if (s.scope && !s.scope.includes(raw.component)) {
+      reject(`${raw.component} is outside this re-interview`);
+      continue;
+    }
+    const options = raw.options?.map((o) => o.trim()).filter(Boolean);
+    if (raw.answer_type !== 'text' && (!options || options.length < 2)) {
+      reject('chips need at least two options');
+      continue;
+    }
+    const existing = [
+      ...QUESTION_BANK.map((q) => ({ id: q.id, label: q.label })),
+      ...s.interview.questions.map((q) => ({ id: q.id, label: q.label })),
+    ];
+    const dup = existing.find((q) => questionOverlap(q.label, label) >= 0.6);
+    if (dup) {
+      reject(`duplicate of ${dup.id}`);
+      continue;
+    }
+    const id = `follow.${s.interview.questions.length + 1}`;
+    const p: ProposedQuestion = {
+      id,
+      component: raw.component,
+      label,
+      ...(raw.example ? { example: raw.example.trim() } : {}),
+      answer_type: raw.answer_type,
+      ...(raw.answer_type !== 'text' ? { options } : {}),
+      ...(raw.reason ? { reason: raw.reason } : {}),
+    };
+    s.interview.questions.push(p);
+    added.push(id);
+  }
+  s.updated_at = ctx.now().toISOString();
+  if (!ctx.dryRun && added.length) store(deps).save(s);
+  return { added, rejected, state: stateOf(s) };
+}
+
 /** Start a re-interview of one or more components (seeded from the current profile). */
 export function startComponentInterview(deps: ProfileDeps, components: ProfileComponentKey[], ctx: OpContext): OnboardState {
   if (!getCurrentVersion(deps.repos)) throw new OpError('not_found', 'no profile yet: run full onboarding');
@@ -354,9 +528,19 @@ export function startComponentInterview(deps: ProfileDeps, components: ProfileCo
 export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'>, ctx: OpContext): OnboardState {
   const s = activeSession(deps);
   if (s.step !== 'interview') throw new OpError('conflict', `onboarding is at '${s.step}', not 'interview'`);
-  const q = findQuestion(input.question_id);
+  const q = findQuestion(input.question_id, s.interview, s.answered);
   if (!q) throw new OpError('not_found', `unknown question ${input.question_id}`);
   if (s.scope && !s.scope.includes(q.component)) throw new OpError('invalid_input', `${q.id} is outside this re-interview`);
+  if (input.skip) {
+    // "I don't know" (#23): answered with nothing; the draft is unchanged.
+    if (!s.answered.includes(q.id)) s.answered.push(q.id);
+    if (!s.interview.skipped.includes(q.id)) s.interview.skipped.push(q.id);
+    advance(s);
+    s.updated_at = ctx.now().toISOString();
+    if (!ctx.dryRun) store(deps).save(s);
+    return stateOf(s);
+  }
+  if (input.value === undefined) throw new OpError('invalid_input', 'value or skip required');
   let value = input.value as AnswerValue;
   // A dictated free-text answer is kept clean (fillers out, meaning kept); the raw text is provenance.
   const dictation = q.answer_type === 'text' && !q.max_items && typeof value === 'string';
@@ -374,6 +558,9 @@ export function onboardAnswer(deps: ProfileDeps, input: OpInput<'onboard.answer'
     c.dictated = { ...((c.dictated as Record<string, string> | undefined) ?? {}), [q.id]: raw.trim() };
   }
   if (!s.answered.includes(q.id)) s.answered.push(q.id);
+  s.interview.skipped = s.interview.skipped.filter((x) => x !== q.id);
+  // A confirmed resume draft is resume-sourced and user-confirmed.
+  if (q.kind === 'confirm') addSource(s, q.component, 'resume');
   addSource(s, q.component, 'interview');
   advance(s);
   s.updated_at = ctx.now().toISOString();
@@ -439,7 +626,7 @@ export async function onboardConfirm(
 ): Promise<OpOutput<'onboard.confirm'> & { proposed_diffs: ProfileDiff[] }> {
   const s = activeSession(deps);
   if (s.step === 'resume') throw new OpError('conflict', 'ingest a resume first');
-  if (s.step === 'interview' && nextQuestion(s.draft, s.answered, s.scope)) throw new OpError('conflict', 'interview not finished');
+  if (s.step === 'interview' && nextOf(s)) throw new OpError('conflict', 'interview not finished');
   const now = ctx.now();
   const current = getCurrentVersion(deps.repos);
   const prevComps = current ? getComponents(deps.repos, current.id) : [];
@@ -534,7 +721,7 @@ export function onboardStart(deps: ProfileDeps, input: OpInput<'onboard.start'>,
 export function onboardState(deps: ProfileDeps): OnboardState {
   const s = store(deps).load();
   if (s) return stateOf(s);
-  return { step: 'resume', components_filled: [], next_question: null };
+  return { step: 'resume', components_filled: [], resume_drafts: [], next_question: null };
 }
 
 const money = (n: number) => `$${Math.round(n / 1000)}k`;
