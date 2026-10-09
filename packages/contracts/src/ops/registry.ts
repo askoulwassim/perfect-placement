@@ -1654,14 +1654,30 @@ export const inboxIngest = defineOp({
 
 // --------------------------------------------------------------- decisions (I/B)
 
+/**
+ * Added (#102): the role a decision is about (subject_type 'role'), so a reviewer can open the posting.
+ * `freshness_evidence`: a freshness.closed decision's own evidence, else the role's last freshness check.
+ */
+export const DecisionSubjectRole = z.object({
+  id: Id,
+  url: z.string().nullable(),
+  last_checked_at: IsoTimestamp.nullable(),
+  freshness_evidence: z.string().nullable(),
+});
+export type DecisionSubjectRole = z.infer<typeof DecisionSubjectRole>;
+
+/** A queued decision; `subject_role` is set when the subject is a role that exists (#102). */
+export const QueuedDecision = Decision.extend({ subject_role: DecisionSubjectRole.optional() });
+export type QueuedDecision = z.infer<typeof QueuedDecision>;
+
 export const decisionsQueue = defineOp({
   name: 'decisions.queue',
-  description: 'The Needs-you queue plus recent auto decisions.',
+  description: 'The Needs-you queue plus recent auto decisions. Role decisions carry subject_role (url, last check).',
   input: z.object({
     status: z.array(DecisionStatus).optional(),
     include_auto_since: IsoTimestamp.optional(),
   }),
-  output: z.object({ pending: z.array(Decision), recent_auto: z.array(Decision) }),
+  output: z.object({ pending: z.array(QueuedDecision), recent_auto: z.array(QueuedDecision) }),
   impact: 'low',
   readOnly: true,
   emits: [],

@@ -1,4 +1,4 @@
-import type { Decision } from '@perfect-placement/contracts';
+import type { QueuedDecision as Decision } from '@perfect-placement/contracts';
 import { useCallback, useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { DecisionCard } from '../components/decision';
@@ -115,14 +115,19 @@ export function NeedsYou() {
       if (k === 'a') void accept();
       else if (k === 'c') setChangeOpen((v) => !v);
       else if (k === 's') void skip();
-      else if (e.key === 'ArrowRight') step(1);
+      else if (k === 'o') {
+        // #102: open the focused card's posting; nothing without a url.
+        const url = cur?.subject_type === 'role' ? cur.subject_role?.url : null;
+        if (!url) return;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else if (e.key === 'ArrowRight') step(1);
       else if (e.key === 'ArrowLeft') step(-1);
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [accept, skip, step, cleared]);
+  }, [accept, skip, step, cleared, cur]);
 
   const doneCount = resolved.filter(Boolean).length;
   const primary = cleared

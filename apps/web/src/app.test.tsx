@@ -179,6 +179,77 @@ describe('click paths', () => {
     );
   });
 
+  /** Arrow through the queue until the settled card asks `want` (#102). */
+  async function cardFor(container: HTMLElement, want: string) {
+    for (let i = 0; i < 10 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    return $(container, '.decision');
+  }
+
+  it('Needs you: a freshness card shows Open posting, the last check and its evidence; O opens it (#102)', async () => {
+    const url = 'https://boards.example/datadog/cloud-cost';
+    const evidence = 'Greenhouse board lists the job; apply button present';
+    const { container } = await boot('#/needs-you', async (l) => {
+      l.engine.db
+        .prepare('UPDATE role SET url = ?, last_checked_at = ? WHERE id = ?')
+        .run(url, '2026-10-06T08:00:00.000Z', R.datadogActive);
+      l.engine.db
+        .prepare(
+          `INSERT INTO event (id, ts, type, subject_type, subject_id, payload_json, actor, decision_id) VALUES ('ev_test102', '2026-10-06T08:00:00.000Z', 'freshness_checked', 'role', ?, ?, 'schedule', NULL)`,
+        )
+        .run(R.datadogActive, JSON.stringify({ freshness: 'unsure', evidence }));
+    });
+    const card = await cardFor(container, 'Is this posting open?');
+    const link = $<HTMLAnchorElement>(card, 'a.open-posting');
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent).toContain('Open posting');
+    expect($(card, '.decision__checked').textContent).toMatch(new RegExp(`ago · ${evidence}`));
+    const q = await live?.client.run('decisions.queue', {});
+    const dec = q?.status === 'ok' ? q.output.pending.find((d) => d.kind === 'freshness.closed') : undefined;
+    expect(dec?.subject_role).toEqual({
+      id: R.datadogActive,
+      url,
+      last_checked_at: '2026-10-06T08:00:00.000Z',
+      freshness_evidence: evidence,
+    });
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      fireEvent.keyDown(window, { key: 'o' });
+      expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+      // Not while typing.
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      fireEvent.keyDown(input, { key: 'o' });
+      input.remove();
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      open.mockRestore();
+    }
+    expect(writes()).toEqual([]);
+    assertButtons(container);
+  });
+
+  it('Needs you: no Open posting and O does nothing when the role has no url (#102)', async () => {
+    const { container } = await boot('#/needs-you', async (l) => {
+      l.engine.db.prepare('UPDATE role SET url = NULL WHERE id = ?').run(R.datadogActive);
+    });
+    const card = await cardFor(container, 'Is this posting open?');
+    expect(card.querySelector('.open-posting')).toBeNull();
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      fireEvent.keyDown(window, { key: 'o' });
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('Needs you: a fact-check claim shows the claim, document and source; Edit rewrites the line (#54)', async () => {
     const cover = 'Hi team,\n\nBefore that I worked at Globex on analytics.\n\nThanks.';
     const { container } = await boot('#/needs-you', (l) =>

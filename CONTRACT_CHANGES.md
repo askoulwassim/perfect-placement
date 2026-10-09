@@ -836,3 +836,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: on-deck was only set by a manual drag and Tailor skipped it, so it meant nothing (#105; owner's decision: picked = on deck, through the apply stage).
 - Shim: none for callers (`role_id` optional; events are additive).
 - Status: accepted
+
+## Open posting on role decisions
+
+### `decisions.queue` items carry `subject_role` (`DecisionSubjectRole`, `QueuedDecision`) (#102)
+- Lane: r3/07-open-posting (I, D)
+- Date: 2026-10-09
+- Contract: registry new `DecisionSubjectRole` (`id`, `url` nullable, `last_checked_at` nullable, `freshness_evidence` nullable) and `QueuedDecision` (`Decision` plus optional `subject_role`); `decisionsQueue.output.pending` and `recent_auto` are `QueuedDecision[]`. Not contracts: engine `withSubjectRole` in `ops/lanes/decisions.ts`; web mock `withSubjectRole`, `DecisionView.url` / `checked`, `PostingLink`, `EVIDENCE_MAX` (80).
+- Change: every queued decision whose subject is an existing role carries `subject_role`: the role's url and `last_checked_at`, and `freshness_evidence` (a `freshness.closed` decision's own evidence from its question state, else the role's latest `freshness_checked` event evidence, else null). Agents reading `decisions_queue` or `pp://needs-you` get the posting url without a `roles.get` per decision. UI (not a contract): a Needs-you card about a role shows **Open posting** (a plain `<a target="_blank" rel="noopener noreferrer">`, no op) when the url exists; key `O` opens it for the focused card (ignored while typing); freshness cards show **Checked** ("2d ago · <evidence, at most 80 chars>", or "Never").
+- Why: "Is this posting still open?" gave no way to open the posting and verify (#102).
+- Shim: none for callers (`subject_role` optional; decisions about anything but a role, or a role that no longer exists, have none).
+- Status: accepted

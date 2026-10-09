@@ -1,8 +1,8 @@
 import type { Impact } from '@perfect-placement/contracts';
-import { useState } from 'react';
+import { type CSSProperties, useState } from 'react';
 import { EMAIL_CHECKER_URL } from '../lib/decisions';
 import { Btn } from './Btn';
-import { ImpactChip, SecondaryButton } from './controls';
+import { ImpactChip, Kbd, SecondaryButton } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph } from './glyphs';
 import { ProbabilityBar } from './meters';
 import { C, display, ellipsis, eyebrow, F, mono, X } from './theme';
@@ -28,6 +28,38 @@ export interface DecisionView {
   edit?: string;
   /** #99: email candidates with their evidence labels; the user checks each by hand (Check, Valid, Invalid). */
   emailChecks?: ReadonlyArray<{ address: string; labels: readonly string[] }>;
+  /** #102: the role's posting, opened in a new tab (Open posting, key O). */
+  url?: string;
+  /** #102: freshness cards: when the posting was last checked and the evidence, short. */
+  checked?: string;
+}
+
+/** Open posting (#102): a plain external link, not an op button. */
+function PostingLink({ url, kbd, height, style }: { url: string; kbd?: string; height: number; style?: CSSProperties }) {
+  return (
+    <a
+      className="open-posting"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-op="nav"
+      style={{
+        color: C.fg,
+        border: `1px solid ${C['line-2']}`,
+        borderRadius: 10,
+        height,
+        padding: '0 14px',
+        fontSize: 14,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        ...style,
+      }}
+    >
+      {kbd && <Kbd k={kbd} />}
+      Open posting ↗
+    </a>
+  );
 }
 
 export type EmailCheckResult = 'valid' | 'invalid';
@@ -178,6 +210,11 @@ export function DecisionCard({
           <div className="decision__q" style={{ ...display(32, 700, '-0.03em'), lineHeight: 1.05, margin: '22px 0' }}>
             {v.question}
           </div>
+          {v.checked && (
+            <div className="decision__checked" style={{ ...mono(11, C.muted), margin: '-8px 0 18px' }}>
+              Checked {v.checked}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {before.length > 0 && (
               <>
@@ -206,6 +243,7 @@ export function DecisionCard({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
           <SecondaryButton label="Change" op="local" height={44} onClick={onToggleChange} style={{ justifyContent: 'center' }} />
           <SecondaryButton label="Skip" op="decisions.resolve" height={44} onClick={onSkip} style={{ justifyContent: 'center' }} />
+          {v.url && <PostingLink url={v.url} height={44} style={{ gridColumn: '1 / -1', justifyContent: 'center' }} />}
         </div>
       </>
     );
@@ -254,6 +292,14 @@ export function DecisionCard({
         <ProbabilityBar p={v.p} thresholds={thresholds} />
         <div style={label}>Why</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{evChips}</div>
+        {v.checked && (
+          <>
+            <div style={label}>Checked</div>
+            <div className="decision__checked" style={{ ...mono(12, C.muted), ...ellipsis }} title={v.checked}>
+              {v.checked}
+            </div>
+          </>
+        )}
       </div>
       {checks}
       {changeOpen && (
@@ -284,6 +330,7 @@ export function DecisionCard({
             disabled={v.alts.length === 0}
           />
           <SecondaryButton label="Skip" op="decisions.resolve" kbd={hints ? 'S' : undefined} onClick={onSkip} />
+          {v.url && <PostingLink url={v.url} kbd={hints ? 'O' : undefined} height={40} />}
         </div>
         {hints && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', ...mono(11, C.dim) }}>

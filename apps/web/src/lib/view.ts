@@ -1,4 +1,4 @@
-import type { Decision, ProfileDiff, ProfileVersion } from '@perfect-placement/contracts';
+import type { Decision, ProfileDiff, ProfileVersion, QueuedDecision } from '@perfect-placement/contracts';
 import { STATUS_LABEL } from '../components/controls';
 import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
@@ -106,7 +106,25 @@ export interface DecisionCtx {
 
 const diffChips = (o: Record<string, unknown>) => chipsOf(o).map((c) => (c.value ? `${c.label} ${c.value}` : c.label));
 
-export function decisionView(d: Decision, ctx: DecisionCtx): DecisionView {
+/** Evidence shown on the Checked line, kept short (#102). */
+export const EVIDENCE_MAX = 80;
+const short = (s: string) => (s.length > EVIDENCE_MAX ? `${s.slice(0, EVIDENCE_MAX - 1).trimEnd()}…` : s);
+
+/**
+ * A role decision (#102) gets the posting url (Open posting) and, for freshness, when it was last checked
+ * and the evidence, from the queue's `subject_role`.
+ */
+export function decisionView(d: QueuedDecision, ctx: DecisionCtx): DecisionView {
+  const v = viewOf(d, ctx);
+  const sr = d.subject_type === 'role' ? d.subject_role : undefined;
+  if (!sr) return v;
+  const out: DecisionView = sr.url ? { ...v, url: sr.url } : v;
+  if (d.kind !== 'freshness.closed') return out;
+  const when = sr.last_checked_at ? `${ago(sr.last_checked_at, ctx.now)} ago` : 'Never';
+  return { ...out, checked: sr.freshness_evidence ? `${when} · ${short(sr.freshness_evidence)}` : when };
+}
+
+function viewOf(d: Decision, ctx: DecisionCtx): DecisionView {
   const object = objectOf(d);
   const pick = pickOf(d);
   const base = {

@@ -2,12 +2,14 @@ import {
   ARCHIVE_REASONS,
   CRITERIA,
   type Criterion,
+  type Decision,
   formatMoneyRange,
   nextFire,
   OPS,
   type OpName,
   type OpOutcome,
   OUTREACH_TONES,
+  type QueuedDecision,
   ROLE_STATUSES,
   type Role,
   SCHEDULE_KEYS,
@@ -69,6 +71,20 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
     },
   };
   return client;
+}
+
+/** #102: the engine's subject_role on role decisions (url, last check, freshness evidence). */
+function withSubjectRole(d: Decision): QueuedDecision {
+  if (d.subject_type !== 'role') return d;
+  const r = fx.roles.find((x) => x.id === d.subject_id);
+  if (!r) return d;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+  const own = d.kind === 'freshness.closed' ? str((d.question_json as { state?: { evidence?: unknown } }).state?.evidence) : null;
+  const check = fx.events
+    .filter((e) => e.type === 'freshness_checked' && e.subject_type === 'role' && e.subject_id === r.id)
+    .sort((a, b) => b.ts.localeCompare(a.ts))[0];
+  const last = check ? str((check.payload_json as { evidence?: unknown }).evidence) : null;
+  return { ...d, subject_role: { id: r.id, url: r.url, last_checked_at: r.last_checked_at, freshness_evidence: own ?? last } };
 }
 
 const latestVersion = () => fx.profileVersions[fx.profileVersions.length - 1] as (typeof fx.profileVersions)[number];
@@ -173,10 +189,11 @@ function readOp(
     case 'decisions.queue': {
       const since = (i.include_auto_since as string | undefined) ?? new Date(at.getTime() - 86_400_000).toISOString();
       return ok({
-        pending: fx.decisions.filter((d) => d.status === 'pending' && d.policy_outcome === 'human'),
+        pending: fx.decisions.filter((d) => d.status === 'pending' && d.policy_outcome === 'human').map(withSubjectRole),
         recent_auto: fx.decisions
           .filter((d) => d.policy_outcome !== 'human' && d.ts >= since && d.ts <= iso)
-          .sort((a, b) => b.ts.localeCompare(a.ts)),
+          .sort((a, b) => b.ts.localeCompare(a.ts))
+          .map(withSubjectRole),
       });
     }
     case 'runs.list': {
