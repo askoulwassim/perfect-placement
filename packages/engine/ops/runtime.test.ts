@@ -143,7 +143,7 @@ describe('runtime: nesting, backends, policy gate', () => {
     expect(count(`SELECT count(*) n FROM role WHERE id = ? AND status = 'archived'`, roleId)).toBe(1);
   });
 
-  it('system.backends lists rule, Kev (not installed in tests) and the agent session; Jev only when enabled', async () => {
+  it('system.backends lists rule, Kev (not installed in tests) and the agent session; the API adapter only when enabled', async () => {
     const out = okOut(await e.runOp('system.backends', {}, ctxAt('human')));
     expect(out.items).toEqual([
       { name: 'rule', mode: 'local', status: 'ok', latencyMs: 0 },

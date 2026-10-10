@@ -7,8 +7,8 @@
  *
  * Modes:
  * - `createDryRunGmail()`: records drafts in memory, returns `dryrun-<n>` ids. Tests and dry runs.
- * - `createGmailApiClient({ accessToken, fetch })`: real Gmail REST drafts endpoint. Wave 2 wires the
- *   token source (OAuth on Wassim's account) or swaps in an MCP-backed client with the same interface.
+ * - `createGmailApiClient({ accessToken, fetch })`: real Gmail REST drafts endpoint. A caller supplies
+ *   the token source (OAuth on the user's account) or swaps in an MCP-backed client with the same interface.
  */
 
 // Lane H owns this folder.

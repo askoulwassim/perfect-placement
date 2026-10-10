@@ -137,7 +137,7 @@ export const decisionsUndoGroup = defineHandler('decisions.undo_group', {
   },
 });
 
-const MODE = { rule: 'local', kev: 'local', agent: 'session', jev: 'hosted', llm: 'hosted' } as const;
+const MODE = { rule: 'local', kev: 'local', agent: 'session', llm: 'hosted' } as const;
 /** Above this a reachable backend reads as slow on the Settings card. */
 const SLOW_MS = 1500;
 
@@ -188,7 +188,7 @@ export function agentLatencyMs(db: Db, n = AGENT_LATENCY_SAMPLES): number | null
 export const kevInstalledAt = (home: string) => existsSync(join(home, 'kev', 'installed.json'));
 
 /**
- * Backend cards for Settings: rule, Kev and the agent session always; Jev and the API adapter only when enabled.
+ * Backend cards for Settings: rule, Kev and the agent session always; the API adapter only when enabled.
  * Kev that does not answer reads `not_installed` when PP_HOME has no Kev install (with `home`), else `down`.
  */
 export async function backendStatus(config: PolicyConfig, services: EngineServices, home?: string, db?: Db) {
@@ -196,7 +196,7 @@ export async function backendStatus(config: PolicyConfig, services: EngineServic
     ...backendsFromConfig(config, { ...(services.env ? { env: services.env } : {}), agent: {} }),
     ...(services.backends ?? {}),
   };
-  const names = (['rule', 'kev', 'agent', 'jev', 'llm'] as const).filter((n) => map[n]);
+  const names = (['rule', 'kev', 'agent', 'llm'] as const).filter((n) => map[n]);
   return Promise.all(
     names.map(async (name) => {
       const b = map[name];

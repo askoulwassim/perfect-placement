@@ -8,7 +8,7 @@ import type { Answer } from '@perfect-placement/contracts';
  * - `when`: run only if the final value equals it (e.g. archive only when "open?" is false).
  *   Absent = always run.
  * - `undo`: the inverse op for `decisions.undo` on an auto + undo decision.
- * `when` and `undo` are lane I extensions inside the existing Json column (see CONTRACT_CHANGES.md).
+ * `when` and `undo` are lane I extensions inside the existing Json column (see docs/history/contract-changes.md).
  */
 
 export interface OpCall {

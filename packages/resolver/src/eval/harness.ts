@@ -8,7 +8,7 @@ import { decide, sameValue } from '../policy.js';
  * latency, and what the policy would have auto-applied.
  *
  * Cases sharing a `group` (e.g. the 9 criteria of one role) go to a backend in one call, the way
- * Jev is meant to be used (many questions, one state).
+ * System One models are meant to be used (many questions, one state).
  */
 
 export interface EvalCase {

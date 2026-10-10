@@ -2,6 +2,7 @@
   "name": "@perfect-placement/web",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Local web UI (React + Vite), built from the Claude Design prototype.",
   "exports": {

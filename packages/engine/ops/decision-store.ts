@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { repos } from '../db/repo.js';
 
 /*
- * Lane I's `DecisionStore`, implemented over lane A's repositories (CONTRACT_CHANGES "Decision
+ * Lane I's `DecisionStore`, implemented over lane A's repositories (docs/history/contract-changes.md "Decision
  * repository ownership"). The resolver writes decision rows and decision events only through this.
  */
 export function createDecisionStore(db: Database.Database): DecisionStore {

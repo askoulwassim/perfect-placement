@@ -1,6 +1,14 @@
-# Claude Design handoff (imported in Wave 0, 2026-10-08)
+# UI design
 
-Imported from the Claude Design project `fcd74e19-f269-49f8-975c-32ff274edd64` (`Handoff.md`). Project files: `Perfect Placement.dc.html` (root), `RoleTile.dc.html`, `Glyph.dc.html`, `pp-data.js`, `support.js`. Lane D imports the prototype itself via the design MCP; this copy is the reference for tokens and inventory. Sample-data specifics from the prototype are omitted here.
+The UI comes from a Claude Design prototype (`decisions.md #11`): where the prototype and a written brief disagree, the prototype wins. This page is the reference for its tokens, component inventory, screens and the choices that differ from the original brief.
+
+## Non-negotiables
+
+- No explanatory text, no tips; labels of one to three words. Onboarding interview questions are the exception: full, plain sentences (`wave1-decisions #28`). First-run guidance is the one-time Getting started card on Now (`wave1-decisions #27`).
+- One primary action per screen, same place, filled emerald.
+- Every button calls exactly one op from `packages/contracts`.
+- Never a Send or Submit button that acts externally: outreach ends at **Create Gmail draft**, applications at **Open portal**.
+- Dark only, navy and emerald.
 
 Machine-readable versions: `packages/contracts/src/tokens.ts` (tokens, semantic color maps) and `packages/contracts/src/ui.ts` (`COMPONENTS`, `SCREENS`, `PRIMARY_ACTIONS`).
 

@@ -1,5 +1,11 @@
 # Third-party notices
 
+Perfect Placement is MIT-licensed (see `LICENSE`). This file lists third-party material it includes or installs.
+
+## Kev (installed on request, not bundled)
+
+`pp kev install` clones [Kev](https://github.com/jaredpalmer/kev) (Apache-2.0) into your vault, and its first start downloads Kev's model weights and the base model they build on from Hugging Face. None of that is part of this repository; each comes under its own license, which you accept when you install it.
+
 ## AfterShip/email-verifier
 
 `packages/engine/people/lists/aftership.ts` vendors data (not code) from [AfterShip/email-verifier](https://github.com/AfterShip/email-verifier): the role-account list (`metadata_role.go`) and the free-provider list (`metadata_free.go`) in full, and a trimmed subset of the disposable-domain list (`metadata_disposable.go`: the domains whose name carries a throwaway marker), taken at commit `a97c75ff8da09ebfcd30011197cacc78b1c5458e`. It is used only for local list lookups; nothing contacts a mail server.

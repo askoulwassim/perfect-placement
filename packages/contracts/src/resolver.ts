@@ -5,8 +5,8 @@ import type { Thresholds } from './policy.js';
 import { Probability } from './primitives.js';
 
 /*
- * Resolver interface (contracts.md). Lane I implements; every other lane calls `ask()`.
- * System One models (Kev; Jev optional) only answer typed questions. They never write text.
+ * Resolver interface. `@perfect-placement/resolver` implements it; everything else calls `ask()`.
+ * System One models (Kev) only answer typed questions. They never write text.
  * Routing (wave1-decisions #9): rule -> kev -> agent (the calling session) -> human.
  */
 
@@ -16,7 +16,7 @@ export const ChoiceQuestion = z.object({
   id: z.string(),
   type: z.literal('choice'),
   instructions: z.string(),
-  /** Must include OTHER_OPTION (Jev always picks an option). */
+  /** Must include OTHER_OPTION (a System One model always picks an option). */
   options: z
     .array(z.string())
     .min(2)
@@ -98,7 +98,7 @@ export interface BackendResult {
   latencyMs: number;
 }
 
-/** Every decision backend (rule, kev, agent, jev, llm, human) implements this. */
+/** Every decision backend (rule, kev, agent, llm, human) implements this. */
 export interface DecisionBackend {
   readonly name: Backend;
   ask(req: AskRequest): Promise<BackendResult>;

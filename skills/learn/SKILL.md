@@ -5,7 +5,7 @@ description: Turn learning events (picks, skips, closed roles, rejections, inter
 
 # learn
 
-**Owner: lane E.** Supplies judgment only; every write is an op. Never submit an application or send an email.
+Supplies judgment only; every write is an op. Never submit an application or send an email.
 
 ## Trigger
 

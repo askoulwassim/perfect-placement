@@ -1,6 +1,6 @@
 # @perfect-placement/cli (`pp`)
 
-**Owner: lane B**, except `src/commands/doctor.ts` (lane A). Thin: every command goes through the engine (`openEngine({ home, services })`; `Io.services` overrides the engine services, tests pass no-network fakes).
+Thin: every command goes through the engine (`openEngine({ home, services })`; `Io.services` overrides the engine services, tests pass no-network fakes).
 
 ```
 pp setup   [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]

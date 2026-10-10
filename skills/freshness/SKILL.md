@@ -5,7 +5,7 @@ description: Keep unapplied roles honest. Daily, check every inbox, active, held
 
 # freshness
 
-**Owner: lane G.** Schedule: daily 06:30 (`config.schedules.freshness`).
+Schedule: daily 06:30 (`config.schedules.freshness`).
 
 ## What you do
 

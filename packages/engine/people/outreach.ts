@@ -341,7 +341,7 @@ export const outreachSendHandler: Handler<'outreach.send'> = async () =>
 export interface ComposeInput {
   contact_id: string;
   role_id: string;
-  /** Draft a cold_other contact anyway (blueprint: skip unless asked). */
+  /** Draft a cold_other contact anyway (docs/architecture.md: skip unless asked). */
   force?: boolean;
   /** #98: draft this path for a 2nd-degree hiring target instead of the chosen one (both may exist). */
   path?: ConnectPath;

@@ -1,5 +1,5 @@
 /*
- * Scout source mix (blueprint "Scoring v2"): watchlist career pages are at most
+ * Scout source mix (docs/architecture.md "Scoring v2"): watchlist career pages are at most
  * `config.scout.watchlist_share_max` of a run's queries. The watchlist comes from the Company component.
  * The scout skill proposes queries (judgment); this trims them (mechanics). See skills/scout/plan.md.
  */

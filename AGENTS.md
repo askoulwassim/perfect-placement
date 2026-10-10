@@ -6,23 +6,22 @@ This is the only agent instruction file in this repo. **There is no CLAUDE.md an
 
 A local job-search system. It scouts roles, scores them against a learned profile, keeps the pipeline fresh, tailors applications, finds people who can open doors, watches the inbox, and learns from outcomes. The repo holds **only the system**. Each user's data lives in a local vault at `PP_HOME` (default `~/.perfect-placement`): SQLite (`pp.db`) for structure, markdown for long-form, linked by id. The web UI, the MCP server, the `pp` CLI and scheduled runs all call **one ops registry**, so anything a human can click, an agent can do.
 
-Full brief: `docs/v2/` (start with `README.md`, then `decisions.md`; locked means locked).
+Background: `docs/architecture.md` (how the parts fit), `docs/decisions.md` and `docs/wave1-decisions.md` (why; code cites them as `decisions.md #N` and `wave1-decisions #N`), `docs/design.md` (the UI). Contributor workflow: `CONTRIBUTING.md`.
 
 ## Layout
 
 ```
 AGENTS.md               this file
-CONTRACT_CHANGES.md     contract change requests and their resolutions
 packages/
   contracts/            zod schemas, statuses, events, ops registry, resolver + policy types, design tokens, UI inventory
   engine/               openEngine(): db/ (repos, migrations, vault, doctor)  ops/ (runOp + handlers)  status/  profile/  scoring/  freshness/  people/  integrations/
   resolver/             decision layer: rule, Kev, agent, human; policy; decision ops
   mcp/                  MCP server generated from ops (stdio `pp-mcp`, HTTP at /mcp)
   cli/                  `pp`: setup, up, init, kev, doctor, op, scout, score, fresh, inbox, uninstall
-  fixtures/             synthetic vault + db seed (Wave 0)
+  fixtures/             synthetic vault + db seed
 apps/web/               UI from the Claude Design prototype; genui/ renders Ask replies with OpenUI
 skills/<name>/SKILL.md  agent-agnostic skills
-docs/v2/                the build brief
+docs/                   architecture, decisions, UI design; history/ keeps the build-era contract log
 ```
 
 ## Rules
@@ -76,11 +75,10 @@ pnpm --filter @perfect-placement/fixtures gen   # after editing fixtures/src/dat
 
 ## How work merges
 
-- **Waves:** Wave 0 (contracts), Wave 1 (lanes A to J), Wave 2 (integrate) are done in code; Fresh start (wave1-decisions #26): no v1 data is imported; the first real run follows `docs/v2/wave2-plan.md`, "Fresh-start runbook", with the owner present. Wave 3 is next.
 - **One branch per piece of work**, in its own worktree. Open a PR when the branch is finished and ready to close; merge through the PR, then delete the branch and worktree. No big-bang PRs.
-- **Contracts:** `packages/contracts` and migrations change only through `CONTRACT_CHANGES.md` (request, then a resolution with a Status). New schema changes are new numbered migrations; never edit an applied one.
+- **Contracts:** `packages/contracts` and migrations change in their own pull request that updates the schemas, tests and docs together (the build-era log is `docs/history/contract-changes.md`). New schema changes are new numbered migrations; never edit an applied one.
 - **Develop against fixtures** (`@perfect-placement/fixtures`, or `@perfect-placement/engine/testing` for a real engine on a temp fixtures vault). Tests never touch the real `PP_HOME`.
-- **Real-data steps** (first scout + score, rescore, schedules, live LinkedIn or Gmail) only with the owner present.
+- **Real-data steps** (first scout + score, rescore, schedules, live LinkedIn or Gmail) only with the vault's owner present.
 
 ## Conventions
 

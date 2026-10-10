@@ -18,7 +18,7 @@ export function freshOf(role: Pick<Role, 'freshness' | 'last_checked_at'>, now: 
 export const criteriaOf = (s: Score) => [s.c1, s.c2, s.c3, s.c4, s.c5, s.c6, s.c7, s.c8, s.c9];
 
 /** Who judged a criterion, in one word (#40). */
-export const SOURCE_LABEL: Record<string, string> = { kev: 'Kev', agent: 'Agent', human: 'You', rule: 'Rule', jev: 'Jev', llm: 'Model' };
+export const SOURCE_LABEL: Record<string, string> = { kev: 'Kev', agent: 'Agent', human: 'You', rule: 'Rule', llm: 'Model' };
 
 export interface CriterionSourceView {
   /** 'C1'..'C9' */

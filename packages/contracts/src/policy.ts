@@ -89,15 +89,13 @@ export function isHardHuman({ kind, op, component, changedKeys }: HardHumanSubje
 export const SECOND_OPINION_MIN_P = 0.7;
 
 /** Backends the resolver may route to after `rule` (wave1-decisions #7, #9). */
-export const ROUTABLE_BACKENDS = ['kev', 'agent', 'jev', 'llm'] as const;
+export const ROUTABLE_BACKENDS = ['kev', 'agent', 'llm'] as const;
 
 export const BackendsConfig = z.object({
   default: z.enum(ROUTABLE_BACKENDS),
   fallback: z.enum(ROUTABLE_BACKENDS),
   /** `model`: the Kev checkpoint `pp kev start` serves (`KEV_MODELS` in the cli); absent = kev-4b. */
   kev: z.object({ baseUrl: z.string(), model: z.string().optional() }),
-  /** Optional hosted System One adapter; off by default (Kev only). */
-  jev: z.object({ baseUrl: z.string(), keyEnv: z.string(), enabled: z.boolean().default(false) }),
   /** The calling agent session (Claude Code, Codex, Cursor) over MCP. No settings yet. */
   agent: z.object({}).default({}),
   /** Optional direct LLM API adapter; absent by default (all LLM work runs in the agent session). */
@@ -208,7 +206,6 @@ export const DEFAULT_CONFIG: PolicyConfig = {
     default: 'kev',
     fallback: 'agent',
     kev: { baseUrl: 'http://127.0.0.1:8009' },
-    jev: { baseUrl: '', keyEnv: 'JEV_API_KEY', enabled: false },
     agent: {},
   },
   scoring: { affinity_cap: 5, company_active_cap: 3, green_min: 75, yellow_min: 55 },

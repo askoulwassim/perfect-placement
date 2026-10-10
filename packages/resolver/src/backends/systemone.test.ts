@@ -1,7 +1,7 @@
 import type { AskRequest } from '@perfect-placement/contracts';
 import { describe, expect, it } from 'vitest';
 import { BackendUnavailableError } from '../errors.js';
-import { createJevBackend, createKevBackend, JEV_DEFAULT_BASE_URL, toSystemOneRequest } from './systemone.js';
+import { createKevBackend, KEV_DEFAULT_BASE_URL, toSystemOneRequest } from './systemone.js';
 
 const REQ: AskRequest = {
   decision: 'inbox.classify',
@@ -15,7 +15,7 @@ const REQ: AskRequest = {
 };
 
 const OK_BODY = {
-  model: 'jev-1.13.0',
+  model: 'kev-0.8b',
   answers: {
     class: {
       type: 'choice',
@@ -45,11 +45,11 @@ const json = (body: unknown, status = 200) =>
 const noSleep = async () => {};
 
 describe('System One wire mapping', () => {
-  it('maps contract questions to the TypeSafe/Kev request', () => {
-    const body = toSystemOneRequest(REQ, 'jev-latest', 'jev');
+  it('maps contract questions to the System One request', () => {
+    const body = toSystemOneRequest(REQ, 'kev-latest', 'kev');
     expect(body).toEqual({
       state: REQ.state,
-      model: 'jev-latest',
+      model: 'kev-latest',
       questions: {
         class: {
           type: 'choice',
@@ -69,19 +69,19 @@ describe('System One wire mapping', () => {
 
   it('rejects score questions outside 2..10 levels so the resolver falls back', () => {
     expect(() =>
-      toSystemOneRequest({ ...REQ, questions: [{ id: 's', type: 'score', instructions: '', min: 0, max: 100 }] }, 'jev-latest', 'jev'),
+      toSystemOneRequest({ ...REQ, questions: [{ id: 's', type: 'score', instructions: '', min: 0, max: 100 }] }, 'kev-latest', 'kev'),
     ).toThrow(BackendUnavailableError);
   });
 });
 
-describe('Jev backend over HTTP', () => {
+describe('Kev backend over HTTP', () => {
   it('posts to /v1/systemone with a bearer key and maps answers', async () => {
     const { f, calls } = recorder([json(OK_BODY)]);
-    const jev = createJevBackend({ apiKey: 'test-key', fetch: f, sleep: noSleep });
-    const res = await jev.ask(REQ);
-    expect(calls[0]?.url).toBe(`${JEV_DEFAULT_BASE_URL}/v1/systemone`);
+    const kev = createKevBackend({ apiKey: 'test-key', fetch: f, sleep: noSleep });
+    const res = await kev.ask(REQ);
+    expect(calls[0]?.url).toBe(`${KEV_DEFAULT_BASE_URL}/v1/systemone`);
     expect((calls[0]?.init.headers as Record<string, string> | undefined)?.authorization).toBe('Bearer test-key');
-    expect(JSON.parse(String(calls[0]?.init.body)).model).toBe('jev-latest');
+    expect(JSON.parse(String(calls[0]?.init.body)).model).toBe('kev-latest');
     expect(res.answers).toEqual([
       expect.objectContaining({ id: 'class', value: 'confirmation', p: 0.93 }),
       expect.objectContaining({ id: 'from_ats', value: false, p: 0.88 }),
@@ -91,44 +91,44 @@ describe('Jev backend over HTTP', () => {
 
   it('retries 429 and 529, then succeeds', async () => {
     const { f, calls } = recorder([json({}, 429), json({}, 529), json(OK_BODY)]);
-    const jev = createJevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
-    await expect(jev.ask(REQ)).resolves.toBeTruthy();
+    const kev = createKevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
+    await expect(kev.ask(REQ)).resolves.toBeTruthy();
     expect(calls).toHaveLength(3);
   });
 
   it('does not retry 401 or 422', async () => {
     for (const status of [401, 422]) {
       const { f, calls } = recorder([json({}, status), json(OK_BODY)]);
-      const jev = createJevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
-      await expect(jev.ask(REQ)).rejects.toMatchObject({ name: 'BackendUnavailableError', status });
+      const kev = createKevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
+      await expect(kev.ask(REQ)).rejects.toMatchObject({ name: 'BackendUnavailableError', status });
       expect(calls).toHaveLength(1);
     }
   });
 
   it('fails fast when unreachable', async () => {
     const { f, calls } = recorder([new TypeError('fetch failed')]);
-    const jev = createJevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
-    await expect(jev.ask(REQ)).rejects.toBeInstanceOf(BackendUnavailableError);
+    const kev = createKevBackend({ apiKey: 'k', fetch: f, sleep: noSleep });
+    await expect(kev.ask(REQ)).rejects.toBeInstanceOf(BackendUnavailableError);
     expect(calls).toHaveLength(1);
   });
 
   it('rejects a choice outside the options and a missing answer', async () => {
     const bad = { ...OK_BODY, answers: { ...OK_BODY.answers, class: { type: 'choice', choice: 'banana', probabilities: { banana: 1 } } } };
-    const jev = createJevBackend({ apiKey: 'k', fetch: recorder([json(bad)]).f, sleep: noSleep });
-    await expect(jev.ask(REQ)).rejects.toThrow(/not in options/);
+    const kev = createKevBackend({ apiKey: 'k', fetch: recorder([json(bad)]).f, sleep: noSleep });
+    await expect(kev.ask(REQ)).rejects.toThrow(/not in options/);
     const missing = { ...OK_BODY, answers: { class: OK_BODY.answers.class } };
-    const jev2 = createJevBackend({ apiKey: 'k', fetch: recorder([json(missing)]).f, sleep: noSleep });
-    await expect(jev2.ask(REQ)).rejects.toThrow(/no answer/);
+    const kev2 = createKevBackend({ apiKey: 'k', fetch: recorder([json(missing)]).f, sleep: noSleep });
+    await expect(kev2.ask(REQ)).rejects.toThrow(/no answer/);
   });
 
   it('health is ok on 200 and not ok on 401 or network error', async () => {
-    expect((await createJevBackend({ apiKey: 'k', fetch: recorder([json({ data: [] })]).f }).health()).ok).toBe(true);
-    expect((await createJevBackend({ apiKey: 'k', fetch: recorder([json({}, 401)]).f }).health()).ok).toBe(false);
-    expect((await createJevBackend({ apiKey: 'k', fetch: recorder([new Error('x')]).f }).health()).ok).toBe(false);
+    expect((await createKevBackend({ apiKey: 'k', fetch: recorder([json({ data: [] })]).f }).health()).ok).toBe(true);
+    expect((await createKevBackend({ apiKey: 'k', fetch: recorder([json({}, 401)]).f }).health()).ok).toBe(false);
+    expect((await createKevBackend({ apiKey: 'k', fetch: recorder([new Error('x')]).f }).health()).ok).toBe(false);
   });
 });
 
-describe('Kev backend', () => {
+describe('Kev backend defaults', () => {
   it('uses the local base URL, kev-latest, no auth header by default', async () => {
     const { f, calls } = recorder([json(OK_BODY)]);
     const kev = createKevBackend({ fetch: f, sleep: noSleep });

@@ -5,7 +5,7 @@ import type { EvalCase } from './harness.js';
 
 /*
  * Synthetic eval data + mocked backends. No real roles, people or emails.
- * The mocks go through the real adapters (HTTP adapter for Jev/Kev, LLM backend parser), so a
+ * The mocks go through the real adapters (System One HTTP adapter for Kev, LLM backend parser), so a
  * synthetic run exercises the same code path a live run does; only the transport is faked.
  */
 
@@ -228,7 +228,7 @@ export function mockLlmCall(oracle: Oracle, prof: MockProfile): LlmCall {
   };
 }
 
-/** Default mocked trio: Jev sharp and accurate, Kev a bit behind, LLM accurate but less calibrated. Latency is simulated. */
+/** Default mocked pair: Kev sharper, the LLM more accurate but less calibrated. Latency is simulated. */
 export function mockBackends(cases: EvalCase[]) {
   const oracle = buildOracle(cases);
   const simulated = (latencyMs: number) => {
@@ -242,20 +242,11 @@ export function mockBackends(cases: EvalCase[]) {
       };
     return { clock, delayed };
   };
-  const jevT = simulated(150);
   const kevT = simulated(700);
   const llmT = simulated(2500);
-  const jevFetch = mockSystemOneFetch(oracle, { seed: 11, accuracy: 0.86, sharpness: 0.85, latencyMs: 150 });
   const kevFetch = mockSystemOneFetch(oracle, { seed: 22, accuracy: 0.78, sharpness: 0.7, latencyMs: 700 });
   const llm = mockLlmCall(oracle, { seed: 33, accuracy: 0.84, sharpness: 0.35, latencyMs: 2500 });
   return {
-    jev: createSystemOneBackend({
-      name: 'jev',
-      baseUrl: 'https://mock.invalid',
-      model: 'jev-latest',
-      fetch: jevT.delayed(jevFetch) as typeof fetch,
-      clock: jevT.clock,
-    }),
     kev: createSystemOneBackend({
       name: 'kev',
       baseUrl: 'http://mock.invalid',

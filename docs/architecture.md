@@ -1,13 +1,6 @@
-# Blueprint
+# Architecture
 
-## Why v2 (v1 snapshot, pipeline.json generated 2026-08-07)
-
-- 158 roles tracked, 68 marked active, none rechecked since they were found (all found Aug 2 to 7). Active rots.
-- 31% of active roles come from 5 companies (Anthropic 7, GitLab 4, Replit 4, HackerOne 3, Pinecone 3).
-- Dream companies (Anthropic, Replit) average 79.8 vs 73.8 overall and bypass the remote dealbreaker. Company preference is over-weighted.
-- No outreach: roles go from tailor to apply with no attempt to find a warm path.
-- The profile is a few hand-edited markdown files; nothing learns from outcomes.
-- Everything is markdown + JSON in git, mixed with the system. Not distributable.
+How Perfect Placement is put together: the layers, the flow a role moves through, the profile model, scoring, freshness, connect and the UI. Decisions referenced as `#N` are in [`decisions.md`](decisions.md) and [`wave1-decisions.md`](wave1-decisions.md); `(#NNN)` numbers are GitHub issues.
 
 ## Layers
 
@@ -16,7 +9,7 @@
 | Surfaces | Web UI (local), MCP server, `pp` CLI, schedules, AGENTS.md |
 | Skills (judgment) | onboard, scout, score, freshness, research, tailor, connect, fill, inbox, interview (later), learn |
 | Engine (mechanics) | ops registry, status machine, scoring math, dedupe, profile versions, doctor |
-| Decisions | resolver: `ask()` with rule / Jev / Kev / LLM / human backends + policy |
+| Decisions | resolver: `ask()` with rule / Kev / agent / LLM / human backends + policy |
 | Vault (local) | `pp.db`, markdown vault, files |
 | Integrations | Gmail (read + draft only), ATS APIs (Greenhouse, Lever, Ashby), LinkedIn (browser, read-only), web search, calendar (later) |
 
@@ -34,12 +27,12 @@ Every surface calls ops. Skills are SKILL.md files: they supply judgment (search
 | 05 | Tailor | on pick | resume, cover, fit map -> draft-ready |
 | 06 | Connect | on pick | contacts + Gmail drafts |
 | 07 | Fill | on pick | answers to the real portal questions |
-| 08 | Submit | Wassim, always | applied (via confirmation email) |
+| 08 | Submit | you, always | applied (via confirmation email) |
 | 09 | Inbox | daily | interviews, offers, archived; outreach replies |
 | 10 | Interview | scheduled | prep, retro |
 | 11 | Learn | continuous | profile diffs -> rescore |
 
-Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `on-deck` = picked (UI label **In progress**, #105): starting an apply stage (Research, Tailor or Connect, the op or `runs.start`, human or agent) on an active or held role moves it there and emits `role_picked`; Tailor then moves it to `draft-ready`. On-deck takes no company slot and a rescore never moves it. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule from v1 stays: an automated rescore never moves a role backwards out of `draft-ready` or later.
+Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `on-deck` = picked (UI label **In progress**, #105): starting an apply stage (Research, Tailor or Connect, the op or `runs.start`, human or agent) on an active or held role moves it there and emits `role_picked`; Tailor then moves it to `draft-ready`. On-deck takes no company slot and a rescore never moves it. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule: an automated rescore never moves a role backwards out of `draft-ready` or later.
 
 Learning signals: role picked or skipped from active, closed while waiting, rejected (and at which stage), interview retro, outreach replied or ignored, offer terms.
 
@@ -63,8 +56,6 @@ Each component is versioned, has a confidence (0 to 1), and a kind.
 
 Filters gate (pass/fail). Weighted components produce the rubric weights. Assets feed writing and outreach.
 
-Today's v1 profile (`01_Profile/*.md`, `00_System/rubric.json`) converts into v1 components during migration (lane A with lane E's schema).
-
 ## Onboarding protocol
 
 1. **Resume in.** Parse into Story and Craft drafts. Never ask what the resume answers.
@@ -84,7 +75,7 @@ event -> resolver asks per component "does this change it?" (Noulli x 11) -> for
 - **Per-company cap**: top 3 per company stay `active`; the rest go to `held` (promoted automatically when a slot frees).
 - **Source mix**: watchlist career pages at most a third of scout queries and of the roles a run adds (`ceil(share x target)`), at most `scout.max_per_company` per company per run; open-market search always runs for the rest (#67). Watchlist comes from the Company component.
 - Weights come from the profile version; every score records the rubric/profile version.
-- Criteria (unchanged ids): C1 proximity to decisions, C2 0->1 scope, C3 external-facing, C4 data fundamentals, C5 domain excitement, C6 comp and equity, C7 team and leaders, C8 growth ceiling, C9 role shape. Green >= 75, yellow >= 55 (from v1 rubric.json; becomes profile-driven).
+- Criteria (unchanged ids): C1 proximity to decisions, C2 0->1 scope, C3 external-facing, C4 data fundamentals, C5 domain excitement, C6 comp and equity, C7 team and leaders, C8 growth ceiling, C9 role shape. Green >= 75, yellow >= 55.
 
 ## Freshness (daily)
 
@@ -109,8 +100,8 @@ Sources: LinkedIn (browser automation, read-only: connections, company People pa
 
 ## UI
 
-Source of truth: the Claude Design prototype (`design.md`). Screens: Now, Needs you, River, Role, People, Outreach draft, You, Onboarding, Ask (Cmd+K), Settings. Principles: visual over verbal, one primary action per screen, state is color and shape, only "needs you" interrupts, every button is an op, agent replies render as the same cards.
+Source of truth: the Claude Design prototype ([`design.md`](design.md)). Screens: Now, Needs you, River, Role, People, Outreach draft, You, Onboarding, Ask (Cmd+K), Settings. Principles: visual over verbal, one primary action per screen, state is color and shape, only "needs you" interrupts, every button is an op, agent replies render as the same cards.
 
-## OpenUI (spike)
+## OpenUI
 
-Thesys OpenUI (MIT, React, Zod-typed component props, streamed "OpenUI Lang"). Fit: the Ask panel renders agent replies as our own components (RoleCard, ScoreRadar, ContactCard, ProfileDiff). Lane J decides adopt / adapt / drop.
+Thesys OpenUI (MIT, React, Zod-typed component props, streamed "OpenUI Lang") renders agent replies in the Ask panel as our own components (RoleCard, ScoreRadar, ContactCard, ProfileDiff). Adapted, not adopted wholesale: `wave1-decisions #21`, `apps/web/genui/`.

@@ -1,6 +1,6 @@
 # Scout plan
 
-**Owner: lane F.** How the scout skill (lane B) spends its queries each run.
+How the scout skill spends its queries each run.
 
 ## Sources
 

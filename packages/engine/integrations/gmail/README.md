@@ -1,7 +1,5 @@
 # packages/engine/integrations/gmail
 
-**Owner: lane H** (`docs/v2/lanes/`). Only lane H writes here.
-
 Gmail adapter: create draft only. Never send.
 
 ## Shape
@@ -12,6 +10,6 @@ Gmail adapter: create draft only. Never send.
 - `buildMime`: RFC 2822 plain text, CR/LF stripped from headers.
 - `GmailContactsSource.searchByDomain(domain)`: optional read used by `people.find`; no implementation in Wave 1.
 
-## Wave 2
+## Auth
 
-Pick the auth path with Wassim (OAuth app with `gmail.compose`, or the Gmail MCP connector behind the same interface). Tokens live outside the repo.
+The connect skill creates drafts through the Gmail MCP connector in the agent session (`docs/wave1-decisions.md` #5). `createGmailApiClient` stays available for an OAuth path with `gmail.compose`. Tokens always live outside the repo.

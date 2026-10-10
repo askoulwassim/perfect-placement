@@ -171,18 +171,18 @@ export const profileDiffs: ProfileDiff[] = [
 // ---------------------------------------------------------------- companies
 
 const COMPANIES: Array<[slug: string, name: string, domain: string, ats: Company['ats_type'], affinity: number]> = [
-  ['stripe', 'Stripe', 'stripe.com', 'greenhouse', 1],
-  ['datadog', 'Datadog', 'datadoghq.com', 'greenhouse', 0],
-  ['figma', 'Figma', 'figma.com', 'greenhouse', DREAM_AFFINITY],
-  ['notion', 'Notion', 'notion.so', 'ashby', 0],
-  ['linear', 'Linear', 'linear.app', 'ashby', DREAM_AFFINITY],
-  ['vercel', 'Vercel', 'vercel.com', 'greenhouse', 1],
-  ['snowflake', 'Snowflake', 'snowflake.com', 'workday', 0],
-  ['databricks', 'Databricks', 'databricks.com', 'greenhouse', 0],
-  ['airtable', 'Airtable', 'airtable.com', 'greenhouse', -1],
-  ['retool', 'Retool', 'retool.com', 'lever', 0],
-  ['ramp', 'Ramp', 'ramp.com', 'ashby', 1],
-  ['plaid', 'Plaid', 'plaid.com', 'lever', 0],
+  ['stripe', 'Stripe', 'stripe.example', 'greenhouse', 1],
+  ['datadog', 'Datadog', 'datadog.example', 'greenhouse', 0],
+  ['figma', 'Figma', 'figma.example', 'greenhouse', DREAM_AFFINITY],
+  ['notion', 'Notion', 'notion.example', 'ashby', 0],
+  ['linear', 'Linear', 'linear.example', 'ashby', DREAM_AFFINITY],
+  ['vercel', 'Vercel', 'vercel.example', 'greenhouse', 1],
+  ['snowflake', 'Snowflake', 'snowflake.example', 'workday', 0],
+  ['databricks', 'Databricks', 'databricks.example', 'greenhouse', 0],
+  ['airtable', 'Airtable', 'airtable.example', 'greenhouse', -1],
+  ['retool', 'Retool', 'retool.example', 'lever', 0],
+  ['ramp', 'Ramp', 'ramp.example', 'ashby', 1],
+  ['plaid', 'Plaid', 'plaid.example', 'lever', 0],
 ];
 
 export const companies: Company[] = COMPANIES.map(([slug, name, domain, ats_type, affinity]) => ({

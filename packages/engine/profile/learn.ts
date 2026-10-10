@@ -16,7 +16,7 @@ import { routeDiff } from './profile-ops.js';
 import { getComponents, getCurrentVersion } from './versions.js';
 
 /*
- * Learn loop (blueprint.md), every write an op (nested in `profile.learn`):
+ * Learn loop (docs/architecture.md), every write an op (nested in `profile.learn`):
  *   event -> resolver Noulli x 11 "does this change <component>?" (profile.learn, low)
  *         -> for each yes: the writing model drafts a diff with evidence -> op profile.propose_diff
  *            (no writing model in the engine: the learn skill drafts and calls profile.propose_diff)

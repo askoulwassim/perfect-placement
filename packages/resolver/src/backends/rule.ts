@@ -2,7 +2,7 @@ import type { Answer, AskRequest, BackendResult, DecisionBackend, Question } fro
 import { BackendUnavailableError } from '../errors.js';
 
 /*
- * Rule backend: numbers and dates (Jev is weak on both, decisions.md). Deterministic, p = 1.
+ * Rule backend: numbers and dates (System One models are weak on both). Deterministic, p = 1.
  * A rule is keyed by question id. The resolver routes a request here when every question has a rule.
  */
 

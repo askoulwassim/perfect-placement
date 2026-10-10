@@ -2,8 +2,9 @@
   "name": "@perfect-placement/fixtures",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
-  "description": "Synthetic vault + db seed every lane develops against. Wave 0 owns. Never real data.",
+  "description": "Synthetic vault + db seed every package develops against. Never real data.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

@@ -1,7 +1,5 @@
 # packages/engine/people
 
-**Owner: lane H** (`docs/v2/lanes/`). Only lane H writes here.
-
 Contacts, contact_link, tier classification via resolver, outreach drafts (Hook / Proof / Ask + sign-off, sent to Gmail as a natural email).
 
 ## Files
@@ -23,4 +21,4 @@ Contacts, contact_link, tier classification via resolver, outreach drafts (Hook 
 
 `handler(input, ctx: OpContext, deps: PeopleDeps) -> OpOutcome<OpOutput<name>>`. `PeopleDeps` is built per op call by the engine: `{ repos, vault, emit, ask, record, config, linkedin?, gmail?, gmailContacts?, writer?, mx?, emailProvider?, runOp? }` (adapters from `EngineServices`). Handlers honor `ctx.dryRun` (and `people.find`'s `dry_run`). `outreach.to_gmail` is medium impact: an agent goes through the grid with `ctx.confidence`. `outreach.send` has no handler (unimplemented by contract).
 
-Production adapters: the engine has no LinkedIn driver or Gmail client (decisions #4, #5 put both in the agent session: Claude in Chrome and the Gmail connector). The `connect` run reads LinkedIn with Chrome's read and navigate tools and passes people as `source: 'linkedin'` hints (#82); `linkedin_mode` is `agent` only then. `outreach.to_gmail` records a draft the calling agent already created with its own Gmail tool (`gmail_draft_id`, Gmail via agent); without that id and with no client it answers `backend_unavailable`. Live run with Wassim: `skills/connect/RUNBOOK.md`.
+Production adapters: the engine has no LinkedIn driver or Gmail client (decisions #4, #5 put both in the agent session: Claude in Chrome and the Gmail connector). The `connect` run reads LinkedIn with Chrome's read and navigate tools and passes people as `source: 'linkedin'` hints (#82); `linkedin_mode` is `agent` only then. `outreach.to_gmail` records a draft the calling agent already created with its own Gmail tool (`gmail_draft_id`, Gmail via agent); without that id and with no client it answers `backend_unavailable`. First live run: `skills/connect/RUNBOOK.md`.

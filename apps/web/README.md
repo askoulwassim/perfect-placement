@@ -1,6 +1,6 @@
 # @perfect-placement/web
 
-**Owner: lane D** (`genui/`: lane J, folded into this package in Wave 2). Screens and components per `docs/v2/design.md`, `docs/v2/design-handoff.md`, and the `UI` exports in `packages/contracts/src/ui.ts`. Tokens from `@perfect-placement/contracts/tokens.css`. Dark only.
+Screens and components per [`docs/design.md`](../../docs/design.md) and the `UI` exports in `packages/contracts/src/ui.ts`. Tokens from `@perfect-placement/contracts/tokens.css`. Dark only.
 
 ## Run against `pp up` (live, the default)
 

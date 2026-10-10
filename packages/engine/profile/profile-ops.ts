@@ -31,7 +31,7 @@ import {
 
 /*
  * profile.get, profile.history, profile.propose_diff, profile.apply_diff, profile.reject_diff
- * plus undoDiff (needed by decisions.undo for auto + undo diffs; see CONTRACT_CHANGES lane E).
+ * plus undoDiff (needed by decisions.undo for auto + undo diffs; see docs/history/contract-changes.md, lane E).
  *
  * Diff semantics: diff_json = { before, after } over the component's data_json, top-level keys only.
  *  - keys in `after` are set to the after value;
@@ -365,7 +365,7 @@ export function profileRejectDiff(
 
 /**
  * Undo an applied diff (auto + undo window): new version restoring `before` on the diff's keys.
- * Not an op in the contract yet; lane I's decisions.undo calls this (CONTRACT_CHANGES lane E).
+ * Not an op in the contract yet; lane I's decisions.undo calls this (docs/history/contract-changes.md, lane E).
  */
 export async function undoDiff(deps: ProfileDeps, diffId: string, ctx: OpContext): Promise<{ version: ProfileVersion }> {
   const diff = getDiff(deps.repos, diffId);

@@ -5,7 +5,7 @@ import { BackendUnavailableError } from '../errors.js';
 import type { RichAnswer } from './systemone.js';
 
 /*
- * LLM backend (Anthropic). Answers the same typed questions as Jev/Kev, as a fallback and a second
+ * LLM backend (Anthropic). Answers the same typed questions as Kev, as a fallback and a second
  * opinion. Output is constrained with structured outputs; the reply is parsed and validated, and
  * any malformed answer fails the backend so the resolver falls back to the human queue.
  */

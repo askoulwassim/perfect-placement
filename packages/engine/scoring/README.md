@@ -1,7 +1,5 @@
 # packages/engine/scoring
 
-**Owner: lane F** (`docs/v2/lanes/F-scoring-v2.md`). Only lane F writes here.
-
 Scoring v2 mechanics. The score skill supplies judgment (C1..C9, facts); this code does the rest.
 
 | File | What |

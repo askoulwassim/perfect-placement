@@ -5,7 +5,7 @@ description: Find people who can open doors for a picked role, classify each one
 
 # connect
 
-**Owner: lane H.** Stage 06 of the flow: runs on pick, outputs contacts + Gmail **drafts**.
+Stage 06 of the flow: runs on pick, outputs contacts + Gmail **drafts**.
 
 You supply judgment (who is in the JD, who you read on LinkedIn, the draft text). Code does mechanics (URL allowlist, caps, budget, dedupe, tiers, files). Every write is an op.
 

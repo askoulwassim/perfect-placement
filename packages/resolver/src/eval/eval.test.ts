@@ -17,18 +17,18 @@ describe('calibration math', () => {
 });
 
 describe('synthetic eval through mocked backends', () => {
-  it('replays every case through Jev, Kev and the LLM and reports agreement + calibration', async () => {
+  it('replays every case through Kev and the LLM and reports agreement + calibration', async () => {
     const cases = syntheticCases({ roles: 6, emails: 12 });
     expect(cases).toHaveLength(6 * 9 + 12);
     const result = await runEval({ cases, backends: mockBackends(cases), concurrency: 1 });
-    expect(result.backends).toEqual(['jev', 'kev', 'llm']);
+    expect(result.backends).toEqual(['kev', 'llm']);
     for (const m of result.metrics) {
       expect(m.answered).toBe(cases.length);
       expect(m.accuracy).toBeGreaterThan(0.5);
       expect(m.ece).not.toBeNull();
       expect(m.latencyP50).toBeGreaterThan(0);
     }
-    expect(result.agreement.jev?.jev?.rate).toBe(1);
+    expect(result.agreement.kev?.kev?.rate).toBe(1);
     expect(Object.keys(result.byKind).sort()).toEqual(['inbox.classify', 'roles.criterion']);
     // medium impact inbox cases never auto below 0.90; high impact never appears in synthetic data
     const md = renderReport(result, { title: 'Synthetic', label: 'synthetic truth' });

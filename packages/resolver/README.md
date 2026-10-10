@@ -1,6 +1,6 @@
 # @perfect-placement/resolver
 
-**Owner: lane I.** The decision layer. Every judgment a human would otherwise make goes through `ask()`; the human sees the pick and its p, never a blank question.
+The decision layer. Every judgment a human would otherwise make goes through `ask()`; the human sees the pick and its p, never a blank question.
 
 Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages/contracts/src/policy.ts`.
 
@@ -10,14 +10,14 @@ Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages
 | --- | --- |
 | `src/policy.ts` | `decide()` = the #24 grid lookup; `policyOutcome()` = hard exclusions (`isHardHuman`) + grid + per-kind `confident_outcome` (auto -> auto + undo); bands, per-kind + per-call overrides, impact floors per kind, second-opinion agreement, undo windows. |
 | `src/resolver.ts` | `createResolver({ config, backends, store, runOp?, hardHuman? })`. Routing (#7, #9): rule (numbers, dates) -> `backends.default` (Kev) -> `backends.fallback` (agent) -> agent -> llm (only when enabled) -> human queue. Second opinion for the medium middle band: the attached agent first, then other enabled adapters, else human. `record()` logs an externally judged answer through the same policy (`forceHuman` option). Writes one `decision` row per question; runs `action_json` for auto outcomes only when given a `runOp` (the engine does not: callers apply). |
-| `src/backends/systemone.ts` | One HTTP adapter for Jev (`https://api.typesafe.ai`, `jev-latest`, bearer `JEV_API_KEY`) and Kev (`http://127.0.0.1:8009`, `kev-latest`). |
+| `src/backends/systemone.ts` | The System One HTTP adapter for Kev (`http://127.0.0.1:8009`, `kev-latest`, optional bearer `KEV_API_KEY`). |
 | `src/backends/rule.ts` | Deterministic rules keyed by question id: `meets_comp_floor`, `posting_stale`, `posting_age_days`, plus custom. p = 1. |
 | `src/backends/llm.ts` | Anthropic SDK, structured outputs, answers typed questions only. Transport is injectable. |
 | `src/backends/agent.ts` | The calling agent session (#9). Never calls an API: answers only with what the agent supplied for the op call (`confidence` for a single yes/no), otherwise yields to a human. |
 | `src/backends/human.ts` | Last resort: p = 0 placeholders so everything lands in the Needs-you queue. |
 | `src/ops.ts` | Handlers for `decisions.queue` (with `auto_groups`, #103), `decisions.resolve`, `decisions.undo`, `decisions.undo_group` over an injected store + `RunOp`. |
 | `src/store.ts` | The `DecisionStore` interface. Lane A's repository implements it in the engine (`packages/engine/ops/decision-store.ts`); a SQLite double lives in `test-helpers.ts` for this package's tests. |
-| `src/config.ts` | `backendsFromConfig(config, { env, agent? })`. Kev always; agent only when attached; Jev only when `backends.jev.enabled` and its key is set; the Anthropic adapter only when `backends.llm.enabled` and `ANTHROPIC_API_KEY` is set. |
+| `src/config.ts` | `backendsFromConfig(config, { env, agent? })`. Kev always; agent only when attached; the Anthropic adapter only when `backends.llm.enabled` and `ANTHROPIC_API_KEY` is set. |
 | `src/eval/` | Eval harness (accuracy vs label, agreement, Brier, ECE, auto rate, latency), synthetic data + mocked transports, CLI. |
 | `docs/kev-setup.md` | Running kev-4b via MLX on Apple Silicon. |
 

@@ -5,7 +5,7 @@ description: Build or refresh the user's profile. Resume in, short adaptive inte
 
 # onboard
 
-**Owner: lane E.** Supplies judgment only; every write is an op. Never submit an application or send an email.
+Supplies judgment only; every write is an op. Never submit an application or send an email.
 
 ## Steps
 

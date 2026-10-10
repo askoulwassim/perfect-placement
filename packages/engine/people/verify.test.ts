@@ -175,27 +175,27 @@ describe('the Gmail draft waits for a confirmed address (#99)', () => {
     expect(await engine().runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, human())).toMatchObject({ code: 'conflict' });
     expect(engine().launcher.specs).toHaveLength(0);
     const got = ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human()));
-    expect(got.to).toMatchObject({ email: null, guess: 'maya@linear.app', decision_id: decision });
+    expect(got.to).toMatchObject({ email: null, guess: 'maya@linear.example', decision_id: decision });
 
     // The human confirms in Needs you: the Gmail draft step is queued and launched for that draft.
     const r = ok(await engine().runOp('decisions.resolve', { decision_id: decision, action: 'accept' }, human()));
     expect(r.op_status).toBe('ok');
-    expect(contact('ct_0001')).toMatchObject({ email: 'maya@linear.app', email_confidence: 1 });
+    expect(contact('ct_0001')).toMatchObject({ email: 'maya@linear.example', email_confidence: 1 });
     const runs = engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).all() as Array<{ summary_json: string }>;
     expect(runs.map((x) => JSON.parse(x.summary_json))).toEqual([expect.objectContaining({ outreach_id: 'or_0001', step: 'gmail_draft' })]);
     await new Promise((ok) => setTimeout(ok, 0));
     const spec = engine().launcher.specs[0];
     expect(flag(spec?.args ?? [], '--allowedTools')).toBe(`mcp__pp,${GMAIL_DRAFT_TOOL}`);
     expect(ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human())).to).toMatchObject({
-      email: 'maya@linear.app',
+      email: 'maya@linear.example',
       decision_id: null,
     });
 
     // The engine client now creates the draft with To, and records it.
     const made = ok(await engine().runOp('outreach.to_gmail', { outreach_id: 'or_0001' }, human()));
-    expect(made).toMatchObject({ to: 'maya@linear.app' });
-    expect(gmail.drafts[0]?.to).toBe('maya@linear.app');
-    expect(outreachRow('or_0001')).toMatchObject({ status: 'in_gmail', gmail_to: 'maya@linear.app' });
+    expect(made).toMatchObject({ to: 'maya@linear.example' });
+    expect(gmail.drafts[0]?.to).toBe('maya@linear.example');
+    expect(outreachRow('or_0001')).toMatchObject({ status: 'in_gmail', gmail_to: 'maya@linear.example' });
   });
 
   it('a Gmail draft that exists without To gets the To update step once the address is confirmed', async () => {
@@ -221,8 +221,8 @@ describe('the Gmail draft waits for a confirmed address (#99)', () => {
 
     // The agent sets the To and re-records the same draft: the To is stored.
     const rec = ok(await engine().runOp('outreach.to_gmail', { outreach_id: 'or_0002', gmail_draft_id: 'fixture-draft-0002' }, human()));
-    expect(rec).toMatchObject({ to: 'dev@linear.app' });
-    expect(outreachRow('or_0002')).toMatchObject({ status: 'in_gmail', gmail_to: 'dev@linear.app' });
+    expect(rec).toMatchObject({ to: 'dev@linear.example' });
+    expect(outreachRow('or_0002')).toMatchObject({ status: 'in_gmail', gmail_to: 'dev@linear.example' });
     // Nothing more to fill: the step is refused.
     expect(await engine().runOp('runs.start', { skill: 'connect', outreach_id: 'or_0002' }, human())).toMatchObject({ code: 'conflict' });
   });
@@ -252,17 +252,17 @@ describe('people.find_email: pattern evidence and the passive check (#99)', () =
   it('two inbox peers on first.last: auto-applied, To filled, the waiting Gmail draft queued; only address + format kept', async () => {
     open();
     fullName();
-    const out = ok(await find({ evidence: [peer('lee.park@linear.app', 'Lee Park'), peer('Sam.Ortiz@linear.app', 'Sam Ortiz')] }));
-    expect(out).toMatchObject({ email: 'maya.rivera@linear.app', confirmed: true, outcome: 'auto', confidence: PROVEN_P });
+    const out = ok(await find({ evidence: [peer('lee.park@linear.example', 'Lee Park'), peer('Sam.Ortiz@linear.example', 'Sam Ortiz')] }));
+    expect(out).toMatchObject({ email: 'maya.rivera@linear.example', confirmed: true, outcome: 'auto', confidence: PROVEN_P });
     expect(out.candidates[0].check).toEqual({ domain: 'ok', risk: 'none', pattern_peers: 2, public_match: false });
     expect(pending('ct_0001')).toEqual([]);
     const got = ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human()));
-    expect(got.to).toMatchObject({ email: 'maya.rivera@linear.app', decision_id: null });
+    expect(got.to).toMatchObject({ email: 'maya.rivera@linear.example', decision_id: null });
     expect(connectRuns()).toEqual([expect.objectContaining({ outreach_id: 'or_0001', step: 'gmail_draft' })]);
     const d = engine().db.prepare('SELECT question_json FROM decision WHERE id = ?').get(out.decision_id) as { question_json: string };
     expect(JSON.parse(d.question_json).evidence).toEqual([
-      { kind: 'inbox_peer', address: 'lee.park@linear.app', pattern: 'first.last' },
-      { kind: 'inbox_peer', address: 'sam.ortiz@linear.app', pattern: 'first.last' },
+      { kind: 'inbox_peer', address: 'lee.park@linear.example', pattern: 'first.last' },
+      { kind: 'inbox_peer', address: 'sam.ortiz@linear.example', pattern: 'first.last' },
     ]);
     // The display names inferred the format; they are not kept.
     expect(d.question_json).not.toContain('Lee Park');
@@ -274,16 +274,16 @@ describe('people.find_email: pattern evidence and the passive check (#99)', () =
     const out = ok(
       await find({
         evidence: [
-          peer('lee.park@linear.app', 'Lee Park'),
-          peer('sam.ortiz@linear.app', 'Sam Ortiz'),
-          peer('kdunn@linear.app', 'Kai Dunn'),
+          peer('lee.park@linear.example', 'Lee Park'),
+          peer('sam.ortiz@linear.example', 'Sam Ortiz'),
+          peer('kdunn@linear.example', 'Kai Dunn'),
         ],
       }),
     );
-    expect(out).toMatchObject({ email: 'maya.rivera@linear.app', confirmed: false, outcome: 'human' });
+    expect(out).toMatchObject({ email: 'maya.rivera@linear.example', confirmed: false, outcome: 'human' });
     expect(out.confidence).toBeLessThan(0.7);
     expect(out.candidates[0].check.pattern_peers).toBe(2);
-    expect(out.candidates.find((c: { email: string }) => c.email === 'mrivera@linear.app').check.pattern_peers).toBe(1);
+    expect(out.candidates.find((c: { email: string }) => c.email === 'mrivera@linear.example').check.pattern_peers).toBe(1);
     expect(pending('ct_0001')).toHaveLength(1);
     expect(connectRuns()).toEqual([]);
   });
@@ -291,13 +291,13 @@ describe('people.find_email: pattern evidence and the passive check (#99)', () =
   it('an exact public mention of a candidate: auto-applied', async () => {
     open();
     fullName();
-    const mention = { kind: 'public_mention', address: 'mrivera@linear.app', source: 'team page', url: 'https://linear.example/team' };
+    const mention = { kind: 'public_mention', address: 'mrivera@linear.example', source: 'team page', url: 'https://linear.example/team' };
     const out = ok(await find({ evidence: [mention] }));
-    expect(out).toMatchObject({ email: 'mrivera@linear.app', confirmed: true, outcome: 'auto' });
+    expect(out).toMatchObject({ email: 'mrivera@linear.example', confirmed: true, outcome: 'auto' });
     expect(out.candidates[0].check).toMatchObject({ public_match: true, domain: 'ok' });
     const d = engine().db.prepare('SELECT question_json FROM decision WHERE id = ?').get(out.decision_id) as { question_json: string };
     expect(JSON.parse(d.question_json).evidence).toEqual([
-      { kind: 'public_mention', address: 'mrivera@linear.app', pattern: 'flast', url: 'https://linear.example/team' },
+      { kind: 'public_mention', address: 'mrivera@linear.example', pattern: 'flast', url: 'https://linear.example/team' },
     ]);
   });
 
@@ -308,7 +308,7 @@ describe('people.find_email: pattern evidence and the passive check (#99)', () =
     open({ mx: async () => false });
     const out = ok(await find());
     expect(out).toMatchObject({ email: null, candidates: [], decision_id: null, reason: NO_CANDIDATE });
-    expect(out.dropped).toEqual(['maya@linear.app', 'mayar@linear.app']);
+    expect(out.dropped).toEqual(['maya@linear.example', 'mayar@linear.example']);
     expect(pending('ct_0001')).toEqual([]);
   });
 });
@@ -325,40 +325,50 @@ describe('people.email_checked: the user checks by hand (#99)', () => {
   it('human only', async () => {
     open();
     ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(await check('maya@linear.app', 'valid', ctxAt('agent'))).toMatchObject({ status: 'error', code: 'human_only' });
+    expect(await check('maya@linear.example', 'valid', ctxAt('agent'))).toMatchObject({ status: 'error', code: 'human_only' });
   });
 
   it('Invalid drops the candidate and keeps the decision open; Valid confirms, fills To and queues the Gmail draft', async () => {
     open();
     ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
     const id = pending('ct_0001')[0]?.id as string;
-    expect(JSON.parse(decisionRow(id).question_json as string).options).toEqual(['maya@linear.app', 'mayar@linear.app', 'other']);
+    expect(JSON.parse(decisionRow(id).question_json as string).options).toEqual(['maya@linear.example', 'mayar@linear.example', 'other']);
 
-    const bad = ok(await check('maya@linear.app', 'invalid'));
-    expect(bad).toMatchObject({ source: 'manual_check', decision_id: id, open: true, remaining: ['mayar@linear.app'], confirmed: false });
-    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.app' });
+    const bad = ok(await check('maya@linear.example', 'invalid'));
+    expect(bad).toMatchObject({
+      source: 'manual_check',
+      decision_id: id,
+      open: true,
+      remaining: ['mayar@linear.example'],
+      confirmed: false,
+    });
+    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.example' });
     const q = JSON.parse(decisionRow(id).question_json as string);
-    expect(q.options).toEqual(['mayar@linear.app', 'other']);
-    expect(q.dropped).toEqual(['maya@linear.app']);
-    expect(q.manual_checks).toEqual([expect.objectContaining({ address: 'maya@linear.app', result: 'invalid', source: 'manual_check' })]);
-    expect(JSON.parse(decisionRow(id).answer_json as string).value).toBe('mayar@linear.app');
+    expect(q.options).toEqual(['mayar@linear.example', 'other']);
+    expect(q.dropped).toEqual(['maya@linear.example']);
+    expect(q.manual_checks).toEqual([
+      expect.objectContaining({ address: 'maya@linear.example', result: 'invalid', source: 'manual_check' }),
+    ]);
+    expect(JSON.parse(decisionRow(id).answer_json as string).value).toBe('mayar@linear.example');
     expect(pending('ct_0001')).toHaveLength(1);
 
-    const good = ok(await check('mayar@linear.app', 'valid'));
+    const good = ok(await check('mayar@linear.example', 'valid'));
     expect(good).toMatchObject({ source: 'manual_check', decision_id: id, open: false, confirmed: true });
-    expect(decisionRow(id)).toMatchObject({ status: 'applied', human_choice: 'mayar@linear.app' });
-    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.app', email_confidence: 1 });
+    expect(decisionRow(id)).toMatchObject({ status: 'applied', human_choice: 'mayar@linear.example' });
+    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.example', email_confidence: 1 });
     const runs = engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).all() as Array<{ summary_json: string }>;
     expect(runs.map((x) => JSON.parse(x.summary_json))).toEqual([expect.objectContaining({ outreach_id: 'or_0001', step: 'gmail_draft' })]);
-    expect(ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human())).to).toMatchObject({ email: 'mayar@linear.app' });
+    expect(ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human())).to).toMatchObject({
+      email: 'mayar@linear.example',
+    });
   });
 
   it('Invalid on the last candidate closes the decision and clears the guess', async () => {
     open();
     ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
     const id = pending('ct_0001')[0]?.id as string;
-    ok(await check('maya@linear.app', 'invalid'));
-    const last = ok(await check('mayar@linear.app', 'invalid'));
+    ok(await check('maya@linear.example', 'invalid'));
+    const last = ok(await check('mayar@linear.example', 'invalid'));
     expect(last).toMatchObject({ open: false, remaining: [], confirmed: false });
     expect(decisionRow(id).status).toBe('rejected');
     expect(contact('ct_0001')).toMatchObject({ email: null });

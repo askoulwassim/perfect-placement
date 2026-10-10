@@ -20,7 +20,7 @@ export type FakeAnswer = Omit<Answer, 'id'> | undefined;
 export type FakeScript = (q: AskRequest['questions'][number], req: AskRequest) => FakeAnswer;
 
 /** A System One backend double. `'down'` fails every call (the resolver falls back). */
-export function fakeBackend(name: 'kev' | 'jev' | 'llm', script: FakeScript | 'down'): DecisionBackend & { calls: AskRequest[] } {
+export function fakeBackend(name: 'kev' | 'llm', script: FakeScript | 'down'): DecisionBackend & { calls: AskRequest[] } {
   const calls: AskRequest[] = [];
   return {
     name,

@@ -1,6 +1,6 @@
 # packages/engine/ops
 
-**Owner: lane B** (`docs/v2/lanes/`). The integration point: `runOp(name, input, ctx)` is the only way anything writes `pp.db` or the vault, and every op in the registry has a handler here (lanes A, B, E, F, G, H, I).
+The integration point: `runOp(name, input, ctx)` is the only way anything writes `pp.db` or the vault, and every op in the registry has a handler here (lanes A, B, E, F, G, H, I).
 
 ## Engine factory (what surfaces call)
 
@@ -14,7 +14,7 @@ engine.close();
 
 `engine.runOp` has the contract `RunOp` signature, so it plugs straight into the MCP server and `pp up` (`POST /api/ops/:name`). One engine per vault per process; top-level writes are serialized on its connection.
 
-`EngineServices` (all optional; production defaults are the real ones): `fetch` (freshness ladder), `backends` (resolver backend overrides), `env` (KEV_API_KEY, JEV_API_KEY, ANTHROPIC_API_KEY), `profileLlm` (writing model for profile.learn; absent = the learn skill drafts), `linkedin`, `gmail`, `gmailContacts`, `outreachWriter`, `mx` (domain mail check for `people.find_email`: DNS MX, else an A record, #99; tests fake it), `emailProvider` (pinned finder seam, absent), `launcher` (headless runner), `freshnessDelayMs`, `sleep`. Tests use `@perfect-placement/engine/testing` (`openFixtureEngine`, `fakeBackend`, `fakeLauncher`, `noNetwork`): never the network, DNS, Kev, LinkedIn, Gmail or a spawned runner.
+`EngineServices` (all optional; production defaults are the real ones): `fetch` (freshness ladder), `backends` (resolver backend overrides), `env` (KEV_API_KEY, ANTHROPIC_API_KEY), `profileLlm` (writing model for profile.learn; absent = the learn skill drafts), `linkedin`, `gmail`, `gmailContacts`, `outreachWriter`, `mx` (domain mail check for `people.find_email`: DNS MX, else an A record, #99; tests fake it), `emailProvider` (pinned finder seam, absent), `launcher` (headless runner), `freshnessDelayMs`, `sleep`. Tests use `@perfect-placement/engine/testing` (`openFixtureEngine`, `fakeBackend`, `fakeLauncher`, `noNetwork`): never the network, DNS, Kev, LinkedIn, Gmail or a spawned runner.
 
 ## Files
 
@@ -44,7 +44,7 @@ engine.close();
 
 ## Resolver per op call
 
-Each call gets lane I's resolver over lane A's repos: rule -> Kev (`backends.default`) -> agent -> human. The `agent` backend is present only when `ctx.actor === 'agent'`; it never calls an API and answers only with what the agent supplied (`ctx.confidence` for a single yes/no question), otherwise it yields to a human. Jev and the Anthropic API adapter are registered only when `backends.jev.enabled` / `backends.llm.enabled` (and their keys) are set. Second opinion (`auto_second`): the attached agent, else a human. The resolver never runs actions itself; callers apply auto outcomes, and `decisions.resolve` / `decisions.undo` run `action_json` / `action_json.undo` through nested `runOp` (honoring `when`).
+Each call gets lane I's resolver over lane A's repos: rule -> Kev (`backends.default`) -> agent -> human. The `agent` backend is present only when `ctx.actor === 'agent'`; it never calls an API and answers only with what the agent supplied (`ctx.confidence` for a single yes/no question), otherwise it yields to a human. The Anthropic API adapter is registered only when `backends.llm.enabled` (and `ANTHROPIC_API_KEY`) are set. Second opinion (`auto_second`): the attached agent, else a human. The resolver never runs actions itself; callers apply auto outcomes, and `decisions.resolve` / `decisions.undo` run `action_json` / `action_json.undo` through nested `runOp` (honoring `when`).
 
 ## Headless runner (`runs.start`)
 

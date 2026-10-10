@@ -3,7 +3,7 @@ import { BRIDGE_ASK_MAX, defaultSignoff, LIMITS, PROOF_MAX_SENTENCES } from './s
 import type { DraftText, WriterPrompt } from './types.js';
 
 /*
- * Draft templates per tier (blueprint.md "Connect"). Every draft reads as a short, natural email:
+ * Draft templates per tier (docs/architecture.md "Connect"). Every draft reads as a short, natural email:
  *   Hook    = greeting + their world, one or two lines (reframe what they care about)
  *   Proof   = two or three sentences from STORY, numbers only if STORY has them
  *   Ask     = one small, specific ask (the close)
@@ -20,7 +20,7 @@ export interface TierTemplate {
   recipient: 'contact' | 'via';
   goal: string;
   ask: string;
-  /** Cold, not hiring team: the blueprint says skip unless asked. */
+  /** Cold, not hiring team: docs/architecture.md says skip unless asked. */
   skipByDefault: boolean;
 }
 
