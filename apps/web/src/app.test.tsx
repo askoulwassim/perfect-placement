@@ -1563,6 +1563,20 @@ describe('run status (#21)', () => {
     assertButtons(container);
   });
 
+  it('People graph (#131): the mutual with no role link is a node; me -> mutual -> target -> company', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(true));
+    await waitFor(() => expect(container.querySelectorAll('.graph__node')).toHaveLength(4));
+    const nodes = Array.from(container.querySelectorAll('.graph__node')).map((n) => n.getAttribute('data-node'));
+    expect(nodes).toEqual(['me', 'ct_kit', 'ct_rowan', 'co:linear']);
+    expect($(container, '.people-graph').textContent).toContain('Kit Moss');
+    // me -> Kit (knows), Kit -> Rowan (via), Rowan -> Linear (hiring). The direct note is recommended.
+    const edges = Array.from(container.querySelectorAll('.graph__edge')).map((e) => e.getAttribute('data-edge'));
+    expect(edges).toEqual(['warm', 'bridge', 'best']);
+    // The list keeps the role's linked people only.
+    expect(container.querySelectorAll('.person')).toHaveLength(1);
+    assertButtons(container);
+  });
+
   it('People: Use switches to the bridge before drafting (#98)', async () => {
     const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(true));
     const use = await waitFor(() => $<HTMLButtonElement>(container, '.connect-path[data-path="bridge"] button[data-op="people.set_path"]'));

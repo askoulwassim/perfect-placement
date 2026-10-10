@@ -813,6 +813,41 @@ export const ConnectPaths = z.object({
 });
 export type ConnectPaths = z.infer<typeof ConnectPaths>;
 
+/**
+ * Added (#131): one node of a role's people graph. `me` (the user), `company` (the role's company), or a
+ * `person`: every contact linked to the role plus every mutual named by a link's `via_contact_id` (a mutual
+ * needs no role link of its own). `recommended` marks the nodes on the path the primary action drafts.
+ */
+export const RoleGraphNode = z.object({
+  id: z.string(),
+  kind: z.enum(['me', 'company', 'person']),
+  contact_id: Id.optional(),
+  name: z.string(),
+  degree: ContactDegree.optional(),
+  tier: ContactTier.optional(),
+  /** On the hiring team (the link's `is_hiring_team`). */
+  team_side: z.boolean().optional(),
+  recommended: z.boolean().optional(),
+});
+export type RoleGraphNode = z.infer<typeof RoleGraphNode>;
+
+/**
+ * Added (#131): a relationship. `knows`: me -> a 1st-degree person; `via`: mutual -> 2nd-degree target;
+ * `works_at` / `hiring`: person -> company (`hiring` for the hiring team).
+ */
+export const RoleGraphEdge = z.object({
+  from: z.string(),
+  to: z.string(),
+  kind: z.enum(['knows', 'via', 'works_at', 'hiring']),
+  degree: ContactDegree.optional(),
+  recommended: z.boolean().optional(),
+});
+export type RoleGraphEdge = z.infer<typeof RoleGraphEdge>;
+
+/** Added (#131): the people graph for a role, built by the engine. Node ids are unique. */
+export const RoleGraph = z.object({ nodes: z.array(RoleGraphNode), edges: z.array(RoleGraphEdge) });
+export type RoleGraph = z.infer<typeof RoleGraph>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -830,6 +865,8 @@ export const rolesGet = defineOp({
     md_body: z.string().nullable(),
     /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
     connect: ConnectState.nullable().default(null),
+    /** Added (#131): me, the company and every person (mutuals included) with their relationships. */
+    graph: RoleGraph.default({ nodes: [], edges: [] }),
   }),
   impact: 'low',
   readOnly: true,

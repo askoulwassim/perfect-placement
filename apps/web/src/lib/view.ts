@@ -1,4 +1,4 @@
-import type { Decision, ProfileDiff, ProfileVersion, QueuedDecision } from '@perfect-placement/contracts';
+import type { Decision, ProfileDiff, ProfileVersion, QueuedDecision, RoleGraph, RoleGraphNode } from '@perfect-placement/contracts';
 import { STATUS_LABEL } from '../components/controls';
 import type { DecisionView } from '../components/decision';
 import type { GraphEdge, GraphNode } from '../components/people';
@@ -6,7 +6,7 @@ import type { TileData } from '../components/roles';
 import { bandColor } from '../components/theme';
 import { altsOf, checkLabels, DOC_NAME, emailOf, factCheckOf, objectOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { ago, humanize } from './format';
-import { bestPath, initials, type Person } from './people';
+import { initials } from './people';
 import { COMPONENT_NAME, chipsOf } from './profile';
 import { freshOf, type RoleView } from './role';
 
@@ -246,40 +246,39 @@ function viewOf(d: Decision, ctx: DecisionCtx): DecisionView {
 // ------------------------------------------------------------ people graph
 
 /** Lay out You -> 1st -> 2nd -> hiring team in the prototype's 1000 x 580 space. */
-export function graphLayout(
-  people: readonly Person[],
-  co: { letter: string; name: string },
-): { nodes: GraphNode[]; edges: GraphEdge[]; best?: string } {
-  const bp = bestPath(people);
-  const best = bp?.target.contact.id;
-  const colOf = (p: Person) => (p.link.is_hiring_team || p.link.degree === 'cold' ? 820 : p.link.degree === '1' ? 340 : 590);
-  const groups = new Map<number, Person[]>();
-  for (const p of people) groups.set(colOf(p), [...(groups.get(colOf(p)) ?? []), p]);
-  const nodes: GraphNode[] = [{ id: 'you', ini: 'You', name: '', x: 90, y: 290, kind: 'you' }];
-  for (const [x, ps] of groups) {
-    const step = ps.length > 1 ? 300 / (ps.length - 1) : 0;
-    ps.forEach((p, i) => {
+export function graphLayout(graph: RoleGraph): { nodes: GraphNode[]; edges: GraphEdge[]; best?: string; co?: string } {
+  // #131: nodes and edges come from the engine (roles.get graph); this only places them in columns.
+  const co = graph.nodes.find((n) => n.kind === 'company');
+  const best = graph.edges.find((e) => e.recommended && e.to === co?.id)?.from;
+  const colOf = (n: RoleGraphNode) => (n.team_side || n.degree === 'cold' ? 820 : n.degree === '1' ? 340 : 590);
+  const groups = new Map<number, RoleGraphNode[]>();
+  for (const n of graph.nodes) if (n.kind === 'person') groups.set(colOf(n), [...(groups.get(colOf(n)) ?? []), n]);
+  const nodes: GraphNode[] = [];
+  for (const n of graph.nodes) if (n.kind === 'me') nodes.push({ id: n.id, ini: 'You', name: '', x: 90, y: 290, kind: 'you' });
+  for (const [x, ns] of [...groups].sort((p, q) => p[0] - q[0])) {
+    const step = ns.length > 1 ? 300 / (ns.length - 1) : 0;
+    ns.forEach((n, i) => {
       nodes.push({
-        id: p.contact.id,
-        ini: initials(p.contact.name),
-        name: p.contact.name,
+        id: n.id,
+        ini: initials(n.name),
+        name: n.name,
         x,
-        y: ps.length > 1 ? 150 + i * step : 290,
+        y: ns.length > 1 ? 150 + i * step : 290,
         kind: 'person',
-        tier: p.link.tier,
-        best: p.contact.id === best,
+        tier: n.tier,
+        best: n.id === best,
       });
     });
   }
-  nodes.push({ id: 'co', ini: co.letter, name: co.name, x: 950, y: 300, kind: 'co' });
-  const edges: GraphEdge[] = [];
-  for (const p of people) {
-    const via = p.link.via_contact_id;
-    if (via) edges.push({ a: via, b: p.contact.id, k: 'bridge' });
-    else if (p.link.degree !== 'cold') edges.push({ a: 'you', b: p.contact.id, k: p.contact.id === best ? 'best' : 'warm' });
-    if (colOf(p) === 820) edges.push({ a: p.contact.id, b: 'co', k: 'team' });
-  }
-  return { nodes, edges, best };
+  if (co) nodes.push({ id: co.id, ini: co.name.slice(0, 1), name: co.name, x: 950, y: 300, kind: 'co' });
+  const hasBest = graph.edges.some((e) => e.recommended);
+  const edges: GraphEdge[] = graph.edges.map((e) => ({
+    a: e.from,
+    b: e.to,
+    k: e.recommended ? 'best' : e.kind === 'knows' ? 'warm' : e.kind === 'via' ? 'bridge' : 'team',
+    muted: hasBest && !e.recommended,
+  }));
+  return { nodes, edges, best, co: co?.id };
 }
 
 // ------------------------------------------------------------ profile timeline

@@ -21,9 +21,11 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
   const { role, company, contacts } = res.data;
   const people = [...contacts].sort((a, b) => TIER_ORDER.indexOf(a.link.tier) - TIER_ORDER.indexOf(b.link.tier));
   const best = bestPath(people);
+  // #131: every person in the search is a node (mutuals included), from the engine's graph.
+  const g = graphLayout(res.data.graph);
   const draftOf = (cid: string) => draftFor(drafts.data?.items, cid);
   const open = (cid: string) => {
-    if (cid === 'co') return go({ screen: 'role', roleId: role.id });
+    if (cid === g.co) return go({ screen: 'role', roleId: role.id });
     const o = draftOf(cid);
     if (o) go({ screen: 'outreach-draft', outreachId: o.id });
   };
@@ -122,6 +124,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
     return (
       <Screen label="People · mobile" {...header} primary={primary}>
         {fallback}
+        {g.nodes.length > 2 && <PeopleGraph mobile nodes={g.nodes} edges={g.edges} bestTarget={g.best} onOpen={open} />}
         {pathChoice}
         {linkedin}
         <div className="people-list" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -131,7 +134,6 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       </Screen>
     );
 
-  const g = graphLayout(people, { letter: company.name.slice(0, 1), name: company.name });
   return (
     <Screen label="People" {...header} primary={primary}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32, marginTop: 28 }}>

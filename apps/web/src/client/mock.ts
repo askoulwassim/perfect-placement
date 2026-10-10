@@ -17,6 +17,7 @@ import {
   SCHEDULE_SKILL,
   type Score,
 } from '@perfect-placement/contracts';
+import { buildRoleGraph } from '@perfect-placement/engine/graph';
 import * as fx from '@perfect-placement/fixtures';
 import { composeReply } from '../../genui/src/compose';
 import { scriptedStream } from '../../genui/src/stream';
@@ -161,12 +162,18 @@ function readOp(
         fx.roles.find((r) => r.id === i.role_id),
         'role',
       );
+      const contacts = peopleFor(role);
+      const company = must(
+        fx.companies.find((c) => c.id === role.company_id),
+        'company',
+      );
       return ok({
         ...summary(role),
         application: fx.applications.find((a) => a.role_id === role.id) ?? null,
-        contacts: peopleFor(role),
+        contacts,
         md_body: read(role.md_path),
         connect: null,
+        graph: buildRoleGraph({ company, people: contacts, contactById: (id) => fx.contacts.find((c) => c.id === id) }),
       });
     }
     case 'companies.get': {

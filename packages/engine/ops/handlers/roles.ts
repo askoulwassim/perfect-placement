@@ -16,6 +16,7 @@ import {
 } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
+import { buildRoleGraph } from '../../people/graph.js';
 import { connectPathsFor } from '../../people/path.js';
 import { connectStateFor } from '../../people/queries.js';
 import { personaOfCraft, titleVariations } from '../../profile/persona.js';
@@ -591,14 +592,18 @@ export const rolesGet = defineHandler('roles.get', {
       return contact ? [{ contact, link, paths: connectPathsFor(h, link) }] : [];
     });
     const md = role.md_path ? h.vault.read(role.md_path) : null;
+    const company = getCompany(h.db, role.company_id);
+    // #131: every person is a node, the via mutual included even without a role link of its own.
+    const graph = buildRoleGraph({ company, people: contacts, contactById: (id) => get(h.db, 'contact', id) ?? undefined });
     return {
       role,
-      company: getCompany(h.db, role.company_id),
+      company,
       latest_score: latestScore(h.db, role.id),
       application: applicationFor(h.db, role.id),
       contacts,
       md_body: md === null ? null : stripFrontmatter(md),
       connect: connectStateFor(h.repos, role.id),
+      graph,
     };
   },
 });

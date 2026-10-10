@@ -902,3 +902,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: a scheduled inbox run started in a battery maintenance wake, the Mac slept mid-run, the Gmail connector idled out and reset (ECONNRESET), and the run failed after 58 min (#121).
 - Shim: none (a new enum value; old runs and callers unchanged).
 - Status: accepted
+
+## People graph
+
+### `roles.get.graph` (`RoleGraph`, `RoleGraphNode`, `RoleGraphEdge`) (#131)
+- Lane: r4/05-people-graph (B, H)
+- Date: 2026-10-10
+- Contract: `roles.get` output gains `graph: { nodes, edges }` (default empty). Node: `id`, `kind` (`me` | `company` | `person`), `contact_id?`, `name`, `degree?`, `tier?`, `team_side?` (the link's `is_hiring_team`), `recommended?`. Edge: `from`, `to`, `kind` (`knows`: me -> 1st degree; `via`: mutual -> 2nd-degree target; `works_at` / `hiring`: person -> company, `hiring` for the hiring team), `degree?`, `recommended?`. Ids: `me`, `co:<company id>`, contact ids. No migration. Not contracts: engine `people/graph.ts` (`buildRoleGraph`, pure; exported as `@perfect-placement/engine/graph` so the web's read-only fixtures preview builds the same graph).
+- Change: the engine builds the graph from the role's links and the via mutuals. A mutual named by a link's `via_contact_id` is a node (1st degree, `warm_other`, not team side) even with no role link of its own; it gets a `works_at` edge only when the skill judged `same_company`. No duplicate nodes or edges. The recommended path is the People screen's best target (warmest tier first) on its chosen path (`paths.chosen`, else the bridge when a via exists): me -> mutual -> target -> company on a bridge, me -> target -> company otherwise; recommended edges come last. The web places the nodes in the prototype's columns and mutes the alternatives; on phone width the graph shows above the list in a compact form.
+- Decision: `people.find` still stores the mutual as a contact only (no `contact_link` for the role). A role link would make the mutual a role contact: listed, ranked by the best path, counted by the no-contact fallback and draftable as a target. Deriving the node from `via_contact_id` keeps those rules unchanged and draws existing vault data without re-running Connect.
+- Shim: `graph` defaults to empty for older callers.
+- Status: accepted
