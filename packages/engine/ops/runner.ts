@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type PolicyConfig,
+  type RenderDoc,
   type RunnerConfig,
   type Skill,
   VOICE_LEARN_MAX_EMAILS,
@@ -122,9 +123,17 @@ export interface PromptContext {
   questions?: string;
   /** `fill` (#106): the fill assist (Open and fill): upload the PDFs and fill the answer fields, stop before Submit. */
   assist?: boolean;
+  /**
+   * `fill` with assist (#123): the PDFs the engine rendered before launch (absolute paths, in `dir`, the one folder the
+   * session may read), or why rendering failed (then the run uploads nothing and reports both as skipped).
+   */
+  uploads?: AssistUploads;
   /** `voice` (#76): whether LinkedIn posts may be read (config.linkedin.mode is `live`) and the page cap. */
   voice?: { linkedin: boolean; max_pages: number };
 }
+
+/** The fill assist's rendered PDFs (#123): absolute paths in the role's `files/<role_id>/` folder, or the render error. */
+export type AssistUploads = { dir: string; files: Array<{ doc: RenderDoc; abs_path: string }> } | { error: string };
 
 /** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
 export type WebTool = 'WebSearch' | 'WebFetch';
@@ -352,6 +361,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
     ...(c.skill === 'fill' ? ['', fillLine(c.questions, c.assist === true)] : []),
+    ...(c.skill === 'fill' && c.assist === true ? [uploadsLine(c.uploads)] : []),
     ...(extra.some((t) => t.startsWith(CHROME_PREFIX)) ? ['', tabsLine(c.skill === 'fill' && c.assist === true)] : []),
     ...(c.voice ? ['', voiceLine(c.voice)] : []),
     '',
@@ -393,7 +403,22 @@ export function tabsLine(assist = false): string {
 
 /** The fill assist line (#106): the user clicked Open and fill and is watching. */
 export const FILL_ASSIST_LINE =
-  'Fill assist (the user clicked Open and fill): after apply.fill, call apply.render_documents { role_id, formats: ["pdf"] }; in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload using each file\'s abs_path, and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the portal tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
+  'Fill assist (the user clicked Open and fill): after apply.fill, in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload, passing each file\'s absolute path exactly as the Uploads line gives it (paths: ["/..."], never a vault-relative files/... path), and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the portal tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
+
+/**
+ * The Uploads line of a fill assist prompt (#123). The engine renders the PDFs before launch and the session may
+ * read only that role's folder (`--add-dir`), so it uploads those absolute paths. Rendering failed: upload nothing,
+ * report both documents as skipped with the reason. No `uploads` (a prompt built outside the run queue): render here.
+ */
+export function uploadsLine(u?: AssistUploads): string {
+  if (!u) return 'Uploads: call apply.render_documents { role_id, formats: ["pdf"] } and upload each returned abs_path (absolute).';
+  if ('error' in u) {
+    const reason = `render failed: ${u.error}`.replace(/"/g, "'");
+    return `Uploads: none. Rendering the PDFs failed before launch (${u.error}). Upload nothing and do not call apply.render_documents; fill the answer fields, then report apply.fill_done with uploaded: [] and skipped including { label: "Resume", reason: "${reason}" } and { label: "Cover letter", reason: "${reason}" }.`;
+  }
+  const files = u.files.map((f) => `${f.doc}: ${f.abs_path}`).join(', ');
+  return `Uploads: rendered before launch, the only folder you can read is ${u.dir}. Upload these absolute paths with file_upload: ${files}. Do not render them again.`;
+}
 
 /** The sources line of a `voice` prompt (#76): Gmail sent mail read-only, LinkedIn posts only when live, caps. */
 export function voiceLine(v: NonNullable<PromptContext['voice']>): string {
@@ -526,9 +551,19 @@ export function buildRunnerSpec(opts: {
   linkedin?: boolean;
   /** `fill` (#106): the fill assist; only then are `form_input` + `file_upload` allowed. Default false (read-only). */
   assist?: boolean;
+  /**
+   * `fill` with assist (#123): the absolute `<PP_HOME>/files/<role_id>` folder holding the rendered PDFs. Claude gets
+   * `--add-dir <it>` (that folder only, never PP_HOME or files/) so Claude in Chrome's file_upload can read the PDFs.
+   * Ignored for every other run. Codex and Cursor have no Claude in Chrome (no file_upload, no fill assist), so no
+   * equivalent is passed: Codex's `--add-dir` grants write access (sandbox) and Cursor documents none.
+   */
+  filesDir?: string;
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
+  if (opts.filesDir !== undefined && !isAbsolute(opts.filesDir)) throw new Error(`filesDir must be absolute: ${opts.filesDir}`);
+  const addDir =
+    opts.skill === 'fill' && opts.assist === true && opts.filesDir && !opts.gmailDraft && !opts.gmailTo ? ['--add-dir', opts.filesDir] : [];
   // #50: the pp MCP server gets PP_RUN_ID too, so every op the run performs carries ctx.runId.
   const env = { ...mcp.env, PP_RUN_ID: runId };
   const server = { command: mcp.command, args: mcp.args, env };
@@ -595,6 +630,9 @@ export function buildRunnerSpec(opts: {
                       '--permission-mode',
                       'dontAsk',
                     ]),
+          // #123: the fill assist's file_upload reads the rendered PDFs; the session may read that one folder only.
+          // Followed by a flag, so the variadic --add-dir takes exactly this one directory.
+          ...addDir,
           '--permission-prompts',
           'none',
           '--output-format',

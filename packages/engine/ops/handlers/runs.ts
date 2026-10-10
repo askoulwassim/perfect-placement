@@ -1,4 +1,6 @@
-import { type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { existsSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { type RenderDoc, type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, vaultPath } from '@perfect-placement/contracts';
 import { draftRecipient } from '../../people/email.js';
 import { gmailRecipient } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
@@ -9,6 +11,7 @@ import { peopleDeps } from '../lanes/people.js';
 import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
 import { get, insert, select, update } from '../rows.js';
 import {
+  type AssistUploads,
   buildRunnerSpec,
   createSpawnLauncher,
   DEFAULT_SKILLS_DIR,
@@ -211,46 +214,50 @@ function launchRun(run: Run, h: HandlerContext): void {
   const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
   // #106: the fill assist (Open and fill) uploads the rendered PDFs and fills answer fields, stops before Submit.
   const assist = skill === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
-  const spec = buildRunnerSpec({
-    runner: h.config.runner,
-    skill,
-    runId: id,
-    home: h.home,
-    mcp: defaultMcpServer(h.home),
-    ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
-    ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
-    ...(assist ? { assist: true } : {}),
-    prompt:
-      outreachId && s.role_id && s.contact_id
-        ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
-            runId: id,
-            outreachId,
-            roleId: s.role_id,
-            contactId: s.contact_id,
-          })
-        : skillPrompt(DEFAULT_SKILLS_DIR, {
-            runId: id,
-            skill,
-            ...(s.role_id ? { roleId: s.role_id } : {}),
-            ...(s.contact_id ? { contactId: s.contact_id } : {}),
-            ...(linkedin ? { linkedin } : {}),
-            ...(questions ? { questions } : {}),
-            ...(assist ? { assist: true } : {}),
-            // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
-            ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
-          }),
-  });
+  const build = (uploads?: AssistUploads) =>
+    buildRunnerSpec({
+      runner: h.config.runner,
+      skill,
+      runId: id,
+      home: h.home,
+      mcp: defaultMcpServer(h.home),
+      ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
+      ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
+      ...(assist ? { assist: true } : {}),
+      // #123: the session may read the role's rendered-files folder, and only that one.
+      ...(uploads && 'dir' in uploads ? { filesDir: uploads.dir } : {}),
+      prompt:
+        outreachId && s.role_id && s.contact_id
+          ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
+              runId: id,
+              outreachId,
+              roleId: s.role_id,
+              contactId: s.contact_id,
+            })
+          : skillPrompt(DEFAULT_SKILLS_DIR, {
+              runId: id,
+              skill,
+              ...(s.role_id ? { roleId: s.role_id } : {}),
+              ...(s.contact_id ? { contactId: s.contact_id } : {}),
+              ...(linkedin ? { linkedin } : {}),
+              ...(questions ? { questions } : {}),
+              ...(assist ? { assist: true, ...(uploads ? { uploads } : {}) } : {}),
+              // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
+              ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
+            }),
+    });
   const launcher = h.services.launcher ?? createSpawnLauncher();
   const runOp = h.runOp;
   const ctx = { actor: 'schedule' as const, now: h.ctx.now };
+  const command = h.config.runner.command;
   /** The runner exited and the run is still open: finish it as error, naming denied tools and the fix. */
   const failIfOpen = async (r: RunnerExit) => {
     const got = await runOp('runs.get', { run_id: id }, ctx);
     if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
-    const denied = spec.command === 'claude' ? deniedTools(r.output) : [];
+    const denied = command === 'claude' ? deniedTools(r.output) : [];
     const error = denied.length
       ? deniedToolsError(skill, denied)
-      : `runner ${spec.command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
+      : `runner ${command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
     await runOp(
       'runs.finish',
       {
@@ -264,17 +271,41 @@ function launchRun(run: Run, h: HandlerContext): void {
   };
   h.afterCommit(async () => {
     try {
+      // #123: the fill assist renders the PDFs before launch, so the folder exists for --add-dir and the prompt can
+      // name absolute paths; a failed render launches anyway, and the run reports both uploads as skipped.
+      const spec = build(assist && s.role_id ? await renderForAssist(runOp, ctx, id, s.role_id) : undefined);
       const started = await launcher.launch(spec);
       // Never awaited: the runner outlives this op. If it ends without runs.finish, fail the run loudly.
       started.exit?.then((r) => failIfOpen(r)).catch(() => {});
     } catch (e) {
-      await runOp(
-        'runs.finish',
-        { run_id: id, status: 'error', note: `runner ${spec.command} did not start: ${(e as Error).message}` },
-        ctx,
-      );
+      await runOp('runs.finish', { run_id: id, status: 'error', note: `runner ${command} did not start: ${(e as Error).message}` }, ctx);
     }
   });
+}
+
+/**
+ * The fill assist's PDFs (#123): `apply.render_documents { role_id, formats: ["pdf"] }` (logged on the run), then the
+ * absolute folder they are in. Any failure (nothing tailored, a render error, no folder) is the reason uploads are skipped.
+ */
+async function renderForAssist(
+  runOp: HandlerContext['runOp'],
+  ctx: { actor: 'schedule'; now: () => Date },
+  runId: string,
+  roleId: string,
+): Promise<AssistUploads> {
+  try {
+    const o = await runOp('apply.render_documents', { role_id: roleId, formats: ['pdf'] }, { ...ctx, runId });
+    if (o.status !== 'ok') return { error: o.status === 'error' ? o.message : 'render needs a decision' };
+    const files = (o.output as { files: Array<{ doc: RenderDoc; format: string; abs_path: string }> }).files
+      .filter((f) => f.format === 'pdf')
+      .map((f) => ({ doc: f.doc, abs_path: resolve(f.abs_path) }));
+    const dir = files[0] ? dirname(files[0].abs_path) : null;
+    if (!dir || !existsSync(dir) || !statSync(dir).isDirectory() || files.some((f) => dirname(f.abs_path) !== dir))
+      return { error: 'no rendered files folder' };
+    return { dir, files };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
 }
 
 /** Skills whose runs use Claude in Chrome (#107: they report the tabs they used and closed). */
