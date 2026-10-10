@@ -1,3 +1,4 @@
+import { closeSync, existsSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { DB_FILE } from '@perfect-placement/contracts';
 import { openDb } from '../db/connection.js';
@@ -124,7 +125,11 @@ export interface OpenEngineOptions {
 export function openEngine(opts: OpenEngineOptions = {}): Engine & { close(): void } {
   const home = opts.home ?? resolveHome();
   initVault(home);
-  const db = openDb(join(home, DB_FILE));
+  const dbFile = join(home, DB_FILE);
+  // A new pp.db starts as an empty owner-only file, so SQLite gives its -wal / -shm files the same 0600
+  // mode. An existing pp.db keeps its permissions.
+  if (!existsSync(dbFile)) closeSync(openSync(dbFile, 'a', 0o600));
+  const db = openDb(dbFile);
   const engine = createEngine({ db, home, handlers: { ...ALL_HANDLERS, ...(opts.handlers ?? {}) }, services: opts.services ?? {} });
   return Object.assign(engine, { close: () => db.close() });
 }
