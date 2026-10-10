@@ -1,77 +1,145 @@
-# Perfect Placement
+<p align="center">
+  <img src="docs/assets/hero.png" alt="Perfect Placement: your job search, run by your agents, on your machine." width="100%">
+</p>
 
-A local, agent-first job-search system: scout, score, keep fresh, tailor, connect, watch the inbox, learn. The repo is the system only; your data lives in a local vault (`~/.perfect-placement`, override with `PP_HOME`) and is never committed.
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-2FD39B?style=flat-square&labelColor=0C1F36"></a>
+  <a href="https://github.com/askoulwassim/perfect-placement/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/askoulwassim/perfect-placement/ci.yml?branch=main&style=flat-square&label=ci&labelColor=0C1F36&color=2FD39B"></a>
+  <img alt="Node 22+" src="https://img.shields.io/badge/node-22%2B-2FD39B?style=flat-square&labelColor=0C1F36">
+  <img alt="MCP server" src="https://img.shields.io/badge/MCP-server-2FD39B?style=flat-square&labelColor=0C1F36">
+  <img alt="Runs locally" src="https://img.shields.io/badge/runs-locally-2FD39B?style=flat-square&labelColor=0C1F36">
+</p>
 
-Status: **Wave 2 integrated** (engine, decision layer, MCP, web UI on live ops). See `AGENTS.md` for how agents work here.
+<p align="center">
+  <b><a href="#quickstart">Quickstart</a> · <a href="#how-it-works">How it works</a> · <a href="#the-loop">The loop</a> · <a href="#screens">Screens</a> · <a href="#docs">Docs</a> · <a href="CONTRIBUTING.md">Contribute</a></b>
+</p>
 
-> **Not done yet (pinned):** vault backup and a public release. Until backup lands, copy `~/.perfect-placement` yourself if you care about it. This is a working tree, not a packaged release.
+<p align="center">
+  <img src="docs/assets/demo.gif" alt="A 20 second tour of Perfect Placement on demo data: Now, Needs you, River, a role, People, You and Settings." width="100%">
+</p>
 
-## Quickstart (fresh machine)
+Perfect Placement finds roles that fit you, scores them against a profile it keeps learning, checks that postings are still open, tailors your applications, finds people who can open doors, and watches your inbox. It runs on your machine, works from the AI agent you already use, and never submits or sends anything without you.
 
-**Prerequisites:** macOS or Linux, Node 22+, git; on macOS the Xcode Command Line Tools (`xcode-select --install`, needed to build `better-sqlite3`). pnpm comes from corepack (bundled with Node), pinned in `package.json`. `./install.sh --check` tells you what is missing and how to fix it, and changes nothing.
+| **Local-first** | **Bring your own agent** | **You decide** | **One ops registry** |
+| :-- | :-- | :-- | :-- |
+| Your data stays in `~/.perfect-placement` on your machine. | One MCP server for Claude Code, Codex, Cursor and Claude Desktop. No API keys. | Confidence × impact decides what runs on its own. Submitting and sending are always you. | Anything you can click, your agent can do, and the other way round. |
 
-```sh
-git clone <this repo> perfect-placement && cd perfect-placement
-./install.sh          # checks prerequisites, pnpm install + build, puts pp and pp-mcp in ~/.local/bin
-pp setup              # creates your vault, offers Kev, registers pp with the agents it finds
-pp up                 # http://127.0.0.1:5177 (Ctrl-C to stop)
-```
+## Quickstart
 
-- **`./install.sh`** never uses sudo and is safe to rerun. It writes two small launchers, `pp` and `pp-mcp`, into `~/.local/bin` (`--bin-dir DIR` to change). Each one runs this clone's build with the absolute `node` it found, so a different `node` on your PATH later does not break it. If `~/.local/bin` is not on your PATH it prints the line to add. If Node 22 is a Homebrew keg (`node@22`) that is not on PATH, it uses it and prints the PATH line. Moved the clone or pulled new code? Rerun `./install.sh`.
-- **`pp: Input file setup was not found`?** macOS ships an unrelated `/usr/bin/pp`. Open a new terminal (or run `rehash` in zsh, `hash -r` in bash) so your shell finds the new launcher; if `~/.local/bin` comes after `/usr/bin` on your PATH, `install.sh` prints the line that puts it first.
-- **`pp setup`** asks before each step and is safe to rerun: (a) creates the vault at `PP_HOME` if there is none, (b) offers Kev, (c) for each agent it finds (Claude Code, Codex, Cursor, Claude Desktop) asks, then registers the stdio `pp-mcp` server under the name `pp`, printing exactly what it changed, then how to load it: clients read MCP config only at launch, so **restart the client** (Claude Code, Codex, Cursor), and for Claude Desktop **quit it (Cmd+Q) and reopen it**; pp then appears under Settings > Developer. It never touches other MCP servers and backs up any config file before editing it (`<file>.bak-<timestamp>`). Non-interactive: `pp setup --yes`, plus `--no-kev`, `--no-mcp`, `--mcp claude-code,cursor`, `--model kev-0.8b`.
-- **pp not showing in your agent?** Restart it after `pp setup` (closing the window is not enough for Claude Desktop: Cmd+Q, then reopen). In Claude Desktop a local MCP server shows under **Settings > Developer** and in the tools menu of a chat, not under Connectors; its log is `~/Library/Logs/Claude/mcp-server-pp.log`. Still missing? Rerun `pp setup --mcp claude-desktop` and check the log.
-- **`pp up`** serves the web UI, the API (`/api/ops`) and MCP over HTTP (`/mcp`) on 127.0.0.1 only. If Kev is installed and not running it starts it, and stops it on exit (`--no-kev` to skip). On a fresh vault the UI opens on You, which is setup (onboarding) until a profile exists; then a Getting started card on Now walks the first steps once (profile, policy, first scout, review, first role) and goes away when they are done.
-
-### Your data persists
-
-Everything lives in the vault (`~/.perfect-placement` or `PP_HOME`): `pp.db` (SQLite) plus markdown files and `config.json`. Closing `pp up` (or rebooting) loses nothing: run `pp up` again days later and continue where you left off. `pp doctor` checks the vault's integrity.
-
-### Reconnect an agent
-
-Rerun `pp setup` (or `pp setup --mcp claude-code`) after installing a new agent, moving the clone, or changing `PP_HOME`. Restart the agent afterwards (Claude Desktop: Cmd+Q and reopen; pp shows under Settings > Developer). Manual config snippets for each client are in `packages/mcp/README.md`. While `pp up` runs, an agent can also use `http://127.0.0.1:5177/mcp`.
-
-### Kev (optional)
-
-Kev is a small local model that answers the system's typed yes/no and pick-one questions so fewer of them reach you. pp works without it: those questions go to your agent session or to Needs you.
+<img src="docs/assets/quickstart.png" alt="Four commands: git clone, ./install.sh, pp setup, pp up." width="100%">
 
 ```sh
-pp kev install [--model kev-0.8b]   # into $PP_HOME/kev/ (git clone + uv sync); needs uv
-pp kev start | stop | status         # background process; pid + log in $PP_HOME/kev/
+git clone https://github.com/askoulwassim/perfect-placement.git && cd perfect-placement
+./install.sh
+pp setup
+pp up
 ```
 
-Supported: Apple Silicon (MLX), and Linux with an NVIDIA GPU (the Kev README's PyTorch/CUDA path). The first start downloads the model from Hugging Face (several GB). Memory: `kev-4b` (default) wants 8 GB+ free, so on a 16 GB machine use `--model kev-0.8b` (~4 GB). The choice is stored in `config.json` (`backends.kev.model`). Details: `packages/resolver/docs/kev-setup.md`.
+Then open **http://127.0.0.1:5177**. The first screen walks you through your profile.
 
-### Documents and Open and fill
+- **You need** macOS or Linux, Node 22+ and git (on macOS, also the Xcode Command Line Tools). `./install.sh --check` tells you what's missing and changes nothing.
+- **Just looking?** `pp up --fixtures` runs the whole app on demo data.
+- **More detail and troubleshooting:** [docs/install.md](docs/install.md). Removing it: [docs/uninstall.md](docs/uninstall.md).
 
-On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+## How it works
 
-### Email check
+<img src="docs/assets/how-it-works.png" alt="The web UI, your agent, the pp CLI and schedules all call one ops registry. The engine does the mechanics, the resolver decides who answers (rule, Kev, your agent, you), and everything is stored in your local vault. Gmail is read plus drafts only, LinkedIn is read-only, and submitting or sending is always you." width="100%">
 
-Guessed contact addresses are checked passively before they reach Needs you: syntax, the domain's MX (or A) record over DNS, disposable / role / free-mail lists, and the address format of real colleagues the connect skill finds in your own Gmail (read-only) or on public pages. Nothing ever connects to a mail server or a verification site, and no paid service or key is needed. An address seen exactly, or a format two colleagues share, is confirmed without asking; a domain with no mail records is dropped; the rest waits in Needs you, where **Check** opens an address checker (with the address copied) and **Valid** / **Invalid** records what you saw. Gmail drafts wait until the address is confirmed, then get their To.
+Every surface calls the same ops, so the app, your agent and scheduled runs always agree. Your agent supplies judgment (search, scores, drafts); code does the mechanics (totals, moves, dedupe, logs). [Architecture](docs/architecture.md)
 
-### Scheduled runs
+## The loop
 
-Scheduled runs (`pp schedules`) keep the Mac awake while they run (`caffeinate`, released when the run ends; Linux: `systemd-inhibit` if present), stop a run that hangs past its skill's time cap, and retry a dropped connection or a stalled run after 1, 5 and 15 minutes. If every try fails, the next `pp up` runs the schedule again and `pp doctor` shows the last failure.
+<img src="docs/assets/loop.png" alt="Onboard, Scout, Score, Freshness, Research, Tailor, then Connect, Fill, You submit, Inbox, Learn; what it learns updates your profile and rescores roles." width="100%">
 
-## Uninstall
+Each stage is a skill your agent runs, written as a plain `SKILL.md` that Claude Code, Codex and Cursor can all follow:
 
-```sh
-./uninstall.sh                 # setup reset: keeps your vault
-./uninstall.sh --purge         # also deletes the vault (backup first) and Kev's model files
-./uninstall.sh --dry-run       # print the plan only (add --purge to see the full one)
-```
+| Skill | What it does |
+| :-- | :-- |
+| [`onboard`](skills/onboard/SKILL.md) | Builds your profile from your resume, a short interview and 12 sample roles |
+| [`scout`](skills/scout/SKILL.md) | Finds new roles on your watchlist companies and the open market |
+| [`score`](skills/score/SKILL.md) | Scores each role on nine criteria, with company names hidden where it matters |
+| [`freshness`](skills/freshness/SKILL.md) | Checks daily that postings are still open |
+| [`research`](skills/research/SKILL.md) | Writes a company dossier for a role you pick |
+| [`tailor`](skills/tailor/SKILL.md) | Tailors your resume, cover letter and fit map |
+| [`connect`](skills/connect/SKILL.md) | Finds people who can open doors and drafts the outreach |
+| [`fill`](skills/fill/SKILL.md) | Answers the portal's real questions and stops before Submit |
+| [`inbox`](skills/inbox/SKILL.md) | Reads replies and moves roles along: applied, interviews, offers |
+| [`learn`](skills/learn/SKILL.md) | Turns outcomes into profile updates, with evidence |
+| [`voice`](skills/voice/SKILL.md) | Learns how you write, so drafts sound like you |
 
-`./uninstall.sh` runs `pp uninstall` with the same node `install.sh` finds (building the CLI first if needed). It prints the exact plan, asks (default no; `--yes` skips the question), then ends with an ok / skip / FAIL line per item (exit 1 if anything failed). Safe to rerun: the second time it says "nothing to remove".
+## Who decides
 
-- **Default (setup reset):** stops the Kev that pp started; removes pp's schedule jobs (launchd plists, systemd user timers; with cron it prints the lines for you to remove); removes only the `pp` MCP server from Claude Code (`claude mcp remove --scope user pp`, or `~/.claude.json` when `claude` is not on PATH), Codex, Cursor and Claude Desktop, backing up each file first (`<file>.bak-<timestamp>`) and skipping files without it; deletes the `pp` / `pp-mcp` launchers in `~/.local/bin` (`--bin-dir DIR`) only if they are Perfect Placement launchers. Your vault stays.
-- **`--purge`:** also writes a backup of the vault to `~/perfect-placement-backups/vault-<timestamp>.tar.gz` (mode 0600, without `kev/repo`; read back before anything is deleted; `--no-backup` skips it), deletes the vault (`PP_HOME`, including `kev/`), and deletes Kev's own files in the Hugging Face cache: the `models--jaredpalmer--kev-*` dirs and the base model snapshot each one pins, keeping any blob another model also uses. It refuses a `PP_HOME` inside a git repo, one without `pp.db` and `config.json`, or while `pp up` runs, unless `--force`; it never purges your home directory. Restore: `tar -xzf <backup> -C ~`.
-- **Never touched:** Node, pnpm, uv, Homebrew, this checkout, your agents' other MCP servers. The end of the run prints the optional commands for a full machine reset (Node 22, pnpm shims, uv, the repo).
+<img src="docs/assets/who-decides.png" alt="Low impact runs automatically; medium impact runs automatically when confident or when a second opinion agrees, otherwise it asks you; high impact asks you unless near certain, with an undo. Submitting, sending, deleting, dealbreakers and the comp floor are always you." width="100%">
 
-## Developing
+Every judgment goes to the cheapest source that can answer it: a rule, then **Kev** (a small local model), then your agent, then you. You never get a blank question, only the pick and how sure it is. Thresholds live in Settings.
+
+## Screens
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screens/now.png" alt="Now"><p align="center"><b>Now</b>: what needs you and your top picks</p></td>
+    <td width="50%"><img src="docs/assets/screens/needs-you.png" alt="Needs you"><p align="center"><b>Needs you</b>: one decision at a time, pick shown</p></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/river.png" alt="River"><p align="center"><b>River</b>: every role, from inbox to offer</p></td>
+    <td><img src="docs/assets/screens/role.png" alt="Role"><p align="center"><b>Role</b>: score, facts and your application</p></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/people.png" alt="People"><p align="center"><b>People</b>: the best path to the hiring team</p></td>
+    <td><img src="docs/assets/screens/you.png" alt="You"><p align="center"><b>You</b>: your profile, in 11 parts</p></td>
+  </tr>
+</table>
+
+## Privacy and responsible use
+
+- Everything lives in your vault, `~/.perfect-placement` (SQLite plus markdown). The server listens on `127.0.0.1` only. New vaults are readable only by your account.
+- pp never submits an application or sends an email or message. It drafts; you review and send.
+- The connect skill reads LinkedIn pages in your own signed-in browser, slowly and within daily caps. Follow LinkedIn's terms and keep it to your own search.
+- You are responsible for what you send. Security reports: [SECURITY.md](SECURITY.md).
+
+## Docs
+
+Everything in this repo, and where to find it.
+
+| Start here | |
+| :-- | :-- |
+| [docs/install.md](docs/install.md) | Install, setup, troubleshooting, Kev, documents, email check, schedules |
+| [docs/uninstall.md](docs/uninstall.md) | Undo setup, or remove everything (with a backup first) |
+| [AGENTS.md](AGENTS.md) | The operating manual for coding agents working on this repo |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, ground rules, sign-off |
+
+| How it's designed | |
+| :-- | :-- |
+| [docs/architecture.md](docs/architecture.md) | Layers, flow, profile model, scoring, freshness, connect |
+| [docs/decisions.md](docs/decisions.md) · [docs/wave1-decisions.md](docs/wave1-decisions.md) | Why it works the way it does (cited in code as `#N`) |
+| [docs/design.md](docs/design.md) | UI tokens, components, screens and rules |
+| [docs/history/contract-changes.md](docs/history/contract-changes.md) | The build-era log of contract changes |
+
+| Packages | |
+| :-- | :-- |
+| [packages/contracts](packages/contracts) | Schemas, statuses, events, the ops registry, policy, design tokens |
+| [packages/engine](packages/engine) | The mechanics: [db](packages/engine/db/README.md) · [ops](packages/engine/ops/README.md) · [status](packages/engine/status/README.md) · [scoring](packages/engine/scoring/README.md) · [freshness](packages/engine/freshness/README.md) · [people](packages/engine/people/README.md) · [profile](packages/engine/profile/README.md) · [ATS](packages/engine/integrations/ats/README.md) · [Gmail](packages/engine/integrations/gmail/README.md) · [LinkedIn](packages/engine/integrations/linkedin/README.md) |
+| [packages/resolver](packages/resolver/README.md) | Who decides: rule, Kev, agent, you · [Kev setup](packages/resolver/docs/kev-setup.md) · [eval report](packages/resolver/eval-reports/synthetic/report.md) |
+| [packages/mcp](packages/mcp/README.md) | The MCP server, with config snippets for each agent |
+| [packages/cli](packages/cli/README.md) | The `pp` command |
+| [apps/web](apps/web/README.md) | The web app · [Ask replies (OpenUI)](apps/web/genui/README.md) |
+| [packages/fixtures](packages/fixtures) | The synthetic demo vault behind `pp up --fixtures` and the tests |
+
+| Skills and project | |
+| :-- | :-- |
+| [skills/](skills) | One `SKILL.md` per stage (table above), plus the [connect runbook](skills/connect/RUNBOOK.md), [onboarding extraction](skills/onboard/extract.md) and [scout plan](skills/scout/plan.md) |
+| [CHANGELOG.md](CHANGELOG.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Changes, security, conduct, notices |
+
+## Develop
 
 ```sh
 corepack enable
 pnpm i && pnpm build && pnpm test && pnpm lint
-pp up --fixtures      # demo on synthetic data
+pp up --fixtures
 ```
+
+Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) and sign off your commits (`git commit -s`).
+
+## License
+
+[MIT](LICENSE). The license covers the code; it grants no rights to the Perfect Placement name or logo.

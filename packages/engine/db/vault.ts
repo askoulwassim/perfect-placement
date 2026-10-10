@@ -30,9 +30,10 @@ export function vaultAbs(home: string, rel: string): string {
 
 /** Create the vault tree and a default config.json if missing. Never overwrites. */
 export function initVault(home: string): void {
-  mkdirSync(home, { recursive: true });
-  for (const d of VAULT_DIRS) mkdirSync(join(home, d), { recursive: true });
-  if (!existsSync(configPath(home))) writeFileSync(configPath(home), `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
+  // Owner-only: folders and files created here are 0700 / 0600. An existing vault keeps its permissions.
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  for (const d of VAULT_DIRS) mkdirSync(join(home, d), { recursive: true, mode: 0o700 });
+  if (!existsSync(configPath(home))) writeFileSync(configPath(home), `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, { mode: 0o600 });
 }
 
 export function readConfig(home: string): PolicyConfig {
