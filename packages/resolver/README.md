@@ -15,7 +15,7 @@ Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages
 | `src/backends/llm.ts` | Anthropic SDK, structured outputs, answers typed questions only. Transport is injectable. |
 | `src/backends/agent.ts` | The calling agent session (#9). Never calls an API: answers only with what the agent supplied for the op call (`confidence` for a single yes/no), otherwise yields to a human. |
 | `src/backends/human.ts` | Last resort: p = 0 placeholders so everything lands in the Needs-you queue. |
-| `src/ops.ts` | Handlers for `decisions.queue`, `decisions.resolve`, `decisions.undo` over an injected store + `RunOp`. |
+| `src/ops.ts` | Handlers for `decisions.queue` (with `auto_groups`, #103), `decisions.resolve`, `decisions.undo`, `decisions.undo_group` over an injected store + `RunOp`. |
 | `src/store.ts` | The `DecisionStore` interface. Lane A's repository implements it in the engine (`packages/engine/ops/decision-store.ts`); a SQLite double lives in `test-helpers.ts` for this package's tests. |
 | `src/config.ts` | `backendsFromConfig(config, { env, agent? })`. Kev always; agent only when attached; Jev only when `backends.jev.enabled` and its key is set; the Anthropic adapter only when `backends.llm.enabled` and `ANTHROPIC_API_KEY` is set. |
 | `src/eval/` | Eval harness (accuracy vs label, agreement, Brier, ECE, auto rate, latency), synthetic data + mocked transports, CLI. |

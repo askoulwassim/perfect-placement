@@ -222,6 +222,34 @@ export const EmailSource = z.enum(EMAIL_SOURCES);
 export type EmailSource = z.infer<typeof EmailSource>;
 
 /**
+ * Added (#99): the passive domain check on a candidate address (DNS only, never a mail server). `ok` (MX,
+ * or an A record as the implicit MX), `no_mx` (no mail records: the candidate is dropped), `invalid` (the
+ * address fails the syntax check: dropped), `unknown` (the DNS lookup failed or was off: kept).
+ */
+export const EMAIL_DOMAIN_CHECKS = ['ok', 'no_mx', 'invalid', 'unknown'] as const;
+export const EmailDomainCheck = z.enum(EMAIL_DOMAIN_CHECKS);
+export type EmailDomainCheck = z.infer<typeof EmailDomainCheck>;
+
+/** Added (#99): list-based risk of an address (vendored AfterShip/email-verifier lists): a label only. */
+export const EMAIL_RISKS = ['disposable', 'role', 'free', 'none'] as const;
+export const EmailRisk = z.enum(EMAIL_RISKS);
+export type EmailRisk = z.infer<typeof EmailRisk>;
+
+/**
+ * Added (#99): pattern evidence the connect skill gathers, read-only. `inbox_peer`: a real address at the
+ * company domain in the user's own mail (from / to / cc; address only); `public_mention`: an address seen
+ * on a public page.
+ */
+export const EMAIL_EVIDENCE_KINDS = ['inbox_peer', 'public_mention'] as const;
+export const EmailEvidenceKind = z.enum(EMAIL_EVIDENCE_KINDS);
+export type EmailEvidenceKind = z.infer<typeof EmailEvidenceKind>;
+
+/** Added (#99): the user's own manual check of a candidate (Needs you **Valid** / **Invalid**). */
+export const EMAIL_CHECK_RESULTS = ['valid', 'invalid'] as const;
+export const EmailCheckResult = z.enum(EMAIL_CHECK_RESULTS);
+export type EmailCheckResult = z.infer<typeof EmailCheckResult>;
+
+/**
  * Added (#78): the no-contact fallback Connect used for a role, in the order it tries them: a hiring-team
  * or recruiting address (`team_inbox`), a cold note to the likely hiring leader (`cold_leader`), else
  * Connect is skipped (`skipped`) and the application moves to Fill.
@@ -229,6 +257,14 @@ export type EmailSource = z.infer<typeof EmailSource>;
 export const CONNECT_FALLBACKS = ['team_inbox', 'cold_leader', 'skipped'] as const;
 export const ConnectFallback = z.enum(CONNECT_FALLBACKS);
 export type ConnectFallback = z.infer<typeof ConnectFallback>;
+
+/**
+ * Added (#98): how to reach a 2nd-degree hiring-team target: a `direct` note to them, or a `bridge`
+ * intro through the 1st-degree mutual. Code ranks the two (engine people/path.ts); the user can switch.
+ */
+export const CONNECT_PATHS = ['direct', 'bridge'] as const;
+export const ConnectPath = z.enum(CONNECT_PATHS);
+export type ConnectPath = z.infer<typeof ConnectPath>;
 
 export const OUTREACH_STATUSES = ['drafted', 'in_gmail', 'replied', 'ignored'] as const;
 export const OutreachStatus = z.enum(OUTREACH_STATUSES);

@@ -114,7 +114,7 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `outreach.to_gmail` | medium | creates a Gmail **draft**; To only when the address is confirmed or confident (#37) |
 | `outreach.send` | high | not implemented in v2; human sends from Gmail |
 | `inbox.ingest` | medium | classify + move |
-| `decisions.queue`, `decisions.resolve`, `decisions.undo` | low / per item | the Needs-you queue |
+| `decisions.queue`, `decisions.resolve`, `decisions.undo`, `decisions.undo_group` | low / per item | the Needs-you queue; `auto_groups` and group undo for Now's Auto stream (#103) |
 | `runs.list`, `runs.get` | low | |
 | `system.doctor` | low | |
 

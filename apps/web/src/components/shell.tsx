@@ -1,6 +1,6 @@
 import { CONFIDENCE_BANDS, type HardHumanSubject, IMPACTS, isHardHuman, POLICY_GRID } from '@perfect-placement/contracts';
 import { type ReactNode, type RefObject, type KeyboardEvent as RKeyboardEvent, useEffect, useRef, useState } from 'react';
-import { Btn, useHover } from './Btn';
+import { Btn } from './Btn';
 import { Toggle } from './controls';
 import { type IconName, NavIcon, WhoDecidesGlyph, whoOf } from './glyphs';
 import { C, display, eyebrow, F, mono, tab, X } from './theme';
@@ -35,9 +35,9 @@ function RailItem({
   badge: boolean;
   onGo: () => void;
 }) {
-  const [tip, bind] = useHover();
+  // The tooltip shows on hover via CSS (`.rail-item:hover .rail-tip` in styles.css), not JS state (#101).
   return (
-    <div style={{ position: 'relative' }} {...bind}>
+    <div className="rail-item" style={{ position: 'relative' }}>
       <Btn
         op={null}
         aria-label={label}
@@ -65,26 +65,26 @@ function RailItem({
           />
         )}
       </Btn>
-      {tip && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 54,
-            top: '50%',
-            transform: 'translateY(-50%)',
-            background: C['panel-2'],
-            border: `1px solid ${C['line-2']}`,
-            padding: '6px 10px',
-            borderRadius: 8,
-            fontSize: 12,
-            whiteSpace: 'nowrap',
-            zIndex: 50,
-            pointerEvents: 'none',
-          }}
-        >
-          {label}
-        </div>
-      )}
+      <div
+        className="rail-tip"
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          left: 54,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          background: C['panel-2'],
+          border: `1px solid ${C['line-2']}`,
+          padding: '6px 10px',
+          borderRadius: 8,
+          fontSize: 12,
+          whiteSpace: 'nowrap',
+          zIndex: 50,
+          pointerEvents: 'none',
+        }}
+      >
+        {label}
+      </div>
     </div>
   );
 }
@@ -596,9 +596,15 @@ export function BackendCard({
       {missing ? (
         <div style={{ ...mono(12, C.muted), letterSpacing: '.06em' }}>Not installed</div>
       ) : (
-        <div style={{ ...display(30, 800, 'normal'), ...tab }}>
-          {latencyMs ?? '—'}
-          <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>ms</span>
+        <div className="latency" style={{ ...display(30, 800, 'normal'), ...tab }}>
+          {latencyMs === null ? (
+            <span style={{ ...mono(14, C.muted), fontWeight: 400 }}>n/a</span>
+          ) : (
+            <>
+              {latencyMs}
+              <span style={{ ...mono(12, C.muted), fontWeight: 400, marginLeft: 4 }}>{mode === 'session' ? 'ms p50' : 'ms'}</span>
+            </>
+          )}
         </div>
       )}
     </div>

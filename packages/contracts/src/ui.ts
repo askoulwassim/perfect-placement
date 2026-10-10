@@ -28,7 +28,8 @@ export const COMPONENTS = {
   ProbabilityBar: { props: ['p', 'thresholds'] },
   HeroRing: { props: ['count', 'fill'] },
   CountTile: { props: ['icon', 'value', 'color'] },
-  AutoRow: { props: ['glyph', 'object', 'action', 'time', 'undoable'], states: ['default', 'hover', 'undone'] },
+  /** #103: a group row (one role per score run, one batch per run) carries `count` and expands to its members. */
+  AutoRow: { props: ['glyph', 'object', 'action', 'time', 'undoable', 'count'], states: ['default', 'hover', 'undone', 'expanded'] },
   RoleCard: { props: ['role'], states: ['default', 'hover'] },
   RiverColumn: { props: ['status', 'roles', 'extraCount', 'zoom: tiles|dots'], states: ['idle', 'drop-allowed', 'source'] },
   RiverTile: { props: ['role', 'stackCount'], states: ['default', 'dimmed', 'dragging', 'bounce', 'stacked'] },
@@ -37,6 +38,10 @@ export const COMPONENTS = {
   StageRail: { props: ['stage: 0..5'], states: ['done', 'current', 'future'] },
   ContactAvatar: { props: ['initials', 'tier'] },
   BestPathPill: { props: ['path[]'] },
+  /** Added (#98): direct vs bridge for a 2nd-degree hiring target, recommended first; Use switches (`people.set_path`). */
+  PathChoice: { props: ['paths', 'onPick', 'status?'], states: ['direct', 'bridge', 'blocked'] },
+  /** Added (#98): a role's outreach drafts, one per recipient; a bridge intro names its target. */
+  DraftList: { props: ['items[{id,recipient,about,status}]', 'onOpen'] },
   PeopleGraph: { props: ['nodes', 'edges'] },
   DraftStatusChip: { props: ['status: none|drafted|in_gmail|replied'] },
   OutreachBlock: { props: ['label: Hook|Proof|Ask', 'text'] },
@@ -99,7 +104,12 @@ export const PRIMARY_ACTIONS: Record<Screen, ReadonlyArray<{ label: string; op: 
     { label: 'Research', op: 'runs.start' },
     { label: 'Tailor', op: 'runs.start' },
     { label: 'Connect', op: 'runs.start' },
-    { label: 'Fill', op: 'runs.start' },
+    /**
+     * #106: the fill run with assist (`runs.start { skill: 'fill', assist: true }`): answers, then the portal tab
+     * with the PDFs uploaded and the answer fields filled, stopped before Submit. Also at Submit until it ran.
+     */
+    { label: 'Open and fill', op: 'runs.start' },
+    /** After `apply.fill_done`: opens the portal; the human submits. */
     { label: 'Open portal', op: null },
     /** Once applied. */
     { label: 'Open River', op: null },

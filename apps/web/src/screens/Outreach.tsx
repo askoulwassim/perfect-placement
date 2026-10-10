@@ -30,8 +30,14 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const co = role.data?.company.name ?? '';
   const people = role.data?.contacts ?? [];
   const me = people.find((p) => p.contact.id === contact.id);
-  const via = me?.link.via_contact_id ? people.find((p) => p.contact.id === me.link.via_contact_id)?.contact.name : undefined;
-  const path = ['You', ...(via ? [via] : []), contact.name];
+  // #98: the outreach is filed under its recipient; a bridge intro goes You -> mutual -> the target it is about.
+  // An old bridge row (filed under the target, no about) takes the mutual from the link.
+  const about = res.data.about;
+  const legacyVia =
+    !about && outreach.tier === 'bridge' && me?.link.via_contact_id
+      ? people.find((p) => p.contact.id === me.link.via_contact_id)?.contact.name
+      : undefined;
+  const path = about ? ['You', contact.name, about.name] : ['You', ...(legacyVia ? [legacyVia] : []), contact.name];
   // #37: the Gmail To (the contact, or the mutual for bridge drafts): address, source and confidence.
   const to = res.data.to;
   const toAddr = to?.email ?? to?.guess ?? null;
@@ -60,9 +66,10 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const inFlight = activeRun({ skill: 'connect', outreach_id: outreach.id });
   const run = gmailRun?.status ?? null;
   const primary = {
-    label: inFlight ? activeLabel(inFlight) : 'Create Gmail draft',
+    // #99: a guessed address waiting in Needs you: the Gmail draft is queued once it is confirmed.
+    label: inFlight ? activeLabel(inFlight) : to?.decision_id ? 'Email pending' : 'Create Gmail draft',
     op: 'runs.start' as const,
-    disabled: outreach.status !== 'drafted' || !!inFlight,
+    disabled: outreach.status !== 'drafted' || !!inFlight || !!to?.decision_id,
     onClick: async () => {
       const o = await act('runs.start', { skill: 'connect', outreach_id: outreach.id });
       if (o.status !== 'ok') return;

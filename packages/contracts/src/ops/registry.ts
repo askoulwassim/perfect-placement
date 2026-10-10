@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   Application,
+  BridgeTie,
   Company,
   Contact,
   ContactLink,
@@ -16,13 +17,20 @@ import {
 } from '../entities.js';
 import {
   ArchiveReason,
+  Backend,
   Band,
   ConnectFallback,
+  ConnectPath,
   ContactDegree,
   ContactRole,
   ContactTier,
   Criterion,
+  DecisionKind,
   DecisionStatus,
+  EmailCheckResult,
+  EmailDomainCheck,
+  EmailEvidenceKind,
+  EmailRisk,
   EmailSource,
   Freshness,
   InboxClass,
@@ -32,12 +40,14 @@ import {
   RoleStatus,
   RunStatus,
   Skill,
+  SubjectType,
   Workplace,
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
 import { ApplicationDefaults, FILL_KINDS } from '../profile-data.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
+import { RENDER_DOCS, RENDER_FORMATS } from '../vault.js';
 import { Ack, defineOp, Page } from './define.js';
 
 /*
@@ -748,6 +758,31 @@ export const ConnectState = z.object({
 });
 export type ConnectState = z.infer<typeof ConnectState>;
 
+/** Added (#98): one way to reach a 2nd-degree hiring-team target, with its one-line reason. */
+export const ConnectPathOption = z.object({
+  path: ConnectPath,
+  /** Who the note goes to: the target (direct) or the mutual (bridge). */
+  contact_id: Id,
+  name: z.string(),
+  /** The tier the draft uses: `cold_hiring` for a direct note, `bridge` for an intro. */
+  tier: ContactTier,
+  score: z.number(),
+  /** One line, e.g. "Hiring team · Email likely" or "Other company · No email". */
+  reason: z.string(),
+  /** A bridge to a mutual with no email while the target is reachable: never drafted. */
+  blocked: z.boolean(),
+});
+export type ConnectPathOption = z.infer<typeof ConnectPathOption>;
+
+/** Added (#98): the ranked paths for a target; `options` lists the recommended one first. */
+export const ConnectPaths = z.object({
+  recommended: ConnectPath,
+  /** The user's pick when set and allowed, else `recommended`. Drafts follow it. */
+  chosen: ConnectPath,
+  options: z.array(ConnectPathOption),
+});
+export type ConnectPaths = z.infer<typeof ConnectPaths>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -760,7 +795,8 @@ export const rolesGet = defineOp({
   input: z.object({ role_id: Id }),
   output: RoleSummary.extend({
     application: Application.nullable(),
-    contacts: z.array(z.object({ contact: Contact, link: ContactLink })),
+    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team target with a mutual, else null. */
+    contacts: z.array(z.object({ contact: Contact, link: ContactLink, paths: ConnectPaths.nullable().default(null) })),
     md_body: z.string().nullable(),
     /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
     connect: ConnectState.nullable().default(null),
@@ -825,10 +861,15 @@ export const companiesGet = defineOp({
 export const companiesDossierWrite = defineOp({
   name: 'companies.dossier.write',
   description: 'Write or refresh a company dossier.',
-  input: z.object({ company_id: Id, markdown: z.string().min(1) }),
+  input: z.object({
+    company_id: Id,
+    markdown: z.string().min(1),
+    /** Added (#105): the role the research is for (at this company). An active or held role is picked: -> on-deck, `role_picked`. */
+    role_id: Id.optional(),
+  }),
   output: z.object({ md_path: VaultPath }),
   impact: 'low',
-  emits: [],
+  emits: ['role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 
@@ -870,7 +911,7 @@ export const applyTailor = defineOp({
       .default({ checked: 0, needs_you: [] }),
   }),
   impact: 'low',
-  emits: ['application_tailored', 'role_moved', 'role_promoted'],
+  emits: ['application_tailored', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 
@@ -1026,6 +1067,73 @@ export const applySkipConnect = defineOp({
   owner: 'B',
 });
 
+/**
+ * Added (#106): render the tailored resume and cover letter (markdown) to PDF and DOCX with a clean,
+ * ATS-friendly template (pure JS). Files go to the vault at `files/<role_id>/<doc>.<format>` and are recorded
+ * on the application (`package_paths_json.resume_pdf`, ...); the UI downloads them through `GET /api/files`,
+ * the fill assist uploads the PDFs (`abs_path`). Rendering again overwrites (the files follow the markdown).
+ */
+export const applyRenderDocuments = defineOp({
+  name: 'apply.render_documents',
+  description:
+    'Render the tailored resume and cover letter to PDF and DOCX (files/<role_id>/), record them on the application, and return their paths for download or upload.',
+  input: z.object({
+    role_id: Id,
+    formats: z.array(z.enum(RENDER_FORMATS)).min(1).default(['pdf', 'docx']),
+    docs: z.array(z.enum(RENDER_DOCS)).min(1).default(['resume', 'cover_letter']),
+  }),
+  output: z.object({
+    application: Application,
+    files: z.array(
+      z.object({
+        doc: z.enum(RENDER_DOCS),
+        format: z.enum(RENDER_FORMATS),
+        /** Vault-relative (download route). */
+        path: VaultPath,
+        /** Absolute path on this machine (the fill assist uploads it with Claude in Chrome). */
+        abs_path: z.string(),
+        bytes: z.number().int().min(1),
+      }),
+    ),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
+/**
+ * Added (#106): a control label a fill assist must never act on (the whole label: "Submit", "Apply now",
+ * "Send application"; a question that merely mentions applying is not one). The fill run has no click tool;
+ * `apply.fill_done` refuses a report that says it filled one of these.
+ */
+export const SUBMIT_LIKE =
+  /^\s*(?:review and submit|submit|apply|send|finish|complete)(?:\s+(?:now|application|my application|for this (?:job|role|position)))?\s*[.!>»→]*\s*$/i;
+export const isSubmitLike = (label: string): boolean => SUBMIT_LIKE.test(label);
+
+/**
+ * Added (#106): a fill assist run reports what it did in the portal (uploaded the rendered PDFs, filled the
+ * answer fields from Answers, stopped before Submit). Recorded as `application.fill_assist_json`; the Role
+ * screen's primary becomes Open portal. A `filled` label that looks like submit / apply / send is refused
+ * (`invalid_input`): the human submits.
+ */
+export const applyFillDone = defineOp({
+  name: 'apply.fill_done',
+  description:
+    'Record a fill assist: the portal is open with the documents uploaded and the answer fields filled, stopped before Submit (the human submits).',
+  input: z.object({
+    role_id: Id,
+    /** Labels of the fields filled (never a submit / apply / send control). */
+    filled: z.array(z.string().trim().min(1)).default([]),
+    uploaded: z.array(z.enum(RENDER_DOCS)).default([]),
+    /** Fields left for the human, each with a one-line reason. */
+    skipped: z.array(z.object({ label: z.string().trim().min(1), reason: z.string().trim().min(1) })).default([]),
+  }),
+  output: z.object({ application: Application }),
+  impact: 'low',
+  emits: [],
+  owner: 'B',
+});
+
 // ------------------------------------------------------------------ people (H)
 
 /**
@@ -1062,7 +1170,13 @@ export const PeopleFindHint = z.object({
   degree: ContactDegree.optional(),
   /** LinkedIn only, degree 2: the 1st-degree mutual this person is reachable through. */
   via: z
-    .object({ name: z.string().min(1), headline: z.string().nullable().optional(), linkedin_url: z.string().url() })
+    .object({
+      name: z.string().min(1),
+      headline: z.string().nullable().optional(),
+      linkedin_url: z.string().url(),
+      /** Added (#98): the mutual's tie to this person (same company, same industry, history). Default none. */
+      tie: BridgeTie.optional(),
+    })
     .nullable()
     .optional(),
   /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
@@ -1107,7 +1221,8 @@ export const peopleFind = defineOp({
       .optional(),
   }),
   impact: 'low',
-  emits: ['contact_found'],
+  /** #105: an active or held role is picked first (-> on-deck, `role_picked`); not on `dry_run`. */
+  emits: ['contact_found', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'H',
 });
 
@@ -1116,6 +1231,18 @@ export const peopleLink = defineOp({
   description: 'Link a contact to a company or role.',
   input: ContactLink.omit({ id: true }),
   output: z.object({ link: ContactLink }),
+  impact: 'low',
+  emits: [],
+  owner: 'H',
+});
+
+/** Added (#98): pick direct or bridge for a 2nd-degree hiring-team target before drafting. */
+export const peopleSetPath = defineOp({
+  name: 'people.set_path',
+  description:
+    'Pick how to reach a 2nd-degree hiring-team contact: a direct note to them or a bridge intro through the mutual (null: back to the ranked default).',
+  input: z.object({ contact_id: Id, role_id: Id, path: ConnectPath.nullable() }),
+  output: z.object({ link: ContactLink, paths: ConnectPaths }),
   impact: 'low',
   emits: [],
   owner: 'H',
@@ -1137,20 +1264,49 @@ export const peopleClassify = defineOp({
   owner: 'H',
 });
 
+/**
+ * Added (#99): the passive check on one candidate address. No mail server is ever contacted: `domain` is
+ * DNS only (MX, else an A record), `risk` comes from vendored lists, `pattern_peers` counts real addresses
+ * at the domain (the user's own mail, known contacts, public pages) whose format matches this candidate's,
+ * `public_match` = the exact address was seen (a public page or the user's own mail).
+ */
+export const EmailCheck = z.object({
+  domain: EmailDomainCheck,
+  risk: EmailRisk,
+  pattern_peers: z.number().int().nonnegative(),
+  public_match: z.boolean(),
+});
+export type EmailCheck = z.infer<typeof EmailCheck>;
+
 /** Added (#37): one candidate address for a contact, ranked by the company's learned format. */
 export const EmailCandidate = z.object({
   email: z.string().email(),
   /** `first.last`, `flast`, `first`, `firstl`, `f.last`, `last`, or `provider`. */
   pattern: z.string(),
   p: Probability,
+  /** Added (#99): the passive check (an exact match or 2+ agreeing peers raise `p`; no MX or invalid drops it). */
+  check: EmailCheck.optional(),
 });
 export type EmailCandidate = z.infer<typeof EmailCandidate>;
+
+/** Added (#99): one piece of pattern evidence (see `people.find_email` `evidence`). */
+export const EmailEvidence = z.object({
+  kind: EmailEvidenceKind,
+  address: z.string().email(),
+  /** Where it was seen: `gmail`, or the page (e.g. "team page"). Never a subject or body. */
+  source: z.string().min(1).max(80),
+  url: z.string().url().optional(),
+  /** Whose address it is, when the header or page names them (format inference only; not stored). */
+  name: z.string().min(1).max(120).optional(),
+});
+export type EmailEvidence = z.infer<typeof EmailEvidence>;
 
 /**
  * Added (#37): find or estimate a contact's email. Known addresses first (the contact's own, then `hints`
  * the agent found in Gmail, LinkedIn contact info or public pages); else the engine learns the company's
  * address format from addresses seen at its domain (known contacts, JD, dossier, hints), checks the
  * domain's MX record (no SMTP probing) and ranks candidates. The top pick is a `people.email` decision:
+ * #99: each candidate gets a passive `check`; see `EmailCheck` and `evidence`.
  * confident -> stored as confirmed; otherwise stored as an unconfirmed guess and queued in Needs you with
  * the alternatives. `value` = a human's pick (decision action `$value`): stored with confidence 1.
  */
@@ -1174,6 +1330,13 @@ export const peopleFindEmail = defineOp({
       )
       .max(50)
       .optional(),
+    /**
+     * Added (#99): pattern evidence the agent gathered read-only. `inbox_peer`: an address at the company
+     * domain in the user's own Gmail (from / to / cc; `name` = the display name, used to infer the format
+     * and never stored); `public_mention`: an address on a public page (`url`). Only the address and its
+     * inferred format are kept (on the decision), never a subject or body.
+     */
+    evidence: z.array(EmailEvidence).max(50).optional(),
     /** The company's email domain when the company row has none (e.g. from the dossier or a team page). */
     domain: z
       .string()
@@ -1195,10 +1358,41 @@ export const peopleFindEmail = defineOp({
     /** The learned format (null: no examples, priors only). */
     pattern: z.string().nullable(),
     candidates: z.array(EmailCandidate),
+    /** Added (#99): candidates dropped by the check (invalid syntax, no MX) or found invalid by the user. */
+    dropped: z.array(z.string().email()).default([]),
     decision_id: Id.nullable(),
     outcome: PolicyOutcome.nullable(),
     /** Why there is no usable address (no domain, unconfirmed guess, ...); null when `confirmed`. */
     reason: z.string().nullable(),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'H',
+});
+
+/**
+ * Added (#99): the user's own check of a candidate address (Needs you **Valid** / **Invalid**, after
+ * checking it by hand). Human only. `valid` confirms the address: it resolves the pending `people.email`
+ * decision with it (Gmail drafts waiting for the address are queued). `invalid` drops the candidate from
+ * the pending decision; the decision stays open while other candidates remain, else it expires and the
+ * guess is cleared. Recorded on the decision as `manual_checks[]` with `source: "manual_check"`.
+ */
+export const peopleEmailChecked = defineOp({
+  name: 'people.email_checked',
+  description: "Record the user's manual check of a candidate email address: valid confirms it, invalid drops it.",
+  input: z.object({ contact_id: Id, address: z.string().email(), result: EmailCheckResult }),
+  output: z.object({
+    contact: Contact,
+    result: EmailCheckResult,
+    source: z.literal('manual_check'),
+    /** The `people.email` decision the check applied to (null: none was pending). */
+    decision_id: Id.nullable(),
+    /** True while the decision is still pending (other candidates remain). */
+    open: z.boolean(),
+    /** Candidates still offered. */
+    remaining: z.array(z.string().email()),
+    /** True when the contact's address is confirmed (goes into a Gmail draft's To). */
+    confirmed: z.boolean(),
   }),
   impact: 'low',
   emits: [],
@@ -1269,7 +1463,8 @@ export const peopleFallback = defineOp({
     reason: z.string().nullable(),
   }),
   impact: 'low',
-  emits: ['contact_found'],
+  /** #105: an active or held role is picked first (-> on-deck, `role_picked`). */
+  emits: ['contact_found', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'H',
 });
 
@@ -1286,6 +1481,11 @@ export const DraftRecipient = z.object({
   /** The best address on file even when it is not used (an unconfirmed guess). */
   guess: z.string().email().nullable(),
   reason: z.string().nullable(),
+  /**
+   * Added (#99): the pending `people.email` decision on this address. While set, no Gmail draft is created
+   * (the engine queues the Gmail step once the address is confirmed).
+   */
+  decision_id: Id.nullable().default(null),
 });
 export type DraftRecipient = z.infer<typeof DraftRecipient>;
 
@@ -1333,6 +1533,8 @@ export const outreachGet = defineOp({
     variants: z.array(DraftText).length(OUTREACH_TONES.length),
     /** Added (#37): the Gmail draft's To (the contact, or the mutual for bridge drafts). */
     to: DraftRecipient.nullable().default(null),
+    /** Added (#98): the target a bridge intro is about (`outreach.about_contact_id`); null otherwise. */
+    about: Contact.nullable().default(null),
   }),
   impact: 'low',
   readOnly: true,
@@ -1343,9 +1545,17 @@ export const outreachGet = defineOp({
 /** Added in Wave 2 (lane D): drafts for a role (DraftStatusChip per person). */
 export const outreachList = defineOp({
   name: 'outreach.list',
-  description: 'Outreach drafts for a role.',
+  description: 'Outreach drafts for a role, one per recipient (a bridge intro is about its target).',
   input: z.object({ role_id: Id }),
-  output: z.object({ items: z.array(Outreach) }),
+  /** #98: each item names its recipient (`contact_id`) and, for a bridge intro, the target it is about. */
+  output: z.object({
+    items: z.array(
+      Outreach.extend({
+        recipient_name: z.string().default(''),
+        about_name: z.string().nullable().default(null),
+      }),
+    ),
+  }),
   impact: 'low',
   readOnly: true,
   emits: [],
@@ -1377,7 +1587,13 @@ export const outreachToGmail = defineOp({
      */
     gmail_draft_id: z.string().min(1).optional(),
   }),
-  /** Added (#37): `to` = the address the draft was created with (null: no To, `to_reason` says why). */
+  /**
+   * Added (#37): `to` = the address the draft was created with (null: no To, `to_reason` says why).
+   * #99: refused (`conflict`) while the recipient's address is a guess waiting in Needs you, unless the
+   * agent already made the draft (`gmail_draft_id`: recorded with no To, filled once confirmed). The To
+   * used is kept on `outreach.gmail_to`. Recording the same `gmail_draft_id` again on an `in_gmail`
+   * draft with no To (the To update step) sets `gmail_to` to the confirmed address.
+   */
   output: z.object({
     outreach: Outreach,
     gmail_draft_id: z.string(),
@@ -1441,14 +1657,55 @@ export const inboxIngest = defineOp({
 
 // --------------------------------------------------------------- decisions (I/B)
 
+/**
+ * Added (#102): the role a decision is about (subject_type 'role'), so a reviewer can open the posting.
+ * `freshness_evidence`: a freshness.closed decision's own evidence, else the role's last freshness check.
+ */
+export const DecisionSubjectRole = z.object({
+  id: Id,
+  url: z.string().nullable(),
+  last_checked_at: IsoTimestamp.nullable(),
+  freshness_evidence: z.string().nullable(),
+});
+export type DecisionSubjectRole = z.infer<typeof DecisionSubjectRole>;
+
+/** A queued decision; `subject_role` is set when the subject is a role that exists (#102). */
+export const QueuedDecision = Decision.extend({ subject_role: DecisionSubjectRole.optional() });
+export type QueuedDecision = z.infer<typeof QueuedDecision>;
+
+/**
+ * Added (#103): one row of the auto stream. Members share kind and run (or, with no run id, kind and a
+ * time window), and subject unless the kind is a batch kind (AUTO_BATCH_KINDS), where subject_id is null
+ * when members span subjects. `decision_ids` newest first; `undoable_ids` the members `decisions.undo_group`
+ * would undo now. `backend`: the backend that answered most members (a strict majority), else `mixed`.
+ * `total`: for a `roles.criterion` group, the role's score total from that scoring, else null.
+ */
+export const AutoGroup = z.object({
+  id: z.string(),
+  kind: DecisionKind,
+  subject_type: SubjectType,
+  subject_id: z.string().nullable(),
+  run_id: Id.nullable(),
+  decision_ids: z.array(Id),
+  count: z.number().int().positive(),
+  backend: z.union([Backend, z.literal('mixed')]),
+  first_ts: IsoTimestamp,
+  ts: IsoTimestamp,
+  undoable_ids: z.array(Id),
+  undone_count: z.number().int().nonnegative(),
+  total: z.number().nullable(),
+});
+export type AutoGroup = z.infer<typeof AutoGroup>;
+
 export const decisionsQueue = defineOp({
   name: 'decisions.queue',
-  description: 'The Needs-you queue plus recent auto decisions.',
+  description:
+    'The Needs-you queue plus recent auto decisions. Role decisions carry subject_role (url, last check). auto_groups: recent_auto grouped per subject and run (one row per role per score run).',
   input: z.object({
     status: z.array(DecisionStatus).optional(),
     include_auto_since: IsoTimestamp.optional(),
   }),
-  output: z.object({ pending: z.array(Decision), recent_auto: z.array(Decision) }),
+  output: z.object({ pending: z.array(QueuedDecision), recent_auto: z.array(QueuedDecision), auto_groups: z.array(AutoGroup) }),
   impact: 'low',
   readOnly: true,
   emits: [],
@@ -1475,6 +1732,21 @@ export const decisionsUndo = defineOp({
   description: 'Undo an auto + undo decision inside its window.',
   input: z.object({ decision_id: Id }),
   output: z.object({ decision: Decision }),
+  impact: 'low',
+  dynamicImpact: true,
+  emits: ['decision_undone'],
+  owner: 'I',
+});
+
+/** Added (#103): undo every undoable member of an auto-stream group in one call; the rest are skipped with a reason. */
+export const decisionsUndoGroup = defineOp({
+  name: 'decisions.undo_group',
+  description: 'Undo several auto + undo decisions (an auto-stream group) inside their windows. Skips the ones that cannot be undone.',
+  input: z.object({ decision_ids: z.array(Id).min(1).max(500) }),
+  output: z.object({
+    undone: z.array(Decision),
+    skipped: z.array(z.object({ decision_id: Id, reason: z.string() })),
+  }),
   impact: 'low',
   dynamicImpact: true,
   emits: ['decision_undone'],
@@ -1524,6 +1796,9 @@ export const runsStart = defineOp({
     /**
      * Added (Gmail via agent): `connect` only. Scopes the run to the Gmail draft step for this outreach:
      * the agent creates a Gmail draft with its own Gmail tool and records it with `outreach.to_gmail`.
+     * #99: refused while the recipient's address is a guess waiting in Needs you. For an `in_gmail` draft
+     * with no To (`gmail_to` null) and a confirmed address, the run is the To update step instead
+     * (`summary_json.step: "gmail_to"`): the agent sets the draft's To with the connector's update tool.
      */
     outreach_id: Id.optional(),
     /** Added (#30): the run that caused this one (pipeline rules, schedules). Kept as `summary_json.triggered_by`. */
@@ -1538,11 +1813,19 @@ export const runsStart = defineOp({
      * panel delegates). Ignored for a human or schedule (always queued). Kept as `summary_json.actor: "ask"`.
      */
     queue: z.boolean().optional(),
+    /**
+     * Added (#106): `fill` only. The fill assist: after the answers, the run uploads the rendered resume and cover
+     * letter PDFs and fills the answer fields in the portal tab (Claude in Chrome `file_upload` + `form_input`),
+     * stops before Submit and reports with `apply.fill_done`. Without it a fill run only reads the portal. Kept as
+     * `summary_json.assist`.
+     */
+    assist: z.boolean().optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
   impact: 'low',
-  emits: ['run_started'],
+  /** #105: `research`, `tailor` or `connect` for an active or held role picks it first (-> on-deck, `role_picked`). */
+  emits: ['run_started', 'role_moved', 'role_picked', 'role_promoted'],
   owner: 'B',
 });
 
@@ -1566,6 +1849,23 @@ export const runsDispatch = defineOp({
  * it also applies the pipeline rules (config `pipeline`): the runs it queues are listed in
  * `summary_json.triggered`.
  */
+/** Added (#107): a Claude in Chrome tab id (`tabs_context_mcp`, `tabs_create_mcp`). */
+export const ChromeTabId = z.number().int().nonnegative();
+export type ChromeTabId = z.infer<typeof ChromeTabId>;
+
+/**
+ * Added (#107): the Chrome tabs a run used, as it reported them on `runs.finish` (kept as `summary_json.tabs`).
+ * `opened`: every tab the run used (the session's tab it reused, or one it created); `closed`: the ones it closed
+ * (`tabs_close_mcp`); `left_open`: only the fill assist's portal tab (`portal`), for the human to submit.
+ */
+export const RunTabs = z.object({
+  opened: z.array(ChromeTabId).default([]),
+  closed: z.array(ChromeTabId).default([]),
+  left_open: z.array(ChromeTabId).default([]),
+  portal: ChromeTabId.optional(),
+});
+export type RunTabs = z.infer<typeof RunTabs>;
+
 export const runsFinish = defineOp({
   name: 'runs.finish',
   description: 'Close a skill run started with runs.start.',
@@ -1574,6 +1874,12 @@ export const runsFinish = defineOp({
     status: RunStatus.exclude(['queued', 'running']),
     summary: z.record(z.string(), z.unknown()).optional(),
     note: z.string().optional(),
+    /**
+     * Added (#107): the Chrome tabs this run used and closed (`connect`, `fill`, `voice` only). Stored as
+     * `summary_json.tabs`; a `summary.tabs` object is read the same way. Only a fill assist run may leave a tab
+     * open, and only its `portal` tab.
+     */
+    tabs: RunTabs.optional(),
   }),
   output: z.object({ run: Run }),
   impact: 'low',
@@ -1722,11 +2028,15 @@ export const OPS = {
   'apply.resolve_claim': applyResolveClaim,
   'apply.mark_submitted': applyMarkSubmitted,
   'apply.skip_connect': applySkipConnect,
+  'apply.render_documents': applyRenderDocuments,
+  'apply.fill_done': applyFillDone,
   'people.find': peopleFind,
   'people.link': peopleLink,
   'people.classify': peopleClassify,
   'people.find_email': peopleFindEmail,
+  'people.email_checked': peopleEmailChecked,
   'people.fallback': peopleFallback,
+  'people.set_path': peopleSetPath,
   'contacts.get': contactsGet,
   'outreach.get': outreachGet,
   'outreach.list': outreachList,
@@ -1737,6 +2047,7 @@ export const OPS = {
   'decisions.queue': decisionsQueue,
   'decisions.resolve': decisionsResolve,
   'decisions.undo': decisionsUndo,
+  'decisions.undo_group': decisionsUndoGroup,
   'runs.list': runsList,
   'runs.get': runsGet,
   'runs.start': runsStart,

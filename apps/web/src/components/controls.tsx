@@ -222,11 +222,12 @@ export function Chip({ variant, label, value, color }: { variant: ChipVariant; l
   }
 }
 
+/** #105: on-deck (a picked role: an apply stage started) reads "In progress"; the status name is unchanged. */
 export const STATUS_LABEL: Record<RoleStatus, string> = {
   inbox: 'Inbox',
   active: 'Active',
   held: 'Held',
-  'on-deck': 'On deck',
+  'on-deck': 'In progress',
   'draft-ready': 'Draft ready',
   applied: 'Applied',
   interviews: 'Interviews',

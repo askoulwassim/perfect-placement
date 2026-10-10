@@ -115,18 +115,34 @@ export function insertLink(R: Repos, l: ContactLink): void {
 }
 
 export function updateLink(R: Repos, l: ContactLink): void {
-  R.contact_link.update(l.id, { degree: l.degree, tier: l.tier, via_contact_id: l.via_contact_id, is_hiring_team: l.is_hiring_team });
+  R.contact_link.update(l.id, {
+    degree: l.degree,
+    tier: l.tier,
+    via_contact_id: l.via_contact_id,
+    is_hiring_team: l.is_hiring_team,
+    path: l.path,
+    via_tie_json: l.via_tie_json,
+  });
 }
 
 // -------------------------------------------------------------------- outreach
 
 export const getOutreach = (R: Repos, id: string): Outreach | undefined => R.outreach.get(id);
 
-export const getOutreachFor = (R: Repos, contactId: string, roleId: string): Outreach | undefined =>
-  R.outreach.select('contact_id = ? AND role_id = ? ORDER BY id LIMIT 1', [contactId, roleId])[0];
+/** The outreach to `contactId` (the recipient) for a role; #98: a bridge intro also matches the target it is about. */
+export const getOutreachFor = (R: Repos, contactId: string, roleId: string, aboutId: string | null = null): Outreach | undefined =>
+  R.outreach.select('contact_id = ? AND role_id = ? AND about_contact_id IS ? ORDER BY id LIMIT 1', [contactId, roleId, aboutId])[0];
 
 export function upsertOutreach(R: Repos, o: Outreach, exists: boolean): void {
-  if (exists) R.outreach.update(o.id, { tier: o.tier, gmail_draft_id: o.gmail_draft_id, status: o.status, md_path: o.md_path });
+  if (exists)
+    R.outreach.update(o.id, {
+      tier: o.tier,
+      gmail_draft_id: o.gmail_draft_id,
+      status: o.status,
+      md_path: o.md_path,
+      about_contact_id: o.about_contact_id,
+      gmail_to: o.gmail_to,
+    });
   else R.outreach.insert(o);
 }
 
@@ -169,6 +185,7 @@ export function skipConnect(
     applied_at: null,
     portal_url: null,
     package_paths_json: {},
+    fill_assist_json: null,
   };
   R.application.insert(created);
   return { application: created, skipped: true };

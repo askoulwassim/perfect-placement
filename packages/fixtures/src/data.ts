@@ -499,45 +499,48 @@ const pkg = (id: string, withAnswers = false) => ({
   ...(withAnswers ? { answers: vaultPath.application(id, 'answers') } : {}),
 });
 
-export const applications: Application[] = [
-  { id: 'ap_0001', role_id: R.stripeOnDeck, stage: 'research', applied_at: null, portal_url: null, package_paths_json: {} },
-  { id: 'ap_0002', role_id: R.linearDraft, stage: 'connect', applied_at: null, portal_url: null, package_paths_json: pkg(R.linearDraft) },
-  {
-    id: 'ap_0003',
-    role_id: R.vercelDraft,
-    stage: 'submit',
-    applied_at: null,
-    portal_url: 'https://boards.greenhouse.io/vercel',
-    package_paths_json: pkg(R.vercelDraft, true),
-  },
-  {
-    id: 'ap_0004',
-    role_id: R.stripeApplied,
-    stage: 'done',
-    applied_at: at(20),
-    portal_url: null,
-    package_paths_json: pkg(R.stripeApplied, true),
-  },
-  {
-    id: 'ap_0005',
-    role_id: R.notionApplied,
-    stage: 'done',
-    applied_at: at(18),
-    portal_url: null,
-    package_paths_json: pkg(R.notionApplied, true),
-  },
-  { id: 'ap_0006', role_id: R.dbxApplied, stage: 'done', applied_at: at(24), portal_url: null, package_paths_json: pkg(R.dbxApplied) },
-  { id: 'ap_0007', role_id: R.figmaIv, stage: 'done', applied_at: at(30), portal_url: null, package_paths_json: pkg(R.figmaIv, true) },
-  { id: 'ap_0008', role_id: R.rampIv, stage: 'done', applied_at: at(28), portal_url: null, package_paths_json: pkg(R.rampIv) },
-  {
-    id: 'ap_0009',
-    role_id: R.retoolOffer,
-    stage: 'done',
-    applied_at: at(40),
-    portal_url: null,
-    package_paths_json: pkg(R.retoolOffer, true),
-  },
-];
+/** #106: no fill assist ran on any fixture application (`fill_assist_json` null). */
+export const applications: Application[] = (
+  [
+    { id: 'ap_0001', role_id: R.stripeOnDeck, stage: 'research', applied_at: null, portal_url: null, package_paths_json: {} },
+    { id: 'ap_0002', role_id: R.linearDraft, stage: 'connect', applied_at: null, portal_url: null, package_paths_json: pkg(R.linearDraft) },
+    {
+      id: 'ap_0003',
+      role_id: R.vercelDraft,
+      stage: 'submit',
+      applied_at: null,
+      portal_url: 'https://boards.greenhouse.io/vercel',
+      package_paths_json: pkg(R.vercelDraft, true),
+    },
+    {
+      id: 'ap_0004',
+      role_id: R.stripeApplied,
+      stage: 'done',
+      applied_at: at(20),
+      portal_url: null,
+      package_paths_json: pkg(R.stripeApplied, true),
+    },
+    {
+      id: 'ap_0005',
+      role_id: R.notionApplied,
+      stage: 'done',
+      applied_at: at(18),
+      portal_url: null,
+      package_paths_json: pkg(R.notionApplied, true),
+    },
+    { id: 'ap_0006', role_id: R.dbxApplied, stage: 'done', applied_at: at(24), portal_url: null, package_paths_json: pkg(R.dbxApplied) },
+    { id: 'ap_0007', role_id: R.figmaIv, stage: 'done', applied_at: at(30), portal_url: null, package_paths_json: pkg(R.figmaIv, true) },
+    { id: 'ap_0008', role_id: R.rampIv, stage: 'done', applied_at: at(28), portal_url: null, package_paths_json: pkg(R.rampIv) },
+    {
+      id: 'ap_0009',
+      role_id: R.retoolOffer,
+      stage: 'done',
+      applied_at: at(40),
+      portal_url: null,
+      package_paths_json: pkg(R.retoolOffer, true),
+    },
+  ] satisfies Omit<Application, 'fill_assist_json'>[]
+).map((a) => ({ ...a, fill_assist_json: null }));
 
 export const interviews: Interview[] = [
   {
@@ -643,6 +646,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'warm_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0002',
@@ -653,6 +658,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'warm_other',
     via_contact_id: null,
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0003',
@@ -663,6 +670,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'bridge',
     via_contact_id: 'ct_0002',
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0004',
@@ -673,6 +682,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0005',
@@ -683,6 +694,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_other',
     via_contact_id: null,
     is_hiring_team: false,
+    path: null,
+    via_tie_json: null,
   },
   {
     id: 'cl_0006',
@@ -693,6 +706,8 @@ export const contactLinks: ContactLink[] = [
     tier: 'cold_hiring',
     via_contact_id: null,
     is_hiring_team: true,
+    path: null,
+    via_tie_json: null,
   },
 ];
 
@@ -705,15 +720,20 @@ export const outreach: Outreach[] = [
     gmail_draft_id: null,
     status: 'drafted',
     md_path: vaultPath.outreach('ct_0001', R.linearDraft),
+    about_contact_id: null,
+    gmail_to: null,
   },
   {
     id: 'or_0002',
-    contact_id: 'ct_0003',
+    // #98: a bridge intro is filed under the mutual (Dev P.), about the target (Lina K.).
+    contact_id: 'ct_0002',
     role_id: R.linearDraft,
     tier: 'bridge',
     gmail_draft_id: 'fixture-draft-0002',
     status: 'in_gmail',
-    md_path: vaultPath.outreach('ct_0003', R.linearDraft),
+    md_path: vaultPath.outreach('ct_0002', R.linearDraft, 'ct_0003'),
+    about_contact_id: 'ct_0003',
+    gmail_to: null,
   },
   {
     id: 'or_0003',
@@ -723,6 +743,8 @@ export const outreach: Outreach[] = [
     gmail_draft_id: 'fixture-draft-0003',
     status: 'replied',
     md_path: vaultPath.outreach('ct_0006', R.vercelDraft),
+    about_contact_id: null,
+    gmail_to: null,
   },
 ];
 

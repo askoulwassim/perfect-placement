@@ -7,9 +7,10 @@
  *   Linux   systemd user timers: ~/.config/systemd/user/pp-<key>.{service,timer} (Persistent=true)
  *   other   no job manager: crontab lines are printed for the user to add (state `manual`)
  * Every machine call goes through SystemDeps (tests: temp HOME, fake capture). Each job file carries a
- * fingerprint line (key, spec, vault, node, cli) so status compares files without asking launchd.
+ * fingerprint line (key, spec, vault, node, cli) so status compares files without asking launchd. The paths
+ * compare by file identity (realpath), so a symlinked repo, vault or node is not reported stale (#97).
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -205,6 +206,44 @@ export function planJobs(home: string, schedules: Schedules, d: SystemDeps, opts
 
 const firstFingerprint = (content: string) => /pp-schedule \S+/.exec(content)?.[0] ?? null;
 
+function parseFingerprint(line: string | null): JobInputs | null {
+  if (!line) return null;
+  try {
+    const j = JSON.parse(Buffer.from(line.slice('pp-schedule '.length), 'base64').toString('utf8')) as Partial<JobInputs>;
+    const fields = [j.key, j.spec, j.home, j.node, j.cli];
+    return fields.every((f) => typeof f === 'string') ? (j as JobInputs) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Two paths name the same file: equal strings, or both resolve (realpath, injectable) to one file. A path
+ * that does not resolve (missing file) only matches itself, so a job pointing at a gone file stays stale.
+ */
+export function samePath(a: string, b: string, realpath: (p: string) => string = realpathSync): boolean {
+  if (a === b) return true;
+  try {
+    return realpath(a) === realpath(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The installed fingerprint describes the job we would write: same key and spec, and home, node and cli
+ * reaching the same files (#97). The written job keeps the stable node path (#33); only the comparison
+ * resolves symlinks, so an opt link and its Cellar target, or a repo symlink and its real path, match.
+ */
+export function sameJob(installed: string | null, want: string | null, realpath?: (p: string) => string): boolean {
+  if (!want || !installed) return false;
+  if (installed === want) return true;
+  const a = parseFingerprint(installed);
+  const b = parseFingerprint(want);
+  if (!a || !b || a.key !== b.key || a.spec !== b.spec) return false;
+  return samePath(a.home, b.home, realpath) && samePath(a.node, b.node, realpath) && samePath(a.cli, b.cli, realpath);
+}
+
 /** Each schedule's job compared with config (file reads only; never asks launchd / systemd). */
 export function jobStatus(home: string, schedules: Schedules, d: SystemDeps, opts: JobOptions = {}): Record<ScheduleKey, ScheduleJobState> {
   const m = jobManager(d);
@@ -220,7 +259,7 @@ export function jobStatus(home: string, schedules: Schedules, d: SystemDeps, opt
     else if (!exists) out[plan.key] = 'missing';
     else {
       const want = plan.files[0] ? firstFingerprint(plan.files[0].content) : null;
-      out[plan.key] = want && firstFingerprint(readFileSync(file, 'utf8')) === want ? 'installed' : 'stale';
+      out[plan.key] = sameJob(firstFingerprint(readFileSync(file, 'utf8')), want, d.realpath) ? 'installed' : 'stale';
     }
   }
   return out;

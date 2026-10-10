@@ -16,6 +16,7 @@ import {
 } from '@perfect-placement/contracts';
 import type Database from 'better-sqlite3';
 import { defaultFetch } from '../../integrations/ats/index.js';
+import { connectPathsFor } from '../../people/path.js';
 import { connectStateFor } from '../../people/queries.js';
 import { personaOfCraft, titleVariations } from '../../profile/persona.js';
 import { getComponent, getCurrentVersion } from '../../profile/versions.js';
@@ -586,7 +587,8 @@ export const rolesGet = defineHandler('roles.get', {
     const role = getRole(h.db, input.role_id);
     const contacts = select(h.db, 'contact_link', 'role_id = ?', [role.id]).flatMap((link) => {
       const contact = get(h.db, 'contact', link.contact_id);
-      return contact ? [{ contact, link }] : [];
+      // #98: direct vs bridge for a 2nd-degree hiring-team target, ranked by code.
+      return contact ? [{ contact, link, paths: connectPathsFor(h, link) }] : [];
     });
     const md = role.md_path ? h.vault.read(role.md_path) : null;
     return {

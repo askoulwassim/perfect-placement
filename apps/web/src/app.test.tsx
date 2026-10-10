@@ -2,9 +2,11 @@ import { FORBIDDEN_BUTTON_LABELS, OP_NAMES, OPS, type OpName } from '@perfect-pl
 import { claudeScoreTranscript, claudeTranscript } from '@perfect-placement/engine/testing';
 import { FIXTURE_NOW, FIXTURE_ROLE_IDS as R } from '@perfect-placement/fixtures';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { composeReply } from '../genui/src';
 import { App } from './App';
+import { RIVER_SORT_KEY, sortLane } from './lib/river';
+import type { RoleView } from './lib/role';
 import { ASK_THREAD_KEY } from './screens/Ask';
 import { type Live, type LiveOptions, openLive } from './test/live';
 
@@ -179,6 +181,77 @@ describe('click paths', () => {
     );
   });
 
+  /** Arrow through the queue until the settled card asks `want` (#102). */
+  async function cardFor(container: HTMLElement, want: string) {
+    for (let i = 0; i < 10 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    return $(container, '.decision');
+  }
+
+  it('Needs you: a freshness card shows Open posting, the last check and its evidence; O opens it (#102)', async () => {
+    const url = 'https://boards.example/datadog/cloud-cost';
+    const evidence = 'Greenhouse board lists the job; apply button present';
+    const { container } = await boot('#/needs-you', async (l) => {
+      l.engine.db
+        .prepare('UPDATE role SET url = ?, last_checked_at = ? WHERE id = ?')
+        .run(url, '2026-10-06T08:00:00.000Z', R.datadogActive);
+      l.engine.db
+        .prepare(
+          `INSERT INTO event (id, ts, type, subject_type, subject_id, payload_json, actor, decision_id) VALUES ('ev_test102', '2026-10-06T08:00:00.000Z', 'freshness_checked', 'role', ?, ?, 'schedule', NULL)`,
+        )
+        .run(R.datadogActive, JSON.stringify({ freshness: 'unsure', evidence }));
+    });
+    const card = await cardFor(container, 'Is this posting open?');
+    const link = $<HTMLAnchorElement>(card, 'a.open-posting');
+    expect(link.getAttribute('href')).toBe(url);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.textContent).toContain('Open posting');
+    expect($(card, '.decision__checked').textContent).toMatch(new RegExp(`ago · ${evidence}`));
+    const q = await live?.client.run('decisions.queue', {});
+    const dec = q?.status === 'ok' ? q.output.pending.find((d) => d.kind === 'freshness.closed') : undefined;
+    expect(dec?.subject_role).toEqual({
+      id: R.datadogActive,
+      url,
+      last_checked_at: '2026-10-06T08:00:00.000Z',
+      freshness_evidence: evidence,
+    });
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      fireEvent.keyDown(window, { key: 'o' });
+      expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+      // Not while typing.
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      fireEvent.keyDown(input, { key: 'o' });
+      input.remove();
+      expect(open).toHaveBeenCalledTimes(1);
+    } finally {
+      open.mockRestore();
+    }
+    expect(writes()).toEqual([]);
+    assertButtons(container);
+  });
+
+  it('Needs you: no Open posting and O does nothing when the role has no url (#102)', async () => {
+    const { container } = await boot('#/needs-you', async (l) => {
+      l.engine.db.prepare('UPDATE role SET url = NULL WHERE id = ?').run(R.datadogActive);
+    });
+    const card = await cardFor(container, 'Is this posting open?');
+    expect(card.querySelector('.open-posting')).toBeNull();
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      fireEvent.keyDown(window, { key: 'o' });
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('Needs you: a fact-check claim shows the claim, document and source; Edit rewrites the line (#54)', async () => {
     const cover = 'Hi team,\n\nBefore that I worked at Globex on analytics.\n\nThanks.';
     const { container } = await boot('#/needs-you', (l) =>
@@ -262,6 +335,71 @@ describe('click paths', () => {
       const o = await live?.as('human', 'outreach.get', { outreach_id: 'or_0001' });
       expect(o?.status === 'ok' && (o.output as { to: { email: string | null } }).to.email).toBe('mrivera@linear.example');
     });
+    assertButtons(container);
+  });
+
+  it('Needs you: each email candidate shows its evidence, a Check link and Valid / Invalid (#99)', async () => {
+    const { container } = await boot(
+      '#/needs-you',
+      async (l) => {
+        l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
+        l.engine.db.prepare(`UPDATE contact SET name = 'Maya Rivera' WHERE id = 'ct_0001'`).run();
+        return l.as('agent', 'people.find_email', {
+          contact_id: 'ct_0001',
+          role_id: R.linearDraft,
+          evidence: [{ kind: 'inbox_peer', address: 'lee.park@linear.example', source: 'gmail', name: 'Lee Park' }],
+        });
+      },
+      { services: { mx: async () => true } },
+    );
+    const want = 'Use maya.rivera@linear.example?';
+    for (let i = 0; i < 8 && nextQ(container) !== want; i++) {
+      const q = await settledQ(container, (x) => x !== 'clear');
+      if (q === want) break;
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+    }
+    await settledQ(container, (q) => q === want);
+    const row = (address: string) => $(container, `.email-check[data-address="${address}"]`);
+    const top = await waitFor(() => row('maya.rivera@linear.example'));
+    expect(Array.from(top.querySelectorAll('.email-check__label')).map((l) => l.textContent)).toEqual(['Pattern: 1 peer']);
+
+    // Check: a plain link to the address checker (no op) that also copies the address.
+    const link = within(top).getByText('Check').closest('a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://email-checker.net/');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('data-op')).toBe('local');
+    link.addEventListener('click', (e) => e.preventDefault());
+    const copied: string[] = [];
+    const clip = { writeText: async (t: string) => void copied.push(t) };
+    Object.defineProperty(navigator, 'clipboard', { value: clip, configurable: true });
+    const before = writes().length;
+    fireEvent.click(link);
+    await waitFor(() => expect(copied).toEqual(['maya.rivera@linear.example']));
+    // A refused clipboard is ignored.
+    clip.writeText = async () => Promise.reject(new Error('denied'));
+    fireEvent.click(link);
+    expect(writes().length).toBe(before);
+
+    // Invalid drops a candidate and the card stays; Valid confirms the address and the card moves on.
+    fireEvent.click(within(row('maya@linear.example')).getByText('Invalid'));
+    await waitFor(() => expect(container.querySelector('.email-check[data-address="maya@linear.example"]')).toBeNull());
+    expect(nextQ(container)).toBe(want);
+    const calls = () => live?.calls.filter((c) => c.name === 'people.email_checked').map((c) => c.body);
+    expect(calls()).toEqual([{ contact_id: 'ct_0001', address: 'maya@linear.example', result: 'invalid' }]);
+    assertButtons(container);
+    fireEvent.click(within(row('maya.rivera@linear.example')).getByText('Valid'));
+    await waitFor(() => expect(nextQ(container)).not.toBe(want));
+    expect(calls()?.[1]).toEqual({ contact_id: 'ct_0001', address: 'maya.rivera@linear.example', result: 'valid' });
+    const c = await live?.client.run('contacts.get', { contact_id: 'ct_0001' });
+    expect(c?.status === 'ok' && c.output.contact.email).toBe('maya.rivera@linear.example');
+  });
+
+  it('Settings: no Email check section, no provider or key (#99)', async () => {
+    const { container } = await boot('#/settings');
+    await waitFor(() => expect(primary(container)?.textContent).toContain('Save'));
+    expect(container.querySelector('.settings-email')).toBeNull();
+    expect(container.textContent).not.toMatch(/Email check|Key variable|NeverBounce|ZeroBounce|Hunter/);
     assertButtons(container);
   });
 
@@ -358,7 +496,7 @@ describe('click paths', () => {
     await waitFor(() => expect(primary(container).disabled).toBe(true));
     expect(live?.calls.some((c) => c.name === 'runs.list')).toBe(true);
     await go(`#/role/${R.linearDraft}`);
-    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
     const connect = Array.from(container.querySelectorAll('.stage')).find((s) => s.textContent === 'Connect');
     expect(connect?.getAttribute('data-state')).toBe('done');
     const o = await live?.client.run('outreach.get', { outreach_id: 'or_0001' });
@@ -444,11 +582,137 @@ describe('click paths', () => {
     expect(window.location.hash).toBe(`#/role/${id}`);
   });
 
+  it('River and Now label on-deck as In progress (#105)', async () => {
+    const { container } = await boot('#/river');
+    const col = await waitFor(() => $(container, '.river-col[data-status="on-deck"]'));
+    await waitFor(() => expect(col.textContent).toContain('In progress'));
+    expect(container.textContent).not.toContain('On deck');
+    await go('#/now');
+    await waitFor(() => expect(container.querySelectorAll('.role-card').length).toBe(3));
+    const card = (id: string) => container.querySelector(`.role-card[data-role="${id}"]`);
+    const onDeck = [R.stripeOnDeck, R.airtableOnDeck].find((id) => card(id));
+    expect(onDeck, 'an on-deck role in Top picks').toBeDefined();
+    expect(card(onDeck as string)?.querySelector('.role-card__tag')?.textContent).toBe('In progress');
+    expect(container.querySelectorAll('.role-card__tag').length).toBeLessThanOrEqual(2);
+  });
+
+  it('Now groups a score run into one row: count, total, expand, one group Undo (#103)', async () => {
+    const ROLE = 'notion_product-lead-data-platform';
+    let total = 0;
+    const { container, live: l } = await boot('#/now', async (lv) => {
+      const run = (await lv.as('agent', 'runs.start', { skill: 'score' })) as { status: 'ok'; output: { run: { id: string } } };
+      const FIVES = Object.fromEntries(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'].map((c) => [c, 5]));
+      const o = (await lv.as(
+        'agent',
+        'roles.score',
+        { role_id: ROLE, criteria: FIVES, facts: { workplace: 'remote', remote_ok: true } },
+        { runId: run.output.run.id },
+      )) as { status: 'ok'; output: { score: { total: number } } };
+      total = o.output.score.total;
+      // Setup: the nine criteria applied with an open undo window (auto + undo).
+      lv.engine.db
+        .prepare(`UPDATE decision SET policy_outcome = 'auto_undo', undo_until = ? WHERE kind = 'roles.criterion' AND subject_id = ?`)
+        .run('2026-10-09T12:00:00.000Z', ROLE);
+    });
+    const row = await waitFor(() => {
+      const r = Array.from(container.querySelectorAll('.auto-row')).find((x) => x.textContent?.includes('9 criteria'));
+      if (!r) throw new Error('no group row');
+      return r as HTMLElement;
+    });
+    expect(row.textContent).toContain(`Scored ${Math.round(total)} · Agent · 9 criteria`);
+    expect(row.textContent).toContain('Notion');
+    // One row for the run, not nine.
+    expect(Array.from(container.querySelectorAll('.auto-row')).filter((x) => x.textContent?.includes('Notion')).length).toBe(1);
+    const toggle = $(row, '.auto-row__toggle');
+    expect(toggle.getAttribute('data-op')).toBe('local');
+    expect(toggle.textContent).toContain('9');
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(Array.from(container.querySelectorAll('.auto-row')).filter((x) => x.textContent?.includes('Notion')).length).toBe(10),
+    );
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    assertButtons(container);
+
+    const undo = $(row, '.auto-row__undo');
+    expect(undo.getAttribute('data-op')).toBe('decisions.undo_group');
+    const before = writes().length;
+    fireEvent.click(undo);
+    await waitFor(() => expect(writes().slice(before)).toEqual(['decisions.undo_group']));
+    const call = l.calls.find((c) => c.name === 'decisions.undo_group');
+    expect((call as { body: { decision_ids: string[] } }).body.decision_ids).toHaveLength(9);
+    await waitFor(() => expect(row.querySelector('.auto-row__undo')).toBeNull());
+    expect(row.textContent).toContain('undone');
+  });
+
   it('River has a Held column and stacks held roles on the capped company tile', async () => {
     const { container } = await boot('#/river');
     await waitFor(() => expect($(container, '.held-chip').textContent).toBe('+2 held'));
     const held = $(container, '.river-col[data-status="held"]');
     expect(held.querySelectorAll('.river-tile').length).toBe(2);
+  });
+
+  describe('River lane sort (#104)', () => {
+    const laneIds = (container: HTMLElement, s: string) =>
+      Array.from(container.querySelectorAll(`.river-col[data-status="${s}"] .river-tile`)).map((e) => e.getAttribute('data-role'));
+    const expected = async (l: Live, s: string, sort: 'score' | 'newest') => {
+      const o = (await l.client.run('roles.list', { limit: 500 })) as { status: 'ok'; output: { items: RoleView[] } };
+      return sortLane(
+        o.output.items.filter((v) => v.role.status === s),
+        sort,
+      ).map((v) => v.role.id);
+    };
+
+    it('sorts each lane by score, keeps the held stack on the best tile, and the toggle switches and persists', async () => {
+      const { container, live: l, unmount } = await boot('#/river');
+      await waitFor(() => expect(laneIds(container, 'active').length).toBeGreaterThan(1));
+      const byScore = await expected(l, 'active', 'score');
+      expect(laneIds(container, 'active')).toEqual(byScore);
+      // The "+N held" chip sits on the first (best) tile of its company.
+      const chipTile = $(container, '.held-chip').closest('.river-tile');
+      const coTiles = Array.from(container.querySelectorAll('.river-col[data-status="active"] .river-tile'));
+      const items = ((await l.client.run('roles.list', { limit: 500 })) as { status: 'ok'; output: { items: RoleView[] } }).output.items;
+      const coOf = (id: string | null) => items.find((v) => v.role.id === id)?.company.id;
+      const chipCo = coOf(chipTile?.getAttribute('data-role') ?? null);
+      expect(coTiles.find((e) => coOf(e.getAttribute('data-role')) === chipCo)).toBe(chipTile);
+
+      const col = $(container, '.river-col[data-status="active"]');
+      const newest = $<HTMLButtonElement>(col, '.river-sort [data-sort="newest"]');
+      expect(newest.getAttribute('data-op')).toBe('local');
+      fireEvent.click(newest);
+      const byNewest = await expected(l, 'active', 'newest');
+      expect(byNewest).not.toEqual(byScore);
+      await waitFor(() => expect(laneIds(container, 'active')).toEqual(byNewest));
+      expect(newest.getAttribute('aria-pressed')).toBe('true');
+      expect(JSON.parse(window.localStorage.getItem(RIVER_SORT_KEY) ?? '{}')).toEqual({ active: 'newest' });
+      assertButtons(container);
+      unmount();
+      live?.close();
+
+      // A fresh open keeps the viewer's choice.
+      const again = await boot('#/river');
+      await waitFor(() => expect(laneIds(again.container, 'active')).toEqual(byNewest));
+      expect($(again.container, '.river-col[data-status="active"] [data-sort="newest"]').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('renders sorted lanes when storage throws', async () => {
+      const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('blocked');
+      });
+      try {
+        const { container, live: l } = await boot('#/river');
+        await waitFor(() => expect(laneIds(container, 'active').length).toBeGreaterThan(1));
+        expect(laneIds(container, 'active')).toEqual(await expected(l, 'active', 'score'));
+        fireEvent.click($(container, '.river-col[data-status="active"] [data-sort="newest"]'));
+        const byNewest = await expected(l, 'active', 'newest');
+        await waitFor(() => expect(laneIds(container, 'active')).toEqual(byNewest));
+      } finally {
+        get.mockRestore();
+        set.mockRestore();
+      }
+    });
   });
 
   it('You: Domain -> Accept diff -> timeline gains a version', async () => {
@@ -1214,7 +1478,7 @@ describe('run status (#21)', () => {
       { role_id: R.linearDraft, reason: 'user' },
     ]);
     await waitFor(() => expect($(container, '[data-fallback="skipped"]').textContent).toBe('Skipped'));
-    await waitFor(() => expect(primary(container).textContent).toBe('Fill'));
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
     expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
   });
 
@@ -1233,6 +1497,89 @@ describe('run status (#21)', () => {
     await waitFor(() => expect($(container, '[data-fallback="team_inbox"]').textContent).toBe('Hiring team'));
     expect($(container, 'button[data-op="apply.skip_connect"]').textContent).toBe('Skip');
     assertButtons(container);
+  });
+
+  /** #98, synthetic: a VP on the hiring team (2nd degree, likely pattern email) and a 1st-degree mutual elsewhere. */
+  const hopperLike = (mutualEmail: boolean) => async (l: Live) => {
+    await quiet(l);
+    const db = l.engine.db;
+    db.prepare('DELETE FROM outreach WHERE role_id = ?').run(R.linearDraft);
+    db.prepare('DELETE FROM contact_link WHERE role_id = ?').run(R.linearDraft);
+    const person = db.prepare(
+      `INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES (?, ?, ?, NULL, ?, 'linkedin', NULL, ?, ?)`,
+    );
+    person.run('ct_rowan', 'Rowan Vale', 'VP Product', 'rowan.vale@linear.example', 'pattern', 0.6);
+    person.run(
+      'ct_kit',
+      'Kit Moss',
+      'Account Manager at Otherco',
+      ...(mutualEmail ? ['kit@otherco.example', 'gmail', 1] : [null, null, null]),
+    );
+    db.prepare(
+      `INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team) VALUES ('cl_rowan', 'ct_rowan', 'linear', ?, '2', 'bridge', 'ct_kit', 1)`,
+    ).run(R.linearDraft);
+  };
+
+  it('People: a reachable hiring leader defaults to a direct note; the weak bridge is the alternative (#98)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(false));
+    const direct = await waitFor(() => $(container, '.connect-path[data-path="direct"]'));
+    expect(direct.getAttribute('data-chosen')).toBe('true');
+    expect(direct.getAttribute('data-recommended')).toBe('true');
+    expect(direct.textContent).toContain('To Rowan');
+    expect($(direct, '.connect-path__reason').textContent).toBe('Hiring team · Email likely');
+    const bridge = $(container, '.connect-path[data-path="bridge"]');
+    expect(bridge.textContent).toContain('Via Kit');
+    expect($(bridge, '.connect-path__reason').textContent).toBe('Other company · No email');
+    // No email for the mutual while the target is reachable: no switch to the bridge.
+    expect(bridge.getAttribute('data-blocked')).toBe('true');
+    expect(container.querySelector('button[data-op="people.set_path"]')).toBeNull();
+    expect(primary(container).textContent).toBe('Draft for Rowan');
+    assertButtons(container);
+  });
+
+  it('People: Use switches to the bridge before drafting (#98)', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`, hopperLike(true));
+    const use = await waitFor(() => $<HTMLButtonElement>(container, '.connect-path[data-path="bridge"] button[data-op="people.set_path"]'));
+    expect(use.textContent).toBe('Use');
+    expect(primary(container).textContent).toBe('Draft for Rowan');
+    assertButtons(container);
+    fireEvent.click(use);
+    await waitFor(() => expect($(container, '.connect-path[data-path="bridge"]').getAttribute('data-chosen')).toBe('true'));
+    expect(live?.calls.filter((c) => c.name === 'people.set_path').map((c) => c.body)).toEqual([
+      { contact_id: 'ct_rowan', role_id: R.linearDraft, path: 'bridge' },
+    ]);
+    await waitFor(() => expect(primary(container).textContent).toBe('Draft for Kit'));
+    // The recommendation stays direct; Use now switches back.
+    expect($(container, '.connect-path[data-path="direct"]').getAttribute('data-recommended')).toBe('true');
+    expect($(container, '.connect-path[data-path="direct"] button[data-op="people.set_path"]').textContent).toBe('Use');
+  });
+
+  it('People: a direct note and a bridge intro both listed, each under its recipient (#98)', async () => {
+    const note = { hook: 'Hi, your team is rebuilding search.', proof: 'I led a search rebuild end to end.', ask: 'Open to a short call?' };
+    const { container } = await boot(`#/people/${R.linearDraft}`, async (l) => {
+      await hopperLike(true)(l);
+      await l.as('agent', 'outreach.draft', { contact_id: 'ct_rowan', role_id: R.linearDraft, tier: 'cold_hiring', ...note });
+      return l.as('agent', 'outreach.draft', { contact_id: 'ct_rowan', role_id: R.linearDraft, tier: 'bridge', ...note });
+    });
+    await waitFor(() => expect(container.querySelectorAll('.outreach-item')).toHaveLength(2));
+    const items = Array.from(container.querySelectorAll('.outreach-item')).map((el) => [
+      el.querySelector('.outreach-item__to')?.textContent,
+      el.querySelector('.outreach-item__about')?.textContent ?? null,
+    ]);
+    expect(items.sort()).toEqual([
+      ['Kit Moss', 'About Rowan Vale'],
+      ['Rowan Vale', null],
+    ]);
+    // Both paths show their draft; the person row for Rowan shows the direct note.
+    expect($(container, '.connect-path[data-path="direct"]').textContent).toContain('Drafted');
+    expect($(container, '.connect-path[data-path="bridge"]').textContent).toContain('Drafted');
+    assertButtons(container);
+    // Opening the bridge intro shows it to Kit, about Rowan.
+    const bridgeItem = Array.from(container.querySelectorAll<HTMLButtonElement>('.outreach-item')).find((el) =>
+      el.textContent?.includes('About Rowan'),
+    ) as HTMLButtonElement;
+    fireEvent.click(bridgeItem);
+    await waitFor(() => expect(container.textContent).toContain('You  →  Kit Moss  →  Rowan Vale'));
   });
 
   it('Role -> Answers: Add questions saves the pasted questions and queues a fill run that uses them (#81)', async () => {
@@ -1298,6 +1645,78 @@ describe('run status (#21)', () => {
     const { container } = await boot(`#/role/${R.airtableOnDeck}`, quiet);
     await waitFor(() => expect(primary(container).textContent).toBe('Research'));
     expect(container.querySelector('button[data-op="apply.skip_connect"]')).toBeNull();
+  });
+
+  it('Role: Open and fill queues the fill assist; after apply.fill_done the primary is Open portal (#106)', async () => {
+    const { container } = await boot(`#/role/${R.linearDraft}`, async (l) => {
+      await quiet(l);
+      return l.as('human', 'apply.skip_connect', { role_id: R.linearDraft, reason: 'user' });
+    });
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
+    assertButtons(container);
+    fireEvent.click(primary(container));
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'runs.start').map((c) => c.body)).toEqual([
+        { skill: 'fill', role_id: R.linearDraft, assist: true },
+      ]),
+    );
+    const spec = live?.engine.launcher.specs.at(-1);
+    expect(spec?.args).toContain('--chrome');
+    expect(spec?.args[spec.args.indexOf('--allowedTools') + 1]).toContain('mcp__claude-in-chrome__file_upload');
+    expect(spec?.args[1]).toContain('apply.fill_done');
+    await waitFor(() => expect(primary(container).disabled).toBe(true));
+    // The run answers, renders, uploads + fills in the portal tab, stops before Submit and reports.
+    await live?.as('agent', 'apply.fill', {
+      role_id: R.linearDraft,
+      answers: [{ question: 'Why Linear?', kind: 'written', answer: 'Speed is the product.' }],
+    });
+    expect(primary(container).textContent).not.toBe('Open portal');
+    await live?.as('agent', 'apply.render_documents', { role_id: R.linearDraft, formats: ['pdf'] });
+    const done = await live?.as('agent', 'apply.fill_done', { role_id: R.linearDraft, filled: ['Why Linear?'], uploaded: ['resume'] });
+    expect(done?.status).toBe('ok');
+    await live?.as('agent', 'runs.finish', { run_id: spec?.runId, status: 'ok' });
+    await waitFor(() => expect(primary(container).textContent).toBe('Open portal'));
+    expect(primary(container).getAttribute('data-op')).toBe('nav');
+    assertButtons(container);
+  });
+
+  it('Role: at Submit with no fill assist yet, the primary is Open and fill (#106)', async () => {
+    const { container } = await boot(`#/role/${R.vercelDraft}`, quiet);
+    await waitFor(() => expect(primary(container).textContent).toBe('Open and fill'));
+  });
+
+  it('Role -> Resume / Cover: Download PDF or DOCX renders the file and downloads it from /api/files (#106)', async () => {
+    const clicked: string[] = [];
+    const spy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(`${this.getAttribute('href')} ${this.download}`);
+    });
+    try {
+      const { container } = await boot(`#/role/${R.linearDraft}`, quiet);
+      await waitFor(() => expect(primary(container).textContent).toBe('Connect'));
+      // Not on the Dossier tab.
+      expect(container.querySelector('button[data-op="apply.render_documents"]')).toBeNull();
+      fireEvent.click(screen.getByRole('tab', { name: 'Resume' }));
+      const btn = (label: string) =>
+        Array.from(container.querySelectorAll<HTMLButtonElement>('button[data-op="apply.render_documents"]')).find(
+          (b) => b.textContent === label,
+        );
+      await waitFor(() => expect(btn('PDF')).toBeTruthy());
+      expect(within($(container, '.downloads')).getByText('Download')).toBeTruthy();
+      assertButtons(container);
+      fireEvent.click(btn('PDF') as HTMLButtonElement);
+      await waitFor(() => expect(clicked).toHaveLength(1));
+      expect(live?.calls.filter((c) => c.name === 'apply.render_documents').map((c) => c.body)).toEqual([
+        { role_id: R.linearDraft, formats: ['pdf'], docs: ['resume'] },
+      ]);
+      expect(clicked[0]).toBe(`/api/files?path=${encodeURIComponent(`files/${R.linearDraft}/resume.pdf`)} resume.pdf`);
+      fireEvent.click(screen.getByRole('tab', { name: 'Cover' }));
+      await waitFor(() => expect(btn('DOCX')?.disabled).toBe(false));
+      fireEvent.click(btn('DOCX') as HTMLButtonElement);
+      await waitFor(() => expect(clicked).toHaveLength(2));
+      expect(clicked[1]).toBe(`/api/files?path=${encodeURIComponent(`files/${R.linearDraft}/cover_letter.docx`)} cover_letter.docx`);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('River: an inbox tile passes from its menu (#77)', async () => {

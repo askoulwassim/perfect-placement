@@ -9,7 +9,7 @@ A role-specific resume and cover letter that map the user's real evidence to the
 
 ## When
 
-A role is `active` or `on-deck` (or `draft-ready`, to re-tailor) and you have the **full JD**. If `roles.get` shows only a title or header, open the posting and capture the full JD first. If the posting is closed, stop: freshness (`roles.check_freshness`) archives dead postings, not this skill.
+A role is `active`, `held` or `on-deck` (or `draft-ready`, to re-tailor) and you have the **full JD**. Starting Tailor picks an active or held role (-> on-deck, `role_picked`, #105); `apply.tailor` then moves it on-deck -> draft-ready. If `roles.get` shows only a title or header, open the posting and capture the full JD first. If the posting is closed, stop: freshness (`roles.check_freshness`) archives dead postings, not this skill.
 
 ## Inputs
 

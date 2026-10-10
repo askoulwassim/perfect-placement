@@ -18,8 +18,35 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const migration = (prefix: string) =>
   readFileSync(join(MIGRATIONS_DIR, listMigrations().find((f) => f.startsWith(prefix)) as string), 'utf8');
 
+/**
+ * The fixture seed for a db before 009 (#98): contact links without `path` / `via_tie_json`; outreach
+ * without `about_contact_id`, the bridge intro filed under its target as it was before.
+ */
+/** The fixture seed for a db before 011: applications without `fill_assist_json` (#106). */
+const seedBefore011 = () =>
+  readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
+    /^(INSERT INTO application \([^)]*?), fill_assist_json\) VALUES (.*), (?:NULL|'[^']*')\);$/gm,
+    '$1) VALUES $2);',
+  );
+
+/** The fixture seed for a db before 010: outreach without `gmail_to` (#99). */
+const seedBefore010 = () =>
+  seedBefore011().replace(/^(INSERT INTO outreach \([^)]*?), gmail_to\) VALUES (.*), (?:NULL|'[^']*')\);$/gm, '$1) VALUES $2);');
+
+const seedBefore009 = () =>
+  seedBefore010()
+    .replace(
+      /^(INSERT INTO contact_link \([^)]*?), path, via_tie_json\) VALUES (.*), (?:NULL|'[^']*'), (?:NULL|'[^']*')\);$/gm,
+      '$1) VALUES $2);',
+    )
+    .replace(
+      /^INSERT INTO outreach \(([^)]*?), about_contact_id\) VALUES \('([^']*)', '([^']*)', (.*), (?:NULL|'([^']*)')\);$/gm,
+      (_l, cols: string, id: string, recipient: string, rest: string, about?: string) =>
+        `INSERT INTO outreach (${cols}) VALUES ('${id}', '${about ?? recipient}', ${rest});`,
+    );
+
 /** The fixture seed for a db before 008: no Ask threads (#69). */
-const seedBefore008 = () => readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(/^INSERT INTO ask_thread .*$/gm, '');
+const seedBefore008 = () => seedBefore009().replace(/^INSERT INTO ask_thread .*$/gm, '');
 
 /** The fixture seed for a db before 007: onboarding sessions without `interview_json` (#22). */
 const seedBefore007 = () =>
@@ -307,5 +334,63 @@ describe('migration 008 (ask_thread, #69)', () => {
     });
     expect(db7.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 8 });
     db7.close();
+  });
+});
+
+describe('migration 009 (connect path, #98)', () => {
+  it('adds path and via_tie_json to contact_link, null on every existing link, and checks the path', () => {
+    const db8 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007']) db8.exec(migration(v));
+    db8.exec(seedBefore008());
+    db8.exec(migration('008'));
+    const before = db8.prepare('SELECT * FROM contact_link ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    expect(db8.prepare(`SELECT contact_id FROM outreach WHERE id = 'or_0002'`).get()).toEqual({ contact_id: 'ct_0003' });
+    db8.exec(migration('009'));
+    expect(db8.prepare('SELECT * FROM contact_link ORDER BY id').all()).toEqual(
+      before.map((r) => ({ ...r, path: null, via_tie_json: null })),
+    );
+    // The bridge intro filed under its target (Lina K.) is refiled under the mutual (Dev P.), about Lina.
+    expect(db8.prepare(`SELECT contact_id, about_contact_id FROM outreach WHERE id = 'or_0002'`).get()).toEqual({
+      contact_id: 'ct_0002',
+      about_contact_id: 'ct_0003',
+    });
+    expect(db8.prepare(`SELECT count(*) n FROM outreach WHERE about_contact_id IS NOT NULL`).get()).toEqual({ n: 1 });
+    expect(db8.pragma('foreign_key_check')).toEqual([]);
+    const upd = db8.prepare('UPDATE contact_link SET path = ? WHERE id = ?');
+    const id = before[0]?.id as string;
+    expect(() => upd.run('direct', id)).not.toThrow();
+    expect(() => upd.run('bridge', id)).not.toThrow();
+    expect(() => upd.run('email', id)).toThrow(/CHECK/);
+    expect(db8.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 9 });
+    db8.close();
+  });
+});
+
+describe('migration 010 (Gmail To, #99)', () => {
+  it('adds gmail_to to outreach, null on every existing draft', () => {
+    const db9 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007', '008', '009']) db9.exec(migration(v));
+    db9.exec(seedBefore010());
+    const before = db9.prepare('SELECT * FROM outreach ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db9.exec(migration('010'));
+    expect(db9.prepare('SELECT * FROM outreach ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, gmail_to: null })));
+    expect(db9.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 10 });
+    db9.close();
+  });
+});
+
+describe('migration 011 (fill assist, #106)', () => {
+  it('adds fill_assist_json to application, null on every existing row', () => {
+    const db10 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']) db10.exec(migration(v));
+    db10.exec(seedBefore011());
+    const before = db10.prepare('SELECT * FROM application ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db10.exec(migration('011'));
+    expect(db10.prepare('SELECT * FROM application ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, fill_assist_json: null })));
+    expect(db10.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 11 });
+    db10.close();
   });
 });

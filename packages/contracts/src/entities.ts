@@ -6,6 +6,7 @@ import {
   Backend,
   Band,
   ComponentKind,
+  ConnectPath,
   ContactDegree,
   ContactSource,
   ContactTier,
@@ -192,14 +193,35 @@ export const EventRow = z.object({
 });
 export type EventRow = z.infer<typeof EventRow>;
 
+/** Added (#106): what a fill assist did in the portal, as the fill run reported it (`apply.fill_done`). */
+export const FillAssist = z.object({
+  at: IsoTimestamp,
+  run_id: Id.nullable(),
+  /** Labels of the fields it filled. */
+  filled: z.array(z.string()),
+  /** Documents it uploaded. */
+  uploaded: z.array(z.enum(['resume', 'cover_letter'])),
+  /** Fields it left for the human, each with a one-line reason. */
+  skipped: z.array(z.object({ label: z.string(), reason: z.string() })),
+});
+export type FillAssist = z.infer<typeof FillAssist>;
+
 export const Application = z.object({
   id: Id,
   role_id: Id,
   stage: z.enum(['research', 'tailor', 'connect', 'fill', 'submit', 'done']),
   applied_at: IsoTimestamp.nullable(),
   portal_url: z.string().url().nullable(),
-  /** `{ dossier?, resume?, cover_letter?, fit_map?, answers? }` vault paths. */
+  /**
+   * `{ dossier?, resume?, cover_letter?, fit_map?, answers? }` vault paths. #106 adds the rendered files
+   * (`resume_pdf`, `resume_docx`, `cover_letter_pdf`, `cover_letter_docx`, under `files/<role_id>/`).
+   */
   package_paths_json: z.record(z.string(), VaultPath),
+  /**
+   * Added (#106, migration 011): the last fill assist (`apply.fill_done`): the portal was opened, the documents
+   * uploaded and the answers filled, stopped before Submit. Null until then. The human submits.
+   */
+  fill_assist_json: FillAssist.nullable().default(null),
 });
 export type Application = z.infer<typeof Application>;
 
@@ -219,6 +241,18 @@ export const Contact = z.object({
 });
 export type Contact = z.infer<typeof Contact>;
 
+/**
+ * Added (#98): the tie between the user's 1st-degree mutual and a 2nd-degree target (judgment from the
+ * connect skill's read). `same_company`: the mutual works where the target works; `same_industry`: same
+ * industry; `history`: the mutual and the target have worked or talked together.
+ */
+export const BridgeTie = z.object({
+  same_company: z.boolean().default(false),
+  same_industry: z.boolean().default(false),
+  history: z.boolean().default(false),
+});
+export type BridgeTie = z.infer<typeof BridgeTie>;
+
 export const ContactLink = z.object({
   id: Id,
   contact_id: Id,
@@ -228,9 +262,18 @@ export const ContactLink = z.object({
   tier: ContactTier,
   via_contact_id: Id.nullable(),
   is_hiring_team: z.boolean(),
+  /** Added (#98): the path the user picked for a 2nd-degree hiring target; null = the ranked default. */
+  path: ConnectPath.nullable().default(null),
+  /** Added (#98): the mutual's tie to the target (degree 2 with a via only). */
+  via_tie_json: BridgeTie.nullable().default(null),
 });
 export type ContactLink = z.infer<typeof ContactLink>;
 
+/**
+ * One outreach draft, filed under the person it is addressed to (`contact_id`, the recipient). #98: a role
+ * can have several, one per recipient; a bridge intro is filed under the mutual with `about_contact_id`
+ * naming the target it is about (null for a note to the target itself).
+ */
 export const Outreach = z.object({
   id: Id,
   contact_id: Id,
@@ -239,6 +282,10 @@ export const Outreach = z.object({
   gmail_draft_id: z.string().nullable(),
   status: OutreachStatus,
   md_path: VaultPath.nullable(),
+  /** Added (#98): the target a bridge intro is about; null when the note is to the recipient's own role. */
+  about_contact_id: Id.nullable().default(null),
+  /** Added (#99): the To the Gmail draft was created or updated with; null = no To (or not in Gmail yet). */
+  gmail_to: z.string().nullable().default(null),
 });
 export type Outreach = z.infer<typeof Outreach>;
 
@@ -345,8 +392,8 @@ export const ASK_THREAD_MAX_TURNS = 20;
 /** Ask threads not updated for this many days are pruned (#69). */
 export const ASK_THREAD_TTL_DAYS = 30;
 
-/** One finished Ask turn: the user's message and the reply text. */
-export const AskThreadTurn = z.object({ user: z.string(), reply: z.string() });
+/** One finished Ask turn: the user's message, the reply text and (#100) how long it took in ms. */
+export const AskThreadTurn = z.object({ user: z.string(), reply: z.string(), ms: z.number().int().nonnegative().optional() });
 export type AskThreadTurn = z.infer<typeof AskThreadTurn>;
 
 /**

@@ -67,6 +67,7 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'decisions.queue': 'low',
   'decisions.resolve': 'low',
   'decisions.undo': 'low',
+  'decisions.undo_group': 'low',
   'runs.list': 'low',
   'runs.get': 'low',
   'system.doctor': 'low',
@@ -97,6 +98,10 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'apply.skip_connect': 'low',
   // #81
   'apply.set_questions': 'low',
+  // #98
+  'people.set_path': 'low',
+  // #99
+  'people.email_checked': 'low',
 };
 
 /** Wave 2 read ops. */

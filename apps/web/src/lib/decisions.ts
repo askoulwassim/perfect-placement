@@ -1,4 +1,4 @@
-import type { Decision, DecisionKind } from '@perfect-placement/contracts';
+import type { Decision, DecisionKind, EmailCheck } from '@perfect-placement/contracts';
 import { humanize } from './format';
 
 /** The question in five words or fewer, per decision kind. */
@@ -82,11 +82,38 @@ export interface EmailQ {
   mx: boolean | null;
   pattern: string | null;
   examples: number;
+  /** #99: the candidates still offered, in rank order, with their passive check. */
+  candidates: Array<{ email: string; check?: EmailCheck }>;
 }
+
+/** Short evidence labels for one candidate's check (#99): "Pattern: 3 peers", "Public: 1", "No MX", "Role". */
+export function checkLabels(c: EmailCheck | undefined): string[] {
+  if (!c) return [];
+  const out: string[] = [];
+  if (c.pattern_peers > 0) out.push(`Pattern: ${c.pattern_peers} ${c.pattern_peers === 1 ? 'peer' : 'peers'}`);
+  if (c.public_match) out.push('Public: 1');
+  if (c.domain === 'no_mx') out.push('No MX');
+  else if (c.domain === 'invalid') out.push('Invalid');
+  else if (c.domain === 'unknown') out.push('MX unknown');
+  if (c.risk !== 'none') out.push(RISK_LABEL[c.risk]);
+  return out;
+}
+const RISK_LABEL = { disposable: 'Disposable', role: 'Role', free: 'Free mail' } as const;
+
+/** The address checker the Needs you **Check** link opens (the user checks by hand; the app never contacts it). */
+export const EMAIL_CHECKER_URL = 'https://email-checker.net/';
+
 export const emailOf = (d: Pick<Decision, 'kind' | 'question_json'>): EmailQ | null => {
   if (d.kind !== 'people.email') return null;
   const q = d.question_json as Partial<EmailQ>;
   return typeof q.domain === 'string'
-    ? { name: q.name ?? '', domain: q.domain, mx: q.mx ?? null, pattern: q.pattern ?? null, examples: q.examples ?? 0 }
+    ? {
+        name: q.name ?? '',
+        domain: q.domain,
+        mx: q.mx ?? null,
+        pattern: q.pattern ?? null,
+        examples: q.examples ?? 0,
+        candidates: ((q as { candidates?: EmailQ['candidates'] }).candidates ?? []).filter((c) => typeof c.email === 'string'),
+      }
     : null;
 };

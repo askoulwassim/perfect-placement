@@ -30,6 +30,19 @@ describe('status machine', () => {
     expect(t({ from: 'archived', to: 'active', actor: 'agent', via: 'move' })).toBe(false);
   });
 
+  it('pick (#105): any actor, active or held -> on-deck only; never out of on-deck or later; rescore keeps the pick', () => {
+    for (const actor of ['human', 'agent', 'schedule'] as const) {
+      expect(t({ from: 'active', to: 'on-deck', actor, via: 'pick' })).toBe(true);
+      expect(t({ from: 'held', to: 'on-deck', actor, via: 'pick' })).toBe(true);
+    }
+    for (const from of ['inbox', 'draft-ready', 'applied', 'interviews', 'offers', 'archived'] as const)
+      expect(t({ from, to: 'on-deck', actor: 'agent', via: 'pick' })).toBe(false);
+    expect(t({ from: 'active', to: 'draft-ready', actor: 'human', via: 'pick' })).toBe(false);
+    expect(t({ from: 'on-deck', to: 'held', actor: 'agent', via: 'score' })).toBe(false);
+    expect(t({ from: 'on-deck', to: 'draft-ready', actor: 'agent', via: 'tailor' })).toBe(true);
+    expect(freesSlot('active', 'on-deck')).toBe(true);
+  });
+
   it('same status is a conflict', () => {
     expect(checkTransition({ from: 'active', to: 'active', actor: 'human', via: 'move' })).toMatchObject({ ok: false, code: 'conflict' });
   });

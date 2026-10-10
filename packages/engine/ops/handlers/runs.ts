@@ -1,8 +1,11 @@
-import { type Run, SCHEDULE_SKILL, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, vaultPath } from '@perfect-placement/contracts';
+import { draftRecipient } from '../../people/email.js';
+import { gmailRecipient } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
+import { peopleDeps } from '../lanes/people.js';
 import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf } from '../queue.js';
 import { get, insert, select, update } from '../rows.js';
 import {
@@ -13,13 +16,15 @@ import {
   deniedTools,
   deniedToolsError,
   gmailDraftPrompt,
+  gmailToPrompt,
   type RunnerExit,
+  SKILL_TOOLS,
   skillPrompt,
 } from '../runner.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
-import { applicationFor, getRole } from './shared.js';
+import { applicationFor, getRole, PICK_STAGES, type PickStage, pickRole } from './shared.js';
 
 /**
  * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
@@ -32,21 +37,40 @@ import { applicationFor, getRole } from './shared.js';
 export const runsStart = defineHandler('runs.start', {
   run(raw, h) {
     let input = raw;
+    let step: 'gmail_draft' | 'gmail_to' | null = null;
     // Gmail via agent: a `connect` run scoped to one outreach draft (the Gmail draft step). Its role and
     // contact come from the outreach.
     if (raw.outreach_id) {
       if (raw.skill !== 'connect') throw new OpError('invalid_input', 'outreach_id is for skill "connect" (the Gmail draft step)');
-      const o = get(h.db, 'outreach', raw.outreach_id);
+      const o = h.repos.outreach.get(raw.outreach_id);
       if (!o) throw notFound('outreach', raw.outreach_id);
       if ((raw.role_id && raw.role_id !== o.role_id) || (raw.contact_id && raw.contact_id !== o.contact_id))
         throw new OpError('invalid_input', `outreach ${o.id} is for role ${o.role_id} and contact ${o.contact_id}`);
-      if (o.status !== 'drafted') throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
+      // #99: the To comes first. A guess waiting in Needs you gets no Gmail draft (the confirmation queues
+      // this step); an in-Gmail draft with no To gets the To update step once the address is confirmed.
+      const deps = peopleDeps(h);
+      const recipient = gmailRecipient(deps, o);
+      const to = recipient ? draftRecipient(deps, recipient, { except: h.ctx.decisionId }) : null;
+      if (o.status === 'drafted') {
+        if (to?.decision_id)
+          throw new OpError(
+            'conflict',
+            `${recipient?.name ?? 'the recipient'}'s address is an unconfirmed guess: confirm it in Needs you; the Gmail draft is queued then`,
+          );
+        step = 'gmail_draft';
+      } else if (o.status === 'in_gmail' && o.gmail_draft_id && !o.gmail_to && to?.email) step = 'gmail_to';
+      else throw new OpError('conflict', `outreach ${o.id} is ${o.status}; it is already in Gmail`);
       input = { ...raw, role_id: o.role_id, contact_id: o.contact_id };
     }
+    if (raw.assist && raw.skill !== 'fill') throw new OpError('invalid_input', 'assist is for skill "fill" (the fill assist)');
+    if (raw.assist && !raw.role_id) throw new OpError('invalid_input', 'assist needs role_id');
     if (input.schedule && SCHEDULE_SKILL[input.schedule] !== input.skill)
       throw new OpError('invalid_input', `schedule ${input.schedule} runs ${SCHEDULE_SKILL[input.schedule]}, not ${input.skill}`);
     const outreachId = input.outreach_id;
-    const role = input.role_id ? getRole(h.db, input.role_id) : null;
+    const found = input.role_id ? getRole(h.db, input.role_id) : null;
+    // #105 On deck = picked: starting Research, Tailor or Connect on an active or held role picks it
+    // (-> on-deck, role_picked), whoever starts it. Idempotent; never moves a role at on-deck or later.
+    const role = found && PICK_STAGES.includes(input.skill) ? pickRole(h, found, input.skill as PickStage) : found;
     if (input.contact_id && !get(h.db, 'contact', input.contact_id)) throw notFound('contact', input.contact_id);
     const parent = input.triggered_by ? get(h.db, 'run', input.triggered_by) : null;
     if (input.triggered_by && !parent) throw notFound('run', input.triggered_by);
@@ -64,7 +88,15 @@ export const runsStart = defineHandler('runs.start', {
         { skill: input.skill, role_id: input.role_id, contact_id: input.contact_id, outreach_id: outreachId, company_id: companyId },
         { queuedOnly },
       );
-      if (dup) return { run: dup, deduped: true };
+      if (dup) {
+        // #106: Open and fill on a fill run still queued without assist turns the assist on for it.
+        if (input.skill === 'fill' && input.assist && dup.status === 'queued' && dup.summary_json.assist !== true) {
+          const summary_json = { ...dup.summary_json, assist: true };
+          update(h.db, 'run', dup.id, { summary_json });
+          return { run: { ...dup, summary_json }, deduped: true };
+        }
+        return { run: dup, deduped: true };
+      }
     }
 
     const now = h.ctx.now();
@@ -86,9 +118,10 @@ export const runsStart = defineHandler('runs.start', {
         ...(input.role_id ? { role_id: input.role_id } : {}),
         ...(companyId ? { company_id: companyId } : {}),
         ...(input.contact_id ? { contact_id: input.contact_id } : {}),
-        ...(outreachId ? { outreach_id: outreachId, step: 'gmail_draft' } : {}),
+        ...(outreachId ? { outreach_id: outreachId, step: step ?? 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         ...(input.schedule ? { schedule: input.schedule } : {}),
+        ...(input.skill === 'fill' && input.assist ? { assist: true } : {}),
         actor: asked ? 'ask' : h.ctx.actor,
         runner: h.config.runner.command,
         ...(agent ? {} : { queued_at: iso }),
@@ -101,7 +134,7 @@ export const runsStart = defineHandler('runs.start', {
       log_path,
       renderMarkdown(
         { id, type: 'run' },
-        `# ${date} ${input.skill}${outreachId ? ' Gmail draft' : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).`,
+        `# ${date} ${input.skill}${outreachId ? (step === 'gmail_to' ? ' Gmail To' : ' Gmail draft') : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).`,
       ),
     );
     h.emit('run_started', 'run', id, {
@@ -167,6 +200,7 @@ function launchRun(run: Run, h: HandlerContext): void {
   const skill = run.op as Skill;
   const id = run.id;
   const outreachId = s.outreach_id;
+  const fillTo = Boolean(outreachId) && (run.summary_json as { step?: string }).step === 'gmail_to';
   // #82: a connect run reads LinkedIn via Claude in Chrome only when config.linkedin.mode is `live`.
   const li = h.config.linkedin;
   const linkedin =
@@ -175,17 +209,25 @@ function launchRun(run: Run, h: HandlerContext): void {
       : undefined;
   // #81: a fill run answers the questions the user pasted (apply.set_questions) instead of reading the portal.
   const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
+  // #106: the fill assist (Open and fill) uploads the rendered PDFs and fills answer fields, stops before Submit.
+  const assist = skill === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
   const spec = buildRunnerSpec({
     runner: h.config.runner,
     skill,
     runId: id,
     home: h.home,
     mcp: defaultMcpServer(h.home),
-    ...(outreachId ? { gmailDraft: true } : {}),
+    ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
     ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
+    ...(assist ? { assist: true } : {}),
     prompt:
       outreachId && s.role_id && s.contact_id
-        ? gmailDraftPrompt(DEFAULT_SKILLS_DIR, { runId: id, outreachId, roleId: s.role_id, contactId: s.contact_id })
+        ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
+            runId: id,
+            outreachId,
+            roleId: s.role_id,
+            contactId: s.contact_id,
+          })
         : skillPrompt(DEFAULT_SKILLS_DIR, {
             runId: id,
             skill,
@@ -193,6 +235,7 @@ function launchRun(run: Run, h: HandlerContext): void {
             ...(s.contact_id ? { contactId: s.contact_id } : {}),
             ...(linkedin ? { linkedin } : {}),
             ...(questions ? { questions } : {}),
+            ...(assist ? { assist: true } : {}),
             // #76: Learn voice reads LinkedIn posts only when LinkedIn is live, within the page cap.
             ...(skill === 'voice' ? { voice: { linkedin: li.mode === 'live', max_pages: Math.min(li.max_pages_per_run, 5) } } : {}),
           }),
@@ -234,6 +277,39 @@ function launchRun(run: Run, h: HandlerContext): void {
   });
 }
 
+/** Skills whose runs use Claude in Chrome (#107: they report the tabs they used and closed). */
+const CHROME_SKILLS: readonly Skill[] = SKILLS.filter((s) => (SKILL_TOOLS[s].chrome?.length ?? 0) > 0);
+
+/**
+ * The tabs a Chrome run reported on `runs.finish` (#107), checked: only `connect`, `fill` and `voice` report
+ * tabs; `closed` and `left_open` are tabs it used (`opened`), never both; only a fill assist run may leave a
+ * tab open, and only its `portal` tab. Undefined when the run reported none.
+ */
+export function runTabsOf(run: Run, raw: unknown): RunTabs | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const p = RunTabs.safeParse(raw);
+  if (!p.success) throw new OpError('invalid_input', `tabs: ${p.error.issues[0]?.message ?? 'invalid'}`);
+  const t = p.data;
+  if (!CHROME_SKILLS.includes(run.op as Skill)) throw new OpError('invalid_input', `tabs: ${run.op} runs use no Chrome tabs`);
+  const used = new Set(t.opened);
+  const stray = [...t.closed, ...t.left_open].filter((id) => !used.has(id));
+  if (stray.length) throw new OpError('invalid_input', `tabs: ${stray.join(', ')} not opened by this run (never close the user's tabs)`);
+  if (t.closed.some((id) => t.left_open.includes(id))) throw new OpError('invalid_input', 'tabs: a tab is both closed and left open');
+  if (t.left_open.length) {
+    const assist = run.op === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
+    if (!assist || t.portal === undefined || t.left_open.length !== 1 || t.left_open[0] !== t.portal)
+      throw new OpError('invalid_input', 'tabs: only the fill assist may leave a tab open, and only its portal tab');
+  }
+  return t;
+}
+
+/** The run log's tabs line (#107): "Tabs: opened 12, 13; closed 13; left open 12 (portal)". */
+export function tabsLogLine(t: RunTabs): string {
+  const ids = (a: number[]) => (a.length ? a.join(', ') : 'none');
+  const left = t.left_open.length ? `; left open ${t.left_open.map((id) => (id === t.portal ? `${id} (portal)` : id)).join(', ')}` : '';
+  return `Tabs: opened ${ids(t.opened)}; closed ${ids(t.closed)}${left}`;
+}
+
 /**
  * runs.finish closes a queued or running run, then applies the pipeline rules (config `pipeline`,
  * #30): the runs they start are queued with `triggered_by` = this run and listed in its
@@ -253,16 +329,22 @@ export const runsFinish = defineHandler('runs.finish', {
       adds = linked.length || isQueueRun(run) ? linked : scoutRunAdds(h.db, run, false);
       mix = achievedMix(adds, h.config.scout);
     }
+    const tabs = runTabsOf(run, input.tabs ?? input.summary?.tabs);
     const patch = {
       finished_at: iso,
       status: input.status,
-      summary_json: { ...run.summary_json, ...(input.summary ?? {}), ...(mix ? { source_mix: mix } : {}) } as Record<string, unknown>,
+      summary_json: {
+        ...run.summary_json,
+        ...(input.summary ?? {}),
+        ...(mix ? { source_mix: mix } : {}),
+        ...(tabs ? { tabs } : {}),
+      } as Record<string, unknown>,
     };
     update(h.db, 'run', run.id, patch);
     if (run.log_path)
       h.vault.append(
         run.log_path,
-        `\n## Finished\n\n${iso}: ${input.status}${mix ? `\n\n${mixLine(mix)}` : ''}${input.note ? `\n\n${input.note.trim()}` : ''}\n`,
+        `\n## Finished\n\n${iso}: ${input.status}${mix ? `\n\n${mixLine(mix)}` : ''}${tabs ? `\n\n${tabsLogLine(tabs)}` : ''}${input.note ? `\n\n${input.note.trim()}` : ''}\n`,
       );
     h.emit('run_finished', 'run', run.id, { status: input.status, skill: run.op });
 

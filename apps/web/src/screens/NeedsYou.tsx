@@ -1,4 +1,4 @@
-import type { Decision } from '@perfect-placement/contracts';
+import type { QueuedDecision as Decision } from '@perfect-placement/contracts';
 import { useCallback, useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { DecisionCard } from '../components/decision';
@@ -81,6 +81,17 @@ export function NeedsYou() {
     [cur, act, finish],
   );
 
+  // #99: the user's own check of a candidate address. Valid confirms it (the decision resolves); Invalid
+  // drops it and the card stays while other candidates remain.
+  const emailCheck = useCallback(
+    async (address: string, result: 'valid' | 'invalid') => {
+      if (!cur) return;
+      const o = await act('people.email_checked', { contact_id: cur.subject_id, address, result });
+      if (o.status === 'ok' && !o.output.open) finish(cur, 'done');
+    },
+    [cur, act, finish],
+  );
+
   const step = useCallback(
     (dir: 1 | -1) => {
       if (!list.length) return;
@@ -104,14 +115,19 @@ export function NeedsYou() {
       if (k === 'a') void accept();
       else if (k === 'c') setChangeOpen((v) => !v);
       else if (k === 's') void skip();
-      else if (e.key === 'ArrowRight') step(1);
+      else if (k === 'o') {
+        // #102: open the focused card's posting; nothing without a url.
+        const url = cur?.subject_type === 'role' ? cur.subject_role?.url : null;
+        if (!url) return;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else if (e.key === 'ArrowRight') step(1);
       else if (e.key === 'ArrowLeft') step(-1);
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [accept, skip, step, cleared]);
+  }, [accept, skip, step, cleared, cur]);
 
   const doneCount = resolved.filter(Boolean).length;
   const primary = cleared
@@ -135,12 +151,13 @@ export function NeedsYou() {
       {cur && !cleared && (
         <CurrentCard
           key={cur.id}
-          d={cur}
+          d={queue.data?.pending.find((x) => x.id === cur.id) ?? cur}
           mobile={mobile}
           changeOpen={changeOpen}
           onToggleChange={() => setChangeOpen((v) => !v)}
           onPick={change}
           onSkip={skip}
+          onEmailCheck={emailCheck}
         />
       )}
       {cleared && (
@@ -171,6 +188,7 @@ function CurrentCard({
   onToggleChange,
   onPick,
   onSkip,
+  onEmailCheck,
 }: {
   d: Decision;
   mobile: boolean;
@@ -178,6 +196,7 @@ function CurrentCard({
   onToggleChange: () => void;
   onPick: (v: string | boolean | number) => void;
   onSkip: () => void;
+  onEmailCheck: (address: string, result: 'valid' | 'invalid') => void;
 }) {
   const { thresholds, now } = useApp();
   const role = useOp('roles.get', d.subject_type === 'role' ? { role_id: d.subject_id } : null);
@@ -211,6 +230,7 @@ function CurrentCard({
       onToggleChange={onToggleChange}
       onPick={onPick}
       onSkip={() => void onSkip()}
+      onEmailCheck={onEmailCheck}
     />
   );
 }

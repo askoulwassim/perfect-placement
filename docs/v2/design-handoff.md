@@ -14,6 +14,8 @@ Fonts: Bricolage Grotesque (display), Figtree (UI), JetBrains Mono (mono). Type 
 
 Space: 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56. Layout: rail 76, page pad x 48 / top 32, max width 1440, decision card max 720, side panel 380, mobile 390, mobile tab bar 70. Radius: card 12, button 10, small 8, chip 999, phone 36. Controls: button 44, chip 34, mobile hit 44, mobile primary 50. Focus: 2px solid emerald, offset 2. Motion: fast 150ms, base 250ms, ring 600ms ease, bounce 450ms.
 
+Hover and focus (#101): hover is CSS only, under `@media (hover: hover)` (a Btn `hover` object becomes an injected `.pp-h-*:hover:not(:disabled)` rule), so a click or a tap never leaves a highlight behind; focus rings use `:focus-visible`, never `:focus`. No JS hover state (`onMouseEnter`/`onMouseLeave`); `hover.test.tsx` enforces both.
+
 ## 2. Component inventory
 
 RoleTile, FreshnessRing, BandDot, WhoDecidesGlyph (auto, second, undo, you), PrimaryButton, SecondaryButton, Chip (fact, filter, impact, status, reason, diff-before, diff-after, evidence), StatusChip, ImpactChip, ProbabilityBar (colored by policy thresholds), HeroRing (= NeedsYouRing), CountTile, AutoRow, RoleCard, RiverColumn, RiverTile, ScoreRadar, AffinityChip, StageRail, ContactAvatar (5 tiers), BestPathPill, PeopleGraph, DraftStatusChip, OutreachBlock, ToneChips, ProfileNode, DiffBlock, VersionTimeline, DecisionCard, ProgressDots, CommandBar, PolicyGrid, Toggle, BackendCard, Toast, NavRail / TabBar. Props and states: `packages/contracts/src/ui.ts`.
@@ -40,12 +42,15 @@ Mobile (390): Now, Needs you, Role (plus River, You, Outreach) with a bottom Tab
 ## 4. Decisions that differ from the brief
 
 - Primary button sits in the header top-right on every screen, including Needs you. The card keeps Change and Skip plus A/C/S/arrow keys.
+- A Needs-you card about a role (freshness, dedupe, move, archive, fact check, inbox) shows **Open posting** next to Change and Skip when the role has a url: a plain external link (`<a target="_blank" rel="noopener noreferrer">`, not an op button), key `O` (#102). A freshness card adds a **Checked** row: when the posting was last checked and the evidence, short.
+- Now's Auto stream is grouped (#103): one AutoRow per role per score run ("Scored 82 · Kev · 9 criteria"), per run for contact classifications ("Contacts · Classified 6") and freshness ("Postings · Checked 12 · 2 closed"); no run id groups by kind and subject within 10 minutes. A count toggle (local) expands the member rows; the row's Undo (`decisions.undo_group`) undoes every undoable member and is hidden when none is.
 - Fourth glyph "auto after second opinion": two emerald dots (one at half opacity).
 - Probability bars use the policy thresholds for color; dragging thresholds in Settings recolors every bar.
 - Held is not a drop target; draft-ready -> applied bounces (the app never submits). Allowed drags: inbox<->active, active<->on-deck, on-deck<->draft-ready, applied<->interviews<->offers. (Encoded as `MANUAL_MOVES`.)
-- Company cap is drawn on the visible tile: a stacked tile with a gold "+N held" chip.
+- Company cap is drawn on the visible tile: a stacked tile with a gold "+N held" chip The chip sits on the company's best (highest scored) visible Active tile.
+- Lane order (#104): each lane sorts by latest score total (desc), unscored last by found date (newest first); ties by score, found date, then id. A per-lane Score / Newest toggle (local view state, `data-op="local"`) is remembered per viewer in localStorage (`pp.river.sort`); without storage the lanes still render in Score order. `roles.list` stays order-agnostic: the sort is the pure `sortLane` in `apps/web/src/lib/river.ts`.
 - Archived reasons show as count chips under the collapsed archived count.
 - A Terms diff can be resolved from Needs you or You; resolving in one clears both.
-- Stage by status: active/held -> Tailor next, draft-ready -> Connect next, on-deck/inbox -> Research next, applied -> done. Creating a Gmail draft marks Connect done.
+- Stage by status: active/held -> Tailor next, draft-ready -> Connect next, on-deck/inbox -> Research next (Tailor once the company has a dossier; the application stage wins when one exists), applied -> done. On-deck is labelled **In progress** in River, Role and Now (#105): starting Research, Tailor or Connect on an active or held role picks it (-> on-deck, `role_picked`). Creating a Gmail draft marks Connect done.
 - Added a "Setup" rail icon to re-enter onboarding, and a back arrow on Role, People, Draft.
 - People are placeholders (first name + last initial).

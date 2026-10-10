@@ -6,6 +6,7 @@ import { STATUS_HEX, STATUS_LABEL } from '../components/controls';
 import { ArchivedColumn, type ColumnState, InboxTile, RiverColumn, RiverDot, RiverTile } from '../components/roles';
 import { C, display, eyebrow } from '../components/theme';
 import { Screen, useLayout } from '../layout';
+import { heldStacks, type LaneSort, type LaneSorts, loadLaneSorts, saveLaneSorts, sortLane } from '../lib/river';
 import type { RoleView } from '../lib/role';
 import { activeLabel, scoreInput, scoreRunFor } from '../lib/runs';
 import { tile } from '../lib/view';
@@ -39,6 +40,13 @@ export function River() {
   const [bounce, setBounce] = useState<string | null>(null);
   // Inbox multi-select (#77): Shift-click tiles, then Pass them together.
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  // Per-lane sort (#104): Score (default) or Newest, remembered per viewer in this browser.
+  const [sorts, setSorts] = useState<LaneSorts>(loadLaneSorts);
+  const setSort = (s: RoleStatus, k: LaneSort) => {
+    const next = { ...sorts, [s]: k };
+    setSorts(next);
+    saveLaneSorts(next);
+  };
   const t = now();
 
   const all = list.data?.items ?? [];
@@ -92,7 +100,13 @@ export function River() {
     },
   };
 
-  const cols = RIVER_COLUMNS.map((s) => ({ s, roles: live.filter((v) => v.role.status === s) }));
+  const cols = RIVER_COLUMNS.map((s) => ({
+    s,
+    roles: sortLane(
+      live.filter((v) => v.role.status === s),
+      sorts[s],
+    ),
+  }));
 
   // Pass (#77): a human archives inbox roles they will not pursue (roles.archive, reason passed).
   const inboxIds = new Set((cols[0]?.roles ?? []).map((v) => v.role.id));
@@ -305,9 +319,10 @@ export function River() {
       </div>
       <div className="river" style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '10px 0 16px', alignItems: 'stretch' }}>
         {cols.map(({ s, roles }) => {
-          const lastOfCo = new Map(roles.map((v) => [v.company.id, v.role.id]));
-          const stackOf = (v: RoleView) =>
-            s === 'active' && lastOfCo.get(v.company.id) === v.role.id ? held.filter((h) => h.company.id === v.company.id).length : 0;
+          // The "+N held" chip sits on the company's best visible tile in Active.
+          const stacks = s === 'active' ? heldStacks(roles, held) : new Map<string, number>();
+          const stackOf = (v: RoleView) => stacks.get(v.role.id) ?? 0;
+          const sortBy = sorts[s] ?? 'score';
           return (
             <RiverColumn
               key={s}
@@ -318,6 +333,35 @@ export function River() {
               width={zoom === 'tiles' ? 218 : 128}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => void onDrop(e, s)}
+              sort={
+                <div className="river-sort" style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+                  {(
+                    [
+                      ['score', 'Score'],
+                      ['newest', 'Newest'],
+                    ] as const
+                  ).map(([k, label]) => (
+                    <Btn
+                      key={k}
+                      op="local"
+                      data-sort={k}
+                      aria-pressed={sortBy === k}
+                      onClick={() => setSort(s, k)}
+                      style={{
+                        height: 22,
+                        padding: '0 8px',
+                        borderRadius: 6,
+                        border: 0,
+                        background: sortBy === k ? C['panel-2'] : 'transparent',
+                        color: sortBy === k ? C.fg : C.muted,
+                        fontSize: 11,
+                      }}
+                    >
+                      {label}
+                    </Btn>
+                  ))}
+                </div>
+              }
               action={
                 s === 'inbox' ? (
                   <>

@@ -39,7 +39,7 @@ Every surface calls ops. Skills are SKILL.md files: they supply judgment (search
 | 10 | Interview | scheduled | prep, retro |
 | 11 | Learn | continuous | profile diffs -> rescore |
 
-Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule from v1 stays: an automated rescore never moves a role backwards out of `draft-ready` or later.
+Statuses (in order): `inbox`, `active`, `held`, `on-deck`, `draft-ready`, `applied`, `interviews`, `offers`, `archived`. `held` = over the per-company cap. `on-deck` = picked (UI label **In progress**, #105): starting an apply stage (Research, Tailor or Connect, the op or `runs.start`, human or agent) on an active or held role moves it there and emits `role_picked`; Tailor then moves it to `draft-ready`. On-deck takes no company slot and a rescore never moves it. `archived` always has a reason: `below_threshold`, `dealbreaker`, `closed`, `rejected`, `passed`, `withdrawn`. No-downgrade rule from v1 stays: an automated rescore never moves a role backwards out of `draft-ready` or later.
 
 Learning signals: role picked or skipped from active, closed while waiting, rejected (and at which stage), interview retro, outreach replied or ignored, offer terms.
 
@@ -102,6 +102,8 @@ Tiers and default drafts:
 | **Warm (1st degree)** | Ask for a conversation about the role | Coffee chat, or intro to the hiring manager |
 | **Bridge (2nd degree)** | Note to the mutual + forwardable blurb | same |
 | **Cold** | Positioning note: their problem, one proof, one ask | Skip unless asked |
+
+A 2nd-degree hiring-team target has two paths (#98): a **direct** note to them, or a **bridge** intro through the mutual. Code ranks them: direct when the target's email is confirmed or likely and the mutual is a weak tie (other company, no history); bridge only for a strong mutual (same company as the target, or history) with an email. Never a draft to a mutual with no email while a direct path exists. People shows both with one-line reasons; the user can switch, and may draft both: each draft is filed under the person it is addressed to (a bridge intro under the mutual, about the target).
 
 Sources: LinkedIn (browser automation, read-only: connections, company People page, mutuals), Gmail contacts, the JD and company team page. Output: contacts + `contact_role` links + Gmail **drafts** (never send). Replies come back through the inbox monitor as `outreach_replied` events.
 

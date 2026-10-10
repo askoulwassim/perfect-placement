@@ -37,7 +37,7 @@ export interface EngineServices {
   gmailContacts?: GmailContactsSource;
   /** Outreach text writer for scheduled runs without an agent. */
   outreachWriter?: OutreachWriter;
-  /** MX lookup for `people.find_email` (#37). Default: DNS (`defaultMx`). Tests inject a fake; never SMTP. */
+  /** Domain mail check for `people.find_email` (#37, #99): DNS MX, else an A record (`defaultMx`). Tests inject a fake; never SMTP. */
   mx?: MxResolver;
   /** Email finder (Hunter, Apollo, ...) behind the user's own key (#37). Pinned: no adapter ships; absent by default. */
   emailProvider?: EmailProvider;

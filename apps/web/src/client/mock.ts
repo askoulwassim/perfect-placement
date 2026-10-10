@@ -2,12 +2,15 @@ import {
   ARCHIVE_REASONS,
   CRITERIA,
   type Criterion,
+  type Decision,
   formatMoneyRange,
+  groupAutoDecisions,
   nextFire,
   OPS,
   type OpName,
   type OpOutcome,
   OUTREACH_TONES,
+  type QueuedDecision,
   ROLE_STATUSES,
   type Role,
   SCHEDULE_KEYS,
@@ -69,6 +72,29 @@ export function createMockClient(opts: MockOptions = {}): OpClient {
     },
   };
   return client;
+}
+
+/** #103: a roles.criterion group's total: the role's first score at or after the group's first decision. */
+const mockTotal = (g: { kind: string; subject_id: string | null; first_ts: string }) => {
+  if (g.kind !== 'roles.criterion' || !g.subject_id) return null;
+  const s = fx.scores
+    .filter((x) => x.role_id === g.subject_id && x.created_at >= g.first_ts)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+  return s ? s.total : null;
+};
+
+/** #102: the engine's subject_role on role decisions (url, last check, freshness evidence). */
+function withSubjectRole(d: Decision): QueuedDecision {
+  if (d.subject_type !== 'role') return d;
+  const r = fx.roles.find((x) => x.id === d.subject_id);
+  if (!r) return d;
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+  const own = d.kind === 'freshness.closed' ? str((d.question_json as { state?: { evidence?: unknown } }).state?.evidence) : null;
+  const check = fx.events
+    .filter((e) => e.type === 'freshness_checked' && e.subject_type === 'role' && e.subject_id === r.id)
+    .sort((a, b) => b.ts.localeCompare(a.ts))[0];
+  const last = check ? str((check.payload_json as { evidence?: unknown }).evidence) : null;
+  return { ...d, subject_role: { id: r.id, url: r.url, last_checked_at: r.last_checked_at, freshness_evidence: own ?? last } };
 }
 
 const latestVersion = () => fx.profileVersions[fx.profileVersions.length - 1] as (typeof fx.profileVersions)[number];
@@ -172,11 +198,14 @@ function readOp(
 
     case 'decisions.queue': {
       const since = (i.include_auto_since as string | undefined) ?? new Date(at.getTime() - 86_400_000).toISOString();
+      const recent = fx.decisions
+        .filter((d) => d.policy_outcome !== 'human' && d.ts >= since && d.ts <= iso)
+        .sort((a, b) => b.ts.localeCompare(a.ts));
       return ok({
-        pending: fx.decisions.filter((d) => d.status === 'pending' && d.policy_outcome === 'human'),
-        recent_auto: fx.decisions
-          .filter((d) => d.policy_outcome !== 'human' && d.ts >= since && d.ts <= iso)
-          .sort((a, b) => b.ts.localeCompare(a.ts)),
+        pending: fx.decisions.filter((d) => d.status === 'pending' && d.policy_outcome === 'human').map(withSubjectRole),
+        recent_auto: recent.map(withSubjectRole),
+        // #103: the engine's groups (fixtures carry no run ids, so the time window applies).
+        auto_groups: groupAutoDecisions(recent, at, { totalOf: mockTotal }),
       });
     }
     case 'runs.list': {
@@ -193,7 +222,15 @@ function readOp(
     }
 
     case 'outreach.list':
-      return ok({ items: fx.outreach.filter((o) => o.role_id === i.role_id) });
+      return ok({
+        items: fx.outreach
+          .filter((o) => o.role_id === i.role_id)
+          .map((o) => ({
+            ...o,
+            recipient_name: fx.contacts.find((c) => c.id === o.contact_id)?.name ?? '',
+            about_name: o.about_contact_id ? (fx.contacts.find((c) => c.id === o.about_contact_id)?.name ?? null) : null,
+          })),
+      });
     case 'outreach.get': {
       const outreach = must(
         fx.outreach.find((x) => x.id === i.outreach_id),
@@ -218,7 +255,8 @@ function readOp(
         guess: contact.email,
         reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
       };
-      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to });
+      const about = outreach.about_contact_id ? (fx.contacts.find((c) => c.id === outreach.about_contact_id) ?? null) : null;
+      return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to, about });
     }
     case 'contacts.get': {
       const contact = must(

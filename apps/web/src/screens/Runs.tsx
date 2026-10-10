@@ -4,7 +4,7 @@ import { Btn } from '../components/Btn';
 import { C, ellipsis, eyebrow, mono } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago } from '../lib/format';
-import { duration, isActive, retryInput, runLabel, runOutcome, summaryOf, triggeredBy } from '../lib/runs';
+import { duration, isActive, retryInput, runLabel, runOutcome, runTabs, summaryOf, triggeredBy } from '../lib/runs';
 import { go } from '../router';
 
 /* Runs (#21): every skill run with its state, outcome and log. List from runs.list, detail from runs.get. */
@@ -136,6 +136,8 @@ function RunDetail({ runId }: { runId: string }) {
     [isActive(run.status) ? 'Elapsed' : 'Took', duration(run, t)],
     ['By', String(s.actor ?? '—')],
     ...(s.role_id ? ([['Role', s.role_id]] as Array<[string, string]>) : []),
+    // #107: the Chrome tabs the run used and closed.
+    ...(runTabs(run) ? ([['Tabs', runTabs(run) as string]] as Array<[string, string]>) : []),
   ];
   // The chain (#30): the run that queued this one, and the runs this one queued.
   const from = triggeredBy(run);

@@ -24,11 +24,14 @@
     "@perfect-placement/contracts": "workspace:*",
     "@perfect-placement/resolver": "workspace:*",
     "better-sqlite3": "^13.0.3",
+    "docx": "^9.9.0",
+    "pdfkit": "^0.20.2",
     "unpdf": "^1.8.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@perfect-placement/fixtures": "workspace:*",
-    "@types/better-sqlite3": "^9.6.0"
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/pdfkit": "^0.17.6"
   }
 }

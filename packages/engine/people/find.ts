@@ -1,4 +1,5 @@
 import {
+  type BridgeTie,
   type Contact,
   type ContactLink,
   type LinkedInProvenance,
@@ -56,7 +57,7 @@ interface Candidate {
   email: string | null;
   source: Contact['source'];
   degree: Degree;
-  via: { name: string; headline: string | null; url: string } | null;
+  via: { name: string; headline: string | null; url: string; tie: BridgeTie | null } | null;
   hiringTeam: boolean;
 }
 
@@ -192,7 +193,7 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
     email: null,
     source: 'linkedin',
     degree: p.degree,
-    via: p.via,
+    via: p.via ? { ...p.via, tie: null } : null,
     hiringTeam: false,
   }));
   if (deps.gmailContacts && company.domain) {
@@ -218,7 +219,10 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
       email: h.email ?? null,
       source: h.source,
       degree: fromLinkedIn ? (h.degree ?? 'cold') : 'cold',
-      via: fromLinkedIn && h.via ? { name: h.via.name, headline: h.via.headline ?? null, url: h.via.linkedin_url } : null,
+      via:
+        fromLinkedIn && h.via
+          ? { name: h.via.name, headline: h.via.headline ?? null, url: h.via.linkedin_url, tie: h.via.tie ?? null }
+          : null,
       hiringTeam: h.hiring_team === true,
     });
   }
@@ -263,6 +267,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
           source: 'linkedin',
         }).contact.id;
       }
+      // #98: the skill's judgment of the mutual's tie to this person, kept with the via.
+      const viaTie = viaId && cand.via?.tie ? cand.via.tie : null;
 
       let link = getLinkForRole(db, contact.id, role.id);
       if (link) {
@@ -271,14 +277,18 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
         const closer = rank[cand.degree] < rank[link.degree];
         // A hiring-team signal (LinkedIn "hiring team", #82) only ever adds; it never clears an earlier call.
         const hiring = link.is_hiring_team || cand.hiringTeam;
-        if (closer || hiring !== link.is_hiring_team) {
+        const viaNext = closer ? (viaId ?? link.via_contact_id) : link.via_contact_id;
+        const tie = viaTie && viaId === viaNext ? viaTie : viaNext === link.via_contact_id ? link.via_tie_json : null;
+        const tieChanged = JSON.stringify(tie) !== JSON.stringify(link.via_tie_json);
+        if (closer || hiring !== link.is_hiring_team || tieChanged) {
           const degree = closer ? cand.degree : link.degree;
           link = {
             ...link,
             degree,
-            via_contact_id: closer ? (viaId ?? link.via_contact_id) : link.via_contact_id,
+            via_contact_id: viaNext,
             is_hiring_team: hiring,
             tier: tierFor(degree, hiring),
+            via_tie_json: tie,
           };
           if (!dryRun) updateLink(db, link);
         }
@@ -292,6 +302,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
           tier: tierFor(cand.degree, cand.hiringTeam),
           via_contact_id: viaId,
           is_hiring_team: cand.hiringTeam,
+          path: null,
+          via_tie_json: viaTie,
         };
         if (!dryRun) {
           insertLink(db, link);

@@ -4,7 +4,7 @@
  * no network. Nothing here touches the vault.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, closeSync, constants, existsSync, openSync, statSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, openSync, realpathSync, statSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { ops } from '@perfect-placement/engine';
@@ -24,6 +24,8 @@ export interface SystemDeps {
   /** Absolute path of `node` (MCP clients spawn it directly, not via PATH). */
   nodePath: string;
   which(cmd: string): string | null;
+  /** Resolve symlinks (throws when the path does not exist); default `fs.realpathSync`. */
+  realpath?(p: string): string;
   /** Run to completion with inherited stdio; resolves the exit code. */
   run(cmd: string, args: string[], opts?: { cwd?: string }): Promise<number>;
   /** Run a short command and capture its output. */
@@ -68,6 +70,7 @@ export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
     env,
     nodePath: stableNodePath(env, process.execPath),
     which: (cmd) => whichIn(cmd, env.PATH),
+    realpath: (p) => realpathSync(p),
     run: (cmd, args, opts) =>
       new Promise((done) => {
         const child = spawn(cmd, args, { cwd: opts?.cwd, stdio: 'inherit', env });

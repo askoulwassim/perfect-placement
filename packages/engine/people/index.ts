@@ -1,9 +1,11 @@
 // Lane H owns this folder: contacts, contact_link, tier classification, outreach drafts.
+import { emailChecked } from './check.js';
 import { classifyContact, linkContact } from './classify.js';
 import { findEmail } from './email.js';
 import { fallbackPeople } from './fallback.js';
 import { findPeople } from './find.js';
 import { draftOutreach, outreachSendHandler, outreachToGmailHandler } from './outreach.js';
+import { setPath } from './path.js';
 
 export const OWNER_LANE = 'H' as const;
 
@@ -13,13 +15,17 @@ export const handlers = {
   'people.link': linkContact,
   'people.classify': classifyContact,
   'people.find_email': findEmail,
+  'people.email_checked': emailChecked,
   'people.fallback': fallbackPeople,
+  'people.set_path': setPath,
   'outreach.draft': draftOutreach,
   'outreach.to_gmail': outreachToGmailHandler,
   'outreach.send': outreachSendHandler,
 } as const;
 
+export { emailChecked } from './check.js';
 export { CLASSIFY_INSTRUCTIONS, classifyContact, linkContact } from './classify.js';
+export { createMailResolver, type DnsLookups } from './dns.js';
 export {
   cleanDomain,
   dossierDomain,
@@ -33,11 +39,16 @@ export {
   learnFormat,
   localFor,
   type MxResolver,
+  NO_CANDIDATE,
   nameParts,
   PATTERN_PRIOR,
+  type PeerFit,
   PeopleFindEmailInput,
   patternsOf,
+  peerFits,
+  pendingEmailDecision,
   rankCandidates,
+  UNPROVEN_MARGIN,
 } from './email.js';
 export { atDomain, fallbackPeople, pickTeamInbox, TEAM_INBOX_NAME, TEAM_MAILBOXES, teamMailboxRank } from './fallback.js';
 export { findPeople, PeopleFindInput, PersonHint } from './find.js';
@@ -46,12 +57,30 @@ export {
   composeAndDraft,
   draftContext,
   draftOutreach,
+  gmailRecipient,
   outreachSendHandler,
   outreachToGmailHandler,
   readOutreachSections,
   renderOutreachMd,
   resolveDraft,
 } from './outreach.js';
+export {
+  connectPathsFor,
+  draftTierFor,
+  draftTiersFor,
+  LIKELY_EMAIL_P,
+  PATH_TIER,
+  type PathFacts,
+  type RankedPath,
+  REACH_POINTS,
+  type Reach,
+  rankPaths,
+  reachOf,
+  STRONG_TIE,
+  setPath,
+  TIE_POINTS,
+  tiePoints,
+} from './path.js';
 export {
   CONNECT_FALLBACK_OPS,
   connectStateFor,
@@ -96,3 +125,4 @@ export {
 } from './templates.js';
 export { HIRING_TEAM_ROLES, isHiringTeam, TIER_PRIORITY, tierFor } from './tier.js';
 export type { DraftText, Handler, OutreachWriter, PeopleDeps, WriterPrompt } from './types.js';
+export { checkCandidates, checkOne, domainCheck, isValidSyntax, MIN_PEERS, type Peer, PROVEN_P, riskOf } from './verify.js';

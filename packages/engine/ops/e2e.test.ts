@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
 
 /*
- * Done-when (lane B brief): a fixture role goes inbox -> active -> draft-ready ->
+ * Done-when (lane B brief): a fixture role goes inbox -> active -> on-deck (picked, #105) -> draft-ready ->
  * applied -> interviews through ops only. Scoring (lane F) is not merged, so the
  * inbox -> active step is the human's manual pick in River.
  */
@@ -26,6 +26,7 @@ describe('one fixture role through the funnel, ops only', () => {
 
   it('research + tailor -> draft-ready (agent)', async () => {
     const run = okOut(await e.runOp('runs.start', { skill: 'tailor', role_id: id }, ctxAt())).run;
+    expect(status()).toBe('on-deck'); // #105: starting Tailor picks the role
     const ctx = ctxAt('agent', { runId: run.id });
     okOut(await e.runOp('companies.dossier.write', { company_id: 'notion', markdown: '# Notion\n\nDossier.' }, ctx));
     okOut(await e.runOp('apply.tailor', { role_id: id, resume_md: '# R', cover_letter_md: '# C', fit_map_md: '# F' }, ctx));
@@ -48,8 +49,10 @@ describe('one fixture role through the funnel, ops only', () => {
     const trail = (e.db.prepare(`SELECT type FROM event WHERE subject_id = ? ORDER BY rowid`).all(id) as { type: string }[]).map(
       (r) => r.type,
     );
-    expect(trail.slice(-8)).toEqual([
+    expect(trail.slice(-10)).toEqual([
       'role_moved',
+      'role_moved',
+      'role_picked',
       'application_tailored',
       'role_moved',
       'inbox_classified',

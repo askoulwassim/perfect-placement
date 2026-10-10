@@ -47,6 +47,7 @@ export function createHttpClient(base: string = DEFAULT_API_BASE, fetchImpl: typ
       }
       return isOutcome(body) ? (body as OpOutcome<Out<N>>) : down(`${name}: HTTP ${res.status}`);
     },
+    fileUrl: (path: string) => `${root}/files?path=${encodeURIComponent(path)}`,
     /** `POST {base}/ask`, read as Server-Sent Events. Network or HTTP failures become an `unavailable` error event. */
     async *ask(req: AskChatRequest, signal?: AbortSignal): AsyncGenerator<AskChatEvent> {
       const down = (message: string): AskChatEvent => ({ type: 'error', code: 'unavailable', message });

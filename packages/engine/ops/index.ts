@@ -41,7 +41,9 @@ export {
 } from './ask.js';
 export { createDecisionStore } from './decision-store.js';
 export * from './dedupe.js';
+export { RENDER_MIME, renderDocx, renderPdf } from './documents.js';
 export { notFound, OpError } from './errors.js';
+export { downloadableFile } from './handlers/assist.js';
 export { INBOX_TARGET } from './handlers/inbox.js';
 export { LANE_B_HANDLERS } from './handlers/index.js';
 export { appendRoleLog, latestScore, type MoveOptions, moveRole, undoMove, upsertApplication } from './handlers/shared.js';

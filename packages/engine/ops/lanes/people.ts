@@ -1,14 +1,17 @@
-import { type ContactTier, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
+import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES, type RunOp } from '@perfect-placement/contracts';
+import { emailChecked } from '../../people/check.js';
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { defaultMx } from '../../people/dns.js';
 import { draftRecipient, findEmail } from '../../people/email.js';
 import { fallbackPeople } from '../../people/fallback.js';
 import { findPeople } from '../../people/find.js';
-import { draftOutreach, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import { draftOutreach, gmailRecipient, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import { setPath } from '../../people/path.js';
 import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
 import { notFound, OpError } from '../errors.js';
+import { getRole, pickRole } from '../handlers/shared.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
 
 /*
@@ -17,6 +20,11 @@ import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js
  * ops outreach.get / outreach.list / contacts.get. outreach.send has no handler: it is unimplemented
  * by contract (the human sends from Gmail).
  */
+
+/** #105: Connect is an apply stage: finding people for an active or held role picks it (-> on-deck, role_picked). */
+function pickForConnect(h: HandlerContext, roleId: string): void {
+  pickRole(h, getRole(h.db, roleId), 'connect');
+}
 
 export function peopleDeps(h: HandlerContext): PeopleDeps {
   return {
@@ -32,7 +40,33 @@ export function peopleDeps(h: HandlerContext): PeopleDeps {
     ...(h.services.outreachWriter ? { writer: h.services.outreachWriter } : {}),
     mx: h.services.mx ?? defaultMx,
     ...(h.services.emailProvider ? { emailProvider: h.services.emailProvider } : {}),
+    runOp: h.runOp as RunOp,
   };
+}
+
+/**
+ * #99: once a recipient's address turns confirmed (a Needs you pick, or a confident or verified guess),
+ * queue the Gmail step for each of their drafts: a `drafted` one gets its Gmail draft (it waited for the
+ * address), an `in_gmail` one with no To gets the To update step. `except`: the decision being resolved.
+ */
+async function queueGmailSteps(h: HandlerContext, contactId: string): Promise<string[]> {
+  const queued: string[] = [];
+  const ctx: OpContext = {
+    actor: h.ctx.actor === 'agent' ? 'schedule' : h.ctx.actor,
+    now: h.ctx.now,
+    ...(h.ctx.decisionId ? { decisionId: h.ctx.decisionId } : {}),
+    ...(h.ctx.runId ? { runId: h.ctx.runId } : {}),
+  };
+  const deps = peopleDeps(h);
+  for (const o of h.repos.outreach.select('status IN (?, ?) ORDER BY id', ['drafted', 'in_gmail'])) {
+    if (gmailRecipient(deps, o)?.id !== contactId) continue;
+    const create = o.status === 'drafted';
+    const fillTo = o.status === 'in_gmail' && Boolean(o.gmail_draft_id) && !o.gmail_to;
+    if (!create && !fillTo) continue;
+    const r = await h.runOp('runs.start', { skill: 'connect', outreach_id: o.id }, ctx);
+    if (r.status === 'ok') queued.push(o.id);
+  }
+  return queued;
 }
 
 function unwrap<O>(o: OpOutcome<O>) {
@@ -50,11 +84,36 @@ const TONE_TIER: Record<(typeof OUTREACH_TONES)[number], ContactTier> = {
 };
 
 export const LANE_H_HANDLERS = {
-  'people.find': defineHandler('people.find', { run: async (i, h) => unwrap(await findPeople(i, h.ctx, peopleDeps(h))) }),
+  'people.find': defineHandler('people.find', {
+    run: async (i, h) => {
+      if (!i.dry_run) pickForConnect(h, i.role_id);
+      return unwrap(await findPeople(i, h.ctx, peopleDeps(h)));
+    },
+  }),
   'people.link': defineHandler('people.link', { run: async (i, h) => unwrap(await linkContact(i, h.ctx, peopleDeps(h))) }),
   'people.classify': defineHandler('people.classify', { run: async (i, h) => unwrap(await classifyContact(i, h.ctx, peopleDeps(h))) }),
-  'people.find_email': defineHandler('people.find_email', { run: async (i, h) => unwrap(await findEmail(i, h.ctx, peopleDeps(h))) }),
-  'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
+  'people.find_email': defineHandler('people.find_email', {
+    async run(i, h) {
+      const deps = peopleDeps(h);
+      const before = h.repos.contact.get(i.contact_id);
+      const was = before ? draftRecipient(deps, before, { except: h.ctx.decisionId }).confirmed : false;
+      const o = await findEmail(i, h.ctx, deps);
+      // #99: the address just turned confirmed: the drafts that waited for it go to Gmail now.
+      if (o.status === 'ok' && !h.ctx.dryRun && o.output.confirmed && !was) await queueGmailSteps(h, o.output.contact.id);
+      return unwrap(o);
+    },
+  }),
+  // #99: the user's own check of a candidate (Needs you Valid / Invalid); valid resolves the decision.
+  'people.email_checked': defineHandler('people.email_checked', {
+    run: async (i, h) => unwrap(await emailChecked(i, h.ctx, peopleDeps(h))),
+  }),
+  'people.fallback': defineHandler('people.fallback', {
+    run: async (i, h) => {
+      pickForConnect(h, i.role_id);
+      return unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h)));
+    },
+  }),
+  'people.set_path': defineHandler('people.set_path', { run: async (i, h) => unwrap(await setPath(i, h.ctx, peopleDeps(h))) }),
   'outreach.draft': defineHandler('outreach.draft', { run: async (i, h) => unwrap(await draftOutreach(i, h.ctx, peopleDeps(h))) }),
   'outreach.to_gmail': defineHandler('outreach.to_gmail', {
     decisionKind: 'outreach.to_gmail',
@@ -91,12 +150,23 @@ export const LANE_H_HANDLERS = {
         email_confidence: rc.email_confidence,
         guess: r.guess,
         reason: r.reason,
+        decision_id: r.decision_id,
       };
-      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants, to };
+      // #98: the target a bridge intro is about (the outreach itself is filed under its recipient).
+      const about = outreach.about_contact_id ? (h.repos.contact.get(outreach.about_contact_id) ?? null) : null;
+      return { outreach, contact, hook, proof, ask, subject: s.subject ?? null, signoff, body, variants, to, about };
     },
   }),
   'outreach.list': defineHandler('outreach.list', {
-    run: (i, h) => ({ items: h.repos.outreach.select('role_id = ? ORDER BY id', [i.role_id]) }),
+    run(i, h) {
+      // #98: one draft per recipient; each names its recipient and, for a bridge intro, the target.
+      const name = (id: string | null) => (id ? (h.repos.contact.get(id)?.name ?? null) : null);
+      return {
+        items: h.repos.outreach
+          .select('role_id = ? ORDER BY id', [i.role_id])
+          .map((o) => ({ ...o, recipient_name: name(o.contact_id) ?? '', about_name: name(o.about_contact_id) })),
+      };
+    },
   }),
   'contacts.get': defineHandler('contacts.get', {
     run(i, h) {

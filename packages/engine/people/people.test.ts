@@ -93,9 +93,9 @@ describe('tiers', () => {
 });
 
 describe('people.find', () => {
-  it('only runs on picked roles', async () => {
-    const r = await run('people.find', { role_id: R.datadogActive }, testCtx());
-    expect(r).toMatchObject({ status: 'error', code: 'conflict' });
+  it('picks an active role first (#105), refuses unpicked inbox or archived roles', async () => {
+    const r = await run('people.find', { role_id: R.datadogActive, dry_run: true }, testCtx());
+    expect(r).toMatchObject({ status: 'error', code: 'conflict' }); // a dry run picks nothing
     expect(await run('people.find', { role_id: 'nope_nope' }, testCtx())).toMatchObject({ status: 'error', code: 'not_found' });
   });
 
@@ -583,10 +583,12 @@ describe('end to end on a picked role (dry run)', () => {
       'outreach.send',
       'outreach.to_gmail',
       'people.classify',
+      'people.email_checked',
       'people.fallback',
       'people.find',
       'people.find_email',
       'people.link',
+      'people.set_path',
     ]);
   });
 });

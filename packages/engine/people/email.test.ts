@@ -260,11 +260,12 @@ describe('people.find_email', () => {
     expect(mxCalls).toEqual([]);
   });
 
-  it('no MX record lowers every candidate', async () => {
+  it('no MX (or A) record drops every candidate (#99)', async () => {
     open({ mx: mx(false) });
     const out = ok(await find({ role_id: ROLE }));
     expect(out.mx).toBe(false);
-    expect(out.confidence).toBeLessThan(0.2);
+    expect(out).toMatchObject({ email: null, candidates: [], decision_id: null });
+    expect(out.dropped).toContain('maya.rivera@acme.example');
   });
 
   it('no company domain: nothing guessed until the agent passes one (or the dossier names it)', async () => {

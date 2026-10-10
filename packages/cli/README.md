@@ -29,6 +29,7 @@ One process on 127.0.0.1 (loopback bind and loopback `Host` header only):
 | --- | --- |
 | `POST /api/ops/:name` | body = op input JSON; `runOp(name, input, { actor: 'human' })`; returns the `OpOutcome` (200 ok, 202 requires_human, 4xx/5xx by error code). Unknown op 404, bad JSON 400. |
 | `GET /api/ops`, `GET /api/health` | op list, health |
+| `GET /api/files?path=` | #106: a rendered document (`files/<role_id>/<doc>.pdf` or `.docx`, from `apply.render_documents`) as a download. Read-only; only files an application references, anything else 404. |
 | `POST /api/ask` | Ask (#39): body `AskChatRequest` `{ thread_id?, message, context?: { screen?, role_id? } }`; reply `text/event-stream` of `AskChatEvent`s (`thread` first, then `text` / `tool` / `tool_result` / `run`, then `done` or `error`). One turn of `config.runner` with the pp MCP server; the runner is killed if the client disconnects. See `packages/engine/ops/README.md`, "Ask agent session". |
 | `POST /mcp` | MCP Streamable HTTP, actor `agent`, same engine |
 | `GET /*` | `apps/web/dist` (or `--web <dir>`) with SPA fallback |
@@ -56,7 +57,7 @@ node packages/cli/dist/index.js up --fixtures            # http://127.0.0.1:5177
 | Linux | `~/.config/systemd/user/pp-<key>.{service,timer}` (`OnCalendar`, `Persistent=true`) | `systemctl --user daemon-reload`, `enable --now` |
 | other | none: `pp schedules install` prints crontab lines to add | you |
 
-- `pp setup` asks before installing (`--yes` installs, `--no-schedules` skips). `pp schedules install` rewrites and reloads every job; `remove` unloads and deletes them (config untouched); `status` shows spec, next run, last scheduled run and job state (`installed`, `missing`, `stale`, `off`, `orphan`, `manual`).
+- `pp setup` asks before installing (`--yes` installs, `--no-schedules` skips). `pp schedules install` rewrites and reloads every job; `remove` unloads and deletes them (config untouched); `status` shows spec, next run, last scheduled run and job state (`installed`, `missing`, `stale`, `off`, `orphan`, `manual`). Paths compare by file identity (realpath), so a repo, vault or node reached through a symlink is not `stale`.
 - Settings toggles save `config.update`; when `schedules` change, `pp up` (and `pp op`) sync the jobs after commit: a schedule turned `off` loses its job, one turned on gets it. Jobs already installed as is are left alone.
 - `pp up` catches up: a schedule that is on, ran before, and fired since its last run started (machine off, no job) is queued once at start (`--no-catch-up` skips). A schedule that never ran waits for its job or a Run button.
 - `pp doctor` (`schedule_jobs`): fails when installed jobs do not match `config.schedules` (stale, missing next to installed ones, or left over for a schedule turned off). No jobs at all passes with a hint (declined in setup).

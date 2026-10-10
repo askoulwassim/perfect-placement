@@ -1,6 +1,6 @@
 import type { ArchiveReason, RoleStatus } from '@perfect-placement/contracts';
-import { type DragEvent, type MouseEvent, type ReactNode, useState } from 'react';
-import { Btn, useHover } from './Btn';
+import type { DragEvent, MouseEvent, ReactNode } from 'react';
+import { Btn } from './Btn';
 import { ReasonChip, STATUS_HEX, STATUS_LABEL } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph, type WhoKind } from './glyphs';
 import { C, display, ellipsis, eyebrow, mono, tab } from './theme';
@@ -15,6 +15,8 @@ export interface TileData {
   band: string;
   /** The job posting (#34): Cmd/Ctrl-click a tile, card or dot opens it in a new tab. */
   url?: string | null;
+  /** #105: "In progress" for a picked (on-deck) role, shown on the Now card. */
+  tag?: string | null;
 }
 
 /**
@@ -28,6 +30,15 @@ function openTile(e: MouseEvent, r: TileData, onOpen?: () => void, onSelect?: ()
 }
 
 // ------------------------------------------------------------ RoleCard (top picks)
+
+/** #105: the "In progress" line on a picked role's card. */
+function CardTag({ text }: { text: string }) {
+  return (
+    <span className="role-card__tag" style={{ display: 'block', marginTop: 4, ...eyebrow(STATUS_HEX['on-deck'], 9.5) }}>
+      {text}
+    </span>
+  );
+}
 
 export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => void; mobile?: boolean }) {
   if (mobile)
@@ -55,6 +66,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 14, fontWeight: 600, ...ellipsis }}>{r.title}</span>
           <span style={{ display: 'block', fontSize: 12, color: C.muted }}>{r.co}</span>
+          {r.tag && <CardTag text={r.tag} />}
         </span>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: r.band }} />
         <span style={display(26, 800, 'normal')}>{r.fit ?? '—'}</span>
@@ -85,6 +97,7 @@ export function RoleCard({ r, onOpen, mobile }: { r: TileData; onOpen?: () => vo
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 16, fontWeight: 600, ...ellipsis }}>{r.title}</span>
         <span style={{ display: 'block', fontSize: 13, color: C.muted, marginTop: 3 }}>{r.co}</span>
+        {r.tag && <CardTag text={r.tag} />}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: r.band }} />
@@ -198,17 +211,14 @@ export function RiverTile({
 
 /** An Inbox tile with its menu (#77): Pass shows on hover or focus; Shift-click selects. */
 export function InboxTile({ onPass, ...tile }: Parameters<typeof RiverTile>[0] & { onPass: () => void }) {
-  const [hover, bind] = useHover();
-  const [focus, setFocus] = useState(false);
+  // Pass shows on tile hover or keyboard focus via CSS (styles.css), never JS hover state (#101).
   return (
-    <div className="inbox-tile" {...bind} style={{ position: 'relative' }}>
+    <div className="inbox-tile" style={{ position: 'relative' }}>
       <RiverTile {...tile} />
       <Btn
         op="roles.archive"
         className="tile-pass"
         aria-label={`Pass ${tile.r.co}`}
-        onFocus={() => setFocus(true)}
-        onBlur={() => setFocus(false)}
         onClick={onPass}
         style={{
           position: 'absolute',
@@ -222,7 +232,6 @@ export function InboxTile({ onPass, ...tile }: Parameters<typeof RiverTile>[0] &
           color: C.muted,
           fontSize: 11,
           fontWeight: 600,
-          opacity: hover || focus ? 1 : 0,
           transition: 'opacity .15s',
         }}
         hover={{ borderColor: C.coral, color: C.coral }}
@@ -283,6 +292,7 @@ export function RiverColumn({
   onDrop,
   onDragOver,
   action,
+  sort,
 }: {
   status: RoleStatus;
   count: number;
@@ -295,6 +305,8 @@ export function RiverColumn({
   onDragOver?: (e: DragEvent) => void;
   /** A column action under the header (Inbox: Score all). */
   action?: ReactNode;
+  /** The lane's sort toggle (#104), under the header bar. */
+  sort?: ReactNode;
 }) {
   const color = STATUS_HEX[status];
   const allowed = state === 'drop-allowed';
@@ -320,7 +332,8 @@ export function RiverColumn({
         <div style={{ ...eyebrow(color, 10.5), whiteSpace: 'nowrap' }}>{STATUS_LABEL[status]}</div>
         <div style={{ ...display(26, 800, '-0.03em'), ...tab, lineHeight: 1 }}>{count}</div>
       </div>
-      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: action ? 10 : 16 }} />
+      <div style={{ height: 3, borderRadius: 3, background: color, opacity: 0.5, marginBottom: action || sort ? 10 : 16 }} />
+      {sort}
       {action}
       {!dots && <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>}
       {dots && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12, alignItems: 'center' }}>{dotChildren}</div>}
@@ -368,6 +381,11 @@ export function AutoRow({
   undone,
   onUndo,
   mobile,
+  count,
+  expanded,
+  onToggle,
+  undoOp = 'decisions.undo',
+  nested,
 }: {
   glyph: WhoKind;
   left?: number;
@@ -378,15 +396,22 @@ export function AutoRow({
   undone?: boolean;
   onUndo?: () => void;
   mobile?: boolean;
+  /** #103: a group row (several decisions of one run); the toggle expands its members. */
+  count?: number;
+  expanded?: boolean;
+  onToggle?: () => void;
+  undoOp?: 'decisions.undo' | 'decisions.undo_group';
+  /** A member row under an expanded group. */
+  nested?: boolean;
 }) {
   const canUndo = undoable && !undone;
+  // Desktop rows reveal Undo on row hover via CSS (styles.css); mobile always shows it (#101).
   const undoBtn = (visible: boolean) => (
     <Btn
-      op="decisions.undo"
-      className="auto-row__undo"
+      op={undoOp}
+      className={visible ? 'auto-row__undo is-shown' : 'auto-row__undo'}
       onClick={onUndo}
       style={{
-        opacity: visible ? 1 : 0,
         background: 'transparent',
         border: `1px solid ${C['line-2']}`,
         color: C.fg,
@@ -400,49 +425,80 @@ export function AutoRow({
       Undo
     </Btn>
   );
+  const toggle = count !== undefined && count > 1 && onToggle && (
+    <Btn
+      op="local"
+      className="auto-row__toggle"
+      aria-expanded={!!expanded}
+      aria-label={expanded ? 'Collapse' : 'Expand'}
+      onClick={onToggle}
+      style={{
+        background: 'transparent',
+        border: `1px solid ${C['line-2']}`,
+        color: C.muted,
+        borderRadius: 8,
+        height: mobile ? 30 : 26,
+        minWidth: 40,
+        padding: '0 8px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        ...mono(11, C.muted),
+      }}
+      hover={{ borderColor: C['emerald-2'], color: C.emerald }}
+    >
+      <span aria-hidden="true">{expanded ? '\u25BE' : '\u25B8'}</span>
+      <span style={tab}>{count}</span>
+    </Btn>
+  );
   if (mobile)
     return (
-      <div className="auto-row" style={{ display: 'flex', alignItems: 'center', gap: 12, height: 44, opacity: undone ? 0.45 : 1 }}>
+      <div
+        className="auto-row"
+        style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 44, opacity: undone ? 0.45 : 1, paddingLeft: nested ? 22 : 0 }}
+      >
         <WhoDecidesGlyph kind={glyph} left={left} />
-        <span style={{ fontSize: 13, fontWeight: 500, flex: 1, minWidth: 0, ...ellipsis }}>{object}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, ...ellipsis }}>{object}</div>
+          {count !== undefined && <div style={{ ...mono(11, C.muted), ...ellipsis }}>{undone ? 'undone' : action}</div>}
+        </div>
+        {toggle}
         {canUndo && undoBtn(true)}
         <span style={mono(11, C.dim)}>{time}</span>
       </div>
     );
   return (
-    <HoverRow undone={undone}>
-      {(hover) => (
-        <>
-          <WhoDecidesGlyph kind={glyph} left={left} />
-          <div style={{ fontSize: 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
-          <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap' }}>{undone ? 'undone' : action}</div>
-          <div style={{ flex: 1 }} />
-          {canUndo && undoBtn(hover)}
-          <div style={{ ...mono(12, C.dim), ...tab, width: 40, textAlign: 'right' }}>{time}</div>
-        </>
-      )}
+    <HoverRow undone={undone} nested={nested}>
+      <>
+        <WhoDecidesGlyph kind={glyph} left={left} />
+        <div style={{ fontSize: nested ? 13 : 14, fontWeight: 500, minWidth: 0, ...ellipsis }}>{object}</div>
+        <div style={{ ...mono(12, C.muted), whiteSpace: 'nowrap', minWidth: 0, ...ellipsis }}>{undone ? 'undone' : action}</div>
+        <div style={{ flex: 1 }} />
+        {toggle}
+        {canUndo && undoBtn(false)}
+        <div style={{ ...mono(12, C.dim), ...tab, width: 40, textAlign: 'right' }}>{time}</div>
+      </>
     </HoverRow>
   );
 }
 
-function HoverRow({ undone, children }: { undone?: boolean; children: (hover: boolean) => ReactNode }) {
-  const [hover, bind] = useHover();
+/** A desktop activity row: its hover background is CSS (`.auto-row--hover` in styles.css), not JS state (#101). */
+function HoverRow({ undone, nested, children }: { undone?: boolean; nested?: boolean; children: ReactNode }) {
   return (
     <div
-      className={`auto-row ${undone ? 'is-undone' : ''}`}
-      {...bind}
+      className={`auto-row auto-row--hover ${undone ? 'is-undone' : ''}`}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 14,
-        height: 46,
-        padding: '0 14px',
+        height: nested ? 38 : 46,
+        padding: nested ? '0 14px 0 40px' : '0 14px',
         borderRadius: 10,
-        background: hover ? C.panel : 'transparent',
+        background: 'transparent',
         opacity: undone ? 0.45 : 1,
       }}
     >
-      {children(hover)}
+      {children}
     </div>
   );
 }

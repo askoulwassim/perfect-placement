@@ -8,6 +8,7 @@ import type {
   OpOutput,
   PolicyConfig,
   RecordFn,
+  RunOp,
   SubjectType,
 } from '@perfect-placement/contracts';
 import type { Repos } from '../db/repo.js';
@@ -59,6 +60,8 @@ export interface PeopleDeps {
   mx?: MxResolver;
   /** Email finder service (#37, pinned): absent unless the user wires one with their own key. */
   emailProvider?: EmailProvider;
+  /** runOp, nested in this op (#99: a manual email check resolves the decision through the decision layer). */
+  runOp?: RunOp;
   /** Id factory; defaults to `<prefix>_<ulid>`. */
   newId?: (prefix: string) => string;
 }

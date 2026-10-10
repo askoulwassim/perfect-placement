@@ -42,6 +42,14 @@ pp kev start | stop | status         # background process; pid + log in $PP_HOME
 
 Supported: Apple Silicon (MLX), and Linux with an NVIDIA GPU (the Kev README's PyTorch/CUDA path). The first start downloads the model from Hugging Face (several GB). Memory: `kev-4b` (default) wants 8 GB+ free, so on a 16 GB machine use `--model kev-0.8b` (~4 GB). The choice is stored in `config.json` (`backends.kev.model`). Details: `packages/resolver/docs/kev-setup.md`.
 
+### Documents and Open and fill
+
+On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+
+### Email check
+
+Guessed contact addresses are checked passively before they reach Needs you: syntax, the domain's MX (or A) record over DNS, disposable / role / free-mail lists, and the address format of real colleagues the connect skill finds in your own Gmail (read-only) or on public pages. Nothing ever connects to a mail server or a verification site, and no paid service or key is needed. An address seen exactly, or a format two colleagues share, is confirmed without asking; a domain with no mail records is dropped; the rest waits in Needs you, where **Check** opens an address checker (with the address copied) and **Valid** / **Invalid** records what you saw. Gmail drafts wait until the address is confirmed, then get their To.
+
 ## Uninstall
 
 ```sh
