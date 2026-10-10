@@ -7,7 +7,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Added
 - MIT license, contributing guide with DCO sign-off, code of conduct, security policy, issue forms, pull request template and Dependabot.
 - `docs/`: architecture, decisions and UI design references.
-- README sections on responsible use and the license; GitHub Sponsors funding link.
+- The Perfect Placement logo (ring with overlapping P's) in the app rail, onboarding and the browser tab; logo files, a social preview image and README diagrams in `docs/assets/`.
+- A new README with a demo GIF, screenshots, diagrams and a map of every doc; install and uninstall detail moved to `docs/install.md` and `docs/uninstall.md`.
+- GitHub Sponsors funding link.
 
 ### Changed
 - Kev is the only System One decision backend; the hosted backend that was off by default is removed.
