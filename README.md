@@ -75,3 +75,13 @@ corepack enable
 pnpm i && pnpm build && pnpm test && pnpm lint
 pp up --fixtures      # demo on synthetic data
 ```
+
+## Responsible use
+
+- pp never submits an application or sends an email or message. It drafts; you review and send.
+- The connect skill reads LinkedIn pages in your own signed-in browser, slowly and within daily caps. Follow LinkedIn's terms and keep it to your own search.
+- You are responsible for what you send.
+
+## License
+
+[MIT](LICENSE). The license covers the code; it grants no rights to the Perfect Placement name or logo.
