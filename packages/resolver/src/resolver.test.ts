@@ -109,6 +109,18 @@ describe('routing and fallback', () => {
     expect(r.route(OPEN_Q)).toEqual(['kev', 'llm']);
   });
 
+  it('default config: Kev down, no agent attached -> the enabled LLM adapter in the trailing slot', async () => {
+    const llm = stub('llm', () => ({ value: true, p: 0.95 }));
+    const r = resolver({ kev: stub('kev', 'down'), llm }, { config: DEFAULT_CONFIG });
+    expect(r.route(OPEN_Q)).toEqual(['kev', 'llm']);
+    expect((await r.ask(OPEN_Q)).backend).toBe('llm');
+  });
+
+  it('route() skips an unconfigured default backend', () => {
+    const r = resolver({ llm: stub('llm', 'down') });
+    expect(r.route(OPEN_Q)).toEqual(['llm']);
+  });
+
   it('invalid answers count as a failure and fall back', async () => {
     const kev = stub('kev', () => ({ value: 'banana', p: 0.99 }));
     const llm = stub('llm', () => ({ value: 'peer', p: 0.95 }));
@@ -248,6 +260,14 @@ describe('policy outcomes written to the decisions log', () => {
     ]);
     expect((await resolver({ kev: kev(), llm: stub('llm', () => ({ value: 'peer', p: 0.69 })) }).ask(WHO_M)).outcomes).toEqual(['human']);
     expect((await resolver({ kev: kev() }).ask(WHO_M)).outcomes).toEqual(['human']);
+  });
+
+  it('Kev gives the second opinion when another backend answered first', async () => {
+    const llmFirst: PolicyConfig = { ...DEFAULT_CONFIG, backends: { ...DEFAULT_CONFIG.backends, default: 'llm', fallback: 'kev' } };
+    const kev = stub('kev', () => ({ value: 'peer', p: 0.74 }));
+    const res = await resolver({ llm: stub('llm', () => ({ value: 'peer', p: 0.8 })), kev }, { config: llmFirst }).ask(WHO_M);
+    expect(res.outcomes).toEqual(['auto_second']);
+    expect(store.get(res.decisionIds[0] as string)?.answer_json).toMatchObject({ second: { backend: 'kev', value: 'peer', p: 0.74 } });
   });
 
   it('second opinion falls through agent down -> LLM', async () => {

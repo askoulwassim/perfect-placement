@@ -31,7 +31,7 @@ These were added in Wave 0 so lanes do not need to request them:
 
 ## Requests
 
-Resolved in Wave 2 Phase 1 (see docs/v2/wave2-plan.md): every entry below has its `Status:` set, and the accepted or amended changes are implemented in `packages/contracts`, migration `002_wave2.sql` and the fixtures. New requests go under their lane heading with `Status: open`.
+Resolved in Wave 2 Phase 1 (the wave 2 plan, removed from the tree; see git history): every entry below has its `Status:` set, and the accepted or amended changes are implemented in `packages/contracts`, migration `002_wave2.sql` and the fixtures. New requests go under their lane heading with `Status: open`.
 
 ## Lane B requests
 
@@ -435,7 +435,7 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 
 ## Wave 2 Phase 2
 
-Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
+Contract changes made while wiring the engine (the wave 2 plan's "Phase 2", removed from the tree; see git history).
 
 ### Per-kind confident outcome override
 - Lane: integration (I, E, B)
