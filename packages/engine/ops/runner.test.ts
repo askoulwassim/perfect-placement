@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 import { SKILLS, type Skill } from '@perfect-placement/contracts';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -37,6 +37,7 @@ import {
   skillPrompt,
   stableNodePath,
   tabsLine,
+  uploadsLine,
   usesChrome,
 } from './runner.js';
 
@@ -241,6 +242,74 @@ describe('runner command lines', () => {
     expect(pasted).toContain('do not read the portal for questions');
     expect(pasted).toContain(FILL_ASSIST_LINE);
     expect(fillLine()).not.toContain(FILL_ASSIST_LINE);
+  });
+
+  it("fill with assist (#123): --add-dir for that role's rendered-files folder only; nothing for other runs", () => {
+    const dir = '/h/files/linear_product-lead-insights';
+    const build = (skill: Skill, o: { assist?: boolean; runner?: 'claude' | 'codex' | 'cursor-agent' } = {}) =>
+      buildRunnerSpec({
+        runner: { command: o.runner ?? 'claude' },
+        prompt: 'P',
+        runId: 'rn_1',
+        skill,
+        home: '/h',
+        mcp,
+        ...(o.assist ? { assist: true } : {}),
+        filesDir: dir,
+      }).args;
+    const args = build('fill', { assist: true });
+    expect(args.filter((a) => a === '--add-dir')).toHaveLength(1);
+    expect(flag(args, '--add-dir')).toBe(dir);
+    // Nothing broader: not PP_HOME, not files/.
+    for (const broad of ['/h', '/h/', '/h/files', '/h/files/']) expect(args).not.toContain(broad);
+    // The next token is a flag, so the variadic --add-dir takes exactly one directory.
+    expect(args[args.indexOf('--add-dir') + 2]?.startsWith('--')).toBe(true);
+    // Fill without assist, every other skill, the Gmail steps, Codex and Cursor: no --add-dir.
+    expect(build('fill')).not.toContain('--add-dir');
+    for (const skill of SKILLS.filter((x) => x !== 'fill')) expect(build(skill, { assist: true })).not.toContain('--add-dir');
+    expect(build('fill', { assist: true, runner: 'codex' })).not.toContain(dir);
+    expect(build('fill', { assist: true, runner: 'cursor-agent' })).not.toContain(dir);
+    expect(
+      buildRunnerSpec({ runner: { command: 'claude' }, prompt: 'P', runId: 'rn_1', skill: 'fill', home: '/h', mcp, assist: true }).args,
+    ).not.toContain('--add-dir');
+    expect(() =>
+      buildRunnerSpec({
+        runner: { command: 'claude' },
+        prompt: 'P',
+        runId: 'rn_1',
+        skill: 'fill',
+        home: '/h',
+        mcp,
+        assist: true,
+        filesDir: 'files/x',
+      }),
+    ).toThrow(/absolute/);
+  });
+
+  it('fill assist prompt (#123): uploads by absolute path, or skipped with the render error', () => {
+    const uploads = {
+      dir: '/h/files/r_1',
+      files: [
+        { doc: 'resume' as const, abs_path: '/h/files/r_1/resume.pdf' },
+        { doc: 'cover_letter' as const, abs_path: '/h/files/r_1/cover_letter.pdf' },
+      ],
+    };
+    const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1', assist: true, uploads });
+    expect(p).toContain(uploadsLine(uploads));
+    expect(uploadsLine(uploads)).toContain('resume: /h/files/r_1/resume.pdf, cover_letter: /h/files/r_1/cover_letter.pdf');
+    expect(FILL_ASSIST_LINE).toContain('absolute path');
+    // The skill (inlined in the prompt) uploads by absolute path too, never a vault-relative one.
+    expect(p).toContain('`paths: ["<absolute path>"]`');
+    expect(p).toContain('never a vault-relative `files/...` path');
+    expect(FILL_ASSIST_LINE).not.toMatch(/using each file's abs_path/);
+    const failed = uploadsLine({ error: 'no tailored resume yet' });
+    expect(failed).toContain('Upload nothing');
+    expect(failed).toContain('uploaded: []');
+    expect(failed).toContain('reason: "render failed: no tailored resume yet"');
+    // No uploads on file (a prompt built outside the queue): render, then upload the absolute abs_path.
+    expect(uploadsLine()).toContain('abs_path (absolute)');
+    // Without assist there is no Uploads line.
+    expect(skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'fill', roleId: 'r_1', uploads })).not.toContain('Uploads:');
   });
 
   it('fill prompt (#81): read the portal read-only, or answer the pasted questions', () => {
@@ -648,11 +717,16 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     // #37: To comes from outreach.get's `to`, never the unconfirmed guess.
     expect(p).toContain('`to.email`');
     expect(p).toContain('never use `to.guess`');
+    // #132: no address at all: create nothing (never a Gmail draft without To).
+    expect(p).toContain('skipped: "no email"');
     expect(gmailStepSection('# x\n\n## Gmail draft step\n\nA\n\n## Never\n\nB')).toBe('## Gmail draft step\n\nA');
   });
 
   it('runs.start { skill: connect, outreach_id } launches the Gmail run with role + contact from the outreach (fake launcher)', async () => {
     e = openFixtureEngine();
+    e.db
+      .prepare("UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'")
+      .run();
     const run = okOut(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'))).run;
     expect(run.summary_json).toMatchObject({ skill: 'connect', outreach_id: 'or_0001', step: 'gmail_draft' });
     expect(e.launcher.specs).toHaveLength(1);
@@ -707,6 +781,42 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     expect(await e.runOp('runs.start', { skill: 'fill', assist: true }, ctxAt('human'))).toMatchObject({ code: 'invalid_input' });
   });
 
+  it("runs.start { skill: fill, assist } (#123): renders the PDFs first, adds only that role's folder, names absolute paths", async () => {
+    e = openFixtureEngine();
+    const role_id = FIXTURE_ROLE_IDS.linearDraft;
+    const run = okOut(await e.runOp('runs.start', { skill: 'fill', role_id, assist: true }, ctxAt('human'))).run;
+    expect(e.launcher.specs).toHaveLength(1);
+    const args = e.launcher.specs[0]?.args ?? [];
+    const dir = flag(args, '--add-dir') as string;
+    expect(isAbsolute(dir)).toBe(true);
+    expect(dir).toBe(join(e.home, 'files', role_id));
+    // The folder exists at launch (rendered first) and holds the PDFs.
+    expect(statSync(dir).isDirectory()).toBe(true);
+    for (const f of ['resume.pdf', 'cover_letter.pdf']) expect(existsSync(join(dir, f))).toBe(true);
+    expect(args.filter((a) => a === '--add-dir')).toHaveLength(1);
+    expect(args).not.toContain(e.home);
+    expect(args).not.toContain(join(e.home, 'files'));
+    const prompt = args[1] as string;
+    expect(prompt).toContain(`resume: ${join(dir, 'resume.pdf')}`);
+    expect(prompt).toContain(`cover_letter: ${join(dir, 'cover_letter.pdf')}`);
+    // The render is logged on the run.
+    expect(okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human'))).log_md).toContain('apply.render_documents');
+  });
+
+  it('runs.start { skill: fill, assist } (#123): a failed render launches without --add-dir and reports uploads as skipped', async () => {
+    e = openFixtureEngine();
+    const role_id = FIXTURE_ROLE_IDS.linearDraft;
+    const row = e.db.prepare('SELECT package_paths_json FROM application WHERE role_id = ?').get(role_id) as { package_paths_json: string };
+    rmSync(join(e.home, JSON.parse(row.package_paths_json).resume as string));
+    okOut(await e.runOp('runs.start', { skill: 'fill', role_id, assist: true }, ctxAt('human')));
+    const args = e.launcher.specs[0]?.args ?? [];
+    expect(args).not.toContain('--add-dir');
+    expect(existsSync(join(e.home, 'files', role_id))).toBe(false);
+    const prompt = args[1] as string;
+    expect(prompt).toContain('Rendering the PDFs failed before launch');
+    expect(prompt).toMatch(/reason: "render failed: [^"]*no tailored resume/);
+  });
+
   it('runs.start { skill: fill } without assist stays read-only (fake launcher)', async () => {
     e = openFixtureEngine();
     okOut(await e.runOp('runs.start', { skill: 'fill', role_id: 'linear_product-lead-insights' }, ctxAt('human')));
@@ -716,6 +826,9 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
       expect(flag(spec?.args ?? [], '--disallowedTools')?.split(',')).toContain(t);
     }
     expect(spec?.args[1]).not.toContain(FILL_ASSIST_LINE);
+    // #123: no --add-dir and nothing rendered for a read-only fill run.
+    expect(spec?.args).not.toContain('--add-dir');
+    expect(existsSync(join(e.home, 'files', 'linear_product-lead-insights'))).toBe(false);
   });
 
   it('refuses outreach_id on another skill, an unknown outreach, a mismatched role, or a draft already in Gmail', async () => {
@@ -727,6 +840,13 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     expect(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001', role_id: 'stripe_x' }, ctxAt('human'))).toMatchObject({
       code: 'invalid_input',
     });
+    // #132: a recipient with no address at all gets no Gmail draft step (never a draft without To).
+    const none = await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'));
+    expect(none).toMatchObject({ code: 'conflict' });
+    expect((none as { message: string }).message).toContain('has no email');
+    e.db
+      .prepare("UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'")
+      .run();
     okOut(await e.runOp('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-1' }, ctxAt('human')));
     expect(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'conflict' });
     expect(e.launcher.specs).toHaveLength(0);

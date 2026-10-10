@@ -349,7 +349,7 @@ describe('the resume is kept, parsed by an agent, and never guessed (#38)', () =
     expect(state.next_question).toMatchObject({
       id: 'confirm.story',
       kind: 'confirm',
-      label: 'Looks like your headline is "Senior Product Manager". Right?',
+      label: 'Looks like you are Riley Sample, and your headline is "Senior Product Manager". Right?',
       options: ['yes', 'edit'],
     });
     const after = (await op('onboard.answer', { question_id: 'confirm.story', value: 'yes' })) as State;
@@ -501,13 +501,13 @@ describe('the interview adapts to the resume (#22)', () => {
     const eng = await walk(SYNTH_RESUME_ENGINEER);
     const confirms = (a: typeof pm.asked) => a.filter((q) => q.kind === 'confirm').map((q) => q.label);
     expect(confirms(pm.asked)).toEqual([
-      'Looks like your headline is "Principal Product Manager, Data Platforms". Right?',
+      'Looks like you are Jordan Example (555.010.0000), and your headline is "Principal Product Manager, Data Platforms". Right?',
       'Looks like you work as a principal PM, as an individual contributor. Right?',
       'Looks like your strongest domain is data platforms. Right?',
       'Looks like you write in a punchy style. Right?',
     ]);
     expect(confirms(eng.asked)).toEqual([
-      'Looks like your headline is "Staff Software Engineer, Clinical Systems". Right?',
+      'Looks like you are Casey Placeholder, and your headline is "Staff Software Engineer, Clinical Systems". Right?',
       'Looks like you work as a staff engineer, as an individual contributor. Right?',
       'Looks like your strongest domain is healthcare. Right?',
       'Looks like you write in a formal style. Right?',

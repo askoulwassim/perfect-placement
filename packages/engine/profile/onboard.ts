@@ -18,7 +18,7 @@ import { parseComponentData, rubricWeights, weightsByComponent } from './compone
 import { newId, type ProfileDeps } from './deps.js';
 import { OpError } from './errors.js';
 import { checkFacts, describeClaims, inSource, storySourceText } from './facts.js';
-import { type ComponentHint, describeData, makeHint, resumeHints, resumeOptions, storyHintFrom, withTitles } from './hints.js';
+import { type ComponentHint, contactOf, describeData, makeHint, resumeHints, resumeOptions, storyHintFrom, withTitles } from './hints.js';
 import { clone, deepEqual } from './json.js';
 import { componentMdPath, MD_COMPONENTS, renderComponentMd } from './markdown.js';
 import type { FillSource, OnboardSession, OnboardStore } from './onboard-store.js';
@@ -286,6 +286,9 @@ const ANSWER_FIELDS: Record<string, string[]> = {
   'story.years': ['years', 'years_basis'],
 };
 
+/** The identity questions (#124): an answer to one keeps the session's contact over the extraction. */
+const IDENTITY_QUESTION = /^story\.(name|preferred_name|phone|city)$|^confirm\.story$/;
+
 /** Fields an agent never sets through onboard.extract (provenance and links are code's). */
 const EXTRACT_RESERVED = ['source_path', 'source_file', 'dictated', 'extracted_by', 'criterion_weights'];
 
@@ -336,6 +339,12 @@ export async function onboardExtract(
     for (const f of ['company', 'title'] as const)
       if (typeof r[f] === 'string' && !inSource(text, r[f] as string)) problems.push(`role ${f} "${r[f]}" is not in the resume`);
   }
+  // #124: identity is copied too: every contact value must be in the resume (the user confirms or edits it).
+  // (The fact matcher drops links and addresses, so those are matched as written.)
+  for (const [k, v] of Object.entries(contactOf(story))) {
+    const found = /@|\/\/|\.com\b/i.test(v) ? text.toLowerCase().includes(v.toLowerCase()) : inSource(text, v);
+    if (!found) problems.push(`contact ${k} "${v}" is not in the resume`);
+  }
   if (story.years !== undefined) {
     const y = story.years;
     if (story.years_basis === 'stated') {
@@ -354,6 +363,10 @@ export async function onboardExtract(
     for (const q of live.answered) for (const f of ANSWER_FIELDS[q] ?? []) if (f in existing) keep[f] = existing[f];
     if (existing.dictated) keep.dictated = existing.dictated;
     const next: Record<string, unknown> = { ...story, extracted_by: 'agent', ...keep, ...links };
+    // #124: the agent's contact over the preview's; a contact field the user answered beats both.
+    const identityAnswered = live.answered.some((q) => IDENTITY_QUESTION.test(q));
+    const contact = identityAnswered ? { ...contactOf(story), ...contactOf(existing) } : { ...contactOf(existing), ...contactOf(story) };
+    if (Object.keys(contact).length) next.contact = contact;
     if (
       !live.answered.includes('story.years') &&
       next.years_basis === 'from dates' &&
@@ -397,6 +410,8 @@ export async function onboardExtract(
   // Onboarding is done: the extraction is a Story diff for the user to accept.
   if (!prevStory) throw new OpError('conflict', 'no onboarding in progress and no profile: start with onboard.ingest_resume');
   const after: Record<string, unknown> = { ...story, extracted_by: 'agent' };
+  // #124: the extracted contact over the saved one; a saved field the resume lacks (an email set on You) stays.
+  if (after.contact) after.contact = { ...contactOf(prevStory), ...contactOf(story) };
   if (after.years_basis === 'from dates') {
     delete after.years;
     delete after.years_basis;

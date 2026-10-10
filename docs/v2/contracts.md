@@ -91,6 +91,7 @@ Each op is defined once in `packages/contracts/ops/` as `{ name, input: zod, out
 | `profile.propose_diff` | low | creates a pending diff |
 | `profile.apply_diff` | per diff: weights medium, filters/dealbreakers high | |
 | `profile.set_defaults` | low | Application defaults (Terms `application_defaults`): a human edit applies as v+1, never rescored (#42) |
+| `profile.set_identity` | low | Story `contact` (full name, preferred first name, email, phone, city, LinkedIn): a human edit applies as v+1, never rescored; Fill reads it (#124) |
 | `onboard.ingest_resume`, `onboard.answer`, `onboard.calibrate`, `onboard.confirm` | low | |
 | `roles.add` | low | dedupe: url, ats job id, company+title (fuzzy); intake check skips dead postings, resolves aggregator links to the company's ATS posting (#32); per scout run, watchlist adds capped at ceil(share x target) and `max_per_company` (#67) |
 | `scout.watchlist_scan` | low (read) | every open role on each watchlist company's Greenhouse / Lever / Ashby board, rule-filtered, ranked by fit, near-identical titles grouped, at most `scout.max_per_company` per company, as roles.add candidates (#28, #67) |

@@ -1,5 +1,5 @@
 import { tint } from '@perfect-placement/contracts';
-import { type CSSProperties, useEffect, useLayoutEffect, useState } from 'react';
+import { type CSSProperties, useLayoutEffect, useState } from 'react';
 import { C } from './theme';
 
 interface Box {
@@ -58,7 +58,9 @@ export function Cue({ id, label, target, onDismiss }: { id: string; label: strin
   }, [target]);
 
   const shown = box !== null;
-  useEffect(() => {
+  // A layout effect, not a passive one: the dismiss listeners are attached in the same commit that shows the cue, so a
+  // click that lands right as it appears still dismisses it (a passive effect left a gap; the first-launch test caught it).
+  useLayoutEffect(() => {
     if (!shown) return;
     const onPointer = () => onDismiss();
     const onKey = (e: KeyboardEvent) => {

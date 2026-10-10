@@ -340,6 +340,17 @@ export const RUN_ACTIVE_STATUSES = ['queued', 'running'] as const satisfies read
 export const RunStatus = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof RunStatus>;
 
+/**
+ * Added (#122): why a run failed, as a code the engine can act on (`runs.finish { error_code }`, kept as
+ * `summary_json.error_code`). `connector_unavailable`: a connector tool the skill is granted (claude.ai Gmail,
+ * Claude in Chrome) is not loaded in this session; the engine re-queues the run once after a short delay.
+ * Added (#121): `stalled`: the run passed its skill's wall-clock cap (`STALL_LIMIT_MS`, engine); the engine killed
+ * the runner and finished it. A scheduled run that ends with a transient code is retried with backoff.
+ */
+export const RUN_ERROR_CODES = ['connector_unavailable', 'stalled'] as const;
+export const RunErrorCode = z.enum(RUN_ERROR_CODES);
+export type RunErrorCode = z.infer<typeof RunErrorCode>;
+
 export const SUBJECT_TYPES = [
   'role',
   'company',

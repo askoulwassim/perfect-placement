@@ -67,6 +67,9 @@ function open(opts: { p?: number; services?: EngineServices; config?: Record<str
 }
 const count = (sql: string, ...args: unknown[]) => (v.db.prepare(sql).get(...args) as { n: number }).n;
 const run = (name: string, input: unknown, c: OpContext = testCtx()) => v.runOp(name, input, c);
+/** A known work address for a fixture contact (#132: a recipient with no address gets no Gmail draft). */
+const knownEmail = (contactId: string, email: string) =>
+  v.db.prepare(`UPDATE contact SET email = ?, email_source = 'gmail', email_confidence = 1 WHERE id = ?`).run(email, contactId);
 
 beforeEach(() => open());
 afterEach(() => v.cleanup());
@@ -437,6 +440,7 @@ describe('outreach', () => {
   });
 
   it('outreach.to_gmail is medium: an agent without confidence waits in Needs you', async () => {
+    knownEmail('ct_0001', 'maya@linear.example');
     expect((await run('outreach.to_gmail', { outreach_id: 'or_0001' }, testCtx())).status).toBe('requires_human');
     expect(gmail.drafts).toHaveLength(0);
     // With confidence it goes through the grid (#17): confident = auto.
@@ -445,6 +449,7 @@ describe('outreach', () => {
   });
 
   it('outreach.to_gmail creates a draft only, once', async () => {
+    knownEmail('ct_0001', 'maya@linear.example');
     const out = ok(await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human')));
     expect(out.gmail_draft_id).toBe('dryrun-1');
     expect(out.outreach.status).toBe('in_gmail');
@@ -458,6 +463,7 @@ describe('outreach', () => {
 
   it('outreach.to_gmail without a client or a draft id is backend_unavailable (use a Gmail-capable agent run); dry run calls nothing', async () => {
     open({ services: { gmail: undefined } });
+    knownEmail('ct_0001', 'maya@linear.example');
     const r = await run('outreach.to_gmail', { outreach_id: 'or_0001' }, ctxAt('human'));
     expect(r).toMatchObject({ code: 'backend_unavailable' });
     expect((r as { message: string }).message).toMatch(/agent run/);
@@ -466,6 +472,7 @@ describe('outreach', () => {
 
   it('outreach.to_gmail with gmail_draft_id records the agent-made draft: no client call, in_gmail, Connect done', async () => {
     open({ services: { gmail: undefined } });
+    knownEmail('ct_0001', 'maya@linear.example');
     const roleId = ok(await run('outreach.get', { outreach_id: 'or_0001' })).outreach.role_id;
     // Medium impact: an agent without confidence still waits in Needs you.
     expect((await run('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-agent-1' })).status).toBe('requires_human');
@@ -531,7 +538,7 @@ describe('outreach', () => {
 });
 
 describe('end to end on a picked role (dry run)', () => {
-  it('finds people, classifies tiers, and lands four drafts in (dry-run) Gmail', async () => {
+  it('finds people, classifies tiers, and lands the drafts with an address in (dry-run) Gmail', async () => {
     const ctx = testCtx();
     const found = ok(await run('people.find', { role_id: R.airtableOnDeck }, ctx)).found as Array<{
       contact: { id: string; name: string };
@@ -568,13 +575,20 @@ describe('end to end on a picked role (dry run)', () => {
         ok(await run('outreach.draft', { contact_id: byName[name], role_id: R.airtableOnDeck, tier, ...text }, ctx)).outreach.id,
       );
     }
+    // Work addresses for the three direct recipients; the bridge's mutual (Eli F.) has none.
+    for (const name of ['Ana B.', 'Ben C.', 'Gus H.'])
+      knownEmail(byName[name] as string, `${name.split(' ')[0]?.toLowerCase()}@airtable.example`);
     const sure = testCtx({ confidence: { p: 0.95, backend: 'agent' } });
-    for (const id of drafted) ok(await run('outreach.to_gmail', { outreach_id: id }, sure));
+    const results = [];
+    for (const id of drafted) results.push(await run('outreach.to_gmail', { outreach_id: id }, sure));
 
-    expect(gmail.drafts).toHaveLength(4);
+    expect(gmail.drafts).toHaveLength(3);
+    for (const d of gmail.drafts) expect(d.to).toMatch(/@airtable\.example$/);
     for (const d of gmail.drafts) expect(d.body).not.toMatch(/\u2014|\u2013/);
-    // Bridge goes to the mutual (Eli F. has no email on file: a draft with no To).
-    expect(count("SELECT COUNT(*) n FROM outreach WHERE role_id = ? AND status = 'in_gmail'", R.airtableOnDeck)).toBe(4);
+    // #132: the bridge goes to the mutual, who has no email on file: no Gmail draft without To; it stays in the vault.
+    expect(results.filter((r) => r.status === 'error').map((r) => r.status === 'error' && r.code)).toEqual(['conflict']);
+    expect(count("SELECT COUNT(*) n FROM outreach WHERE role_id = ? AND status = 'in_gmail'", R.airtableOnDeck)).toBe(3);
+    expect(count("SELECT COUNT(*) n FROM outreach WHERE role_id = ? AND status = 'drafted' AND tier = 'bridge'", R.airtableOnDeck)).toBe(1);
   });
 
   it('every lane H op has a handler', () => {

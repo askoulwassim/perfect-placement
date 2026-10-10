@@ -6,6 +6,7 @@ import type { LinkedInSource } from '../integrations/linkedin/index.js';
 import type { EmailProvider, MxResolver } from '../people/email.js';
 import type { OutreachWriter } from '../people/types.js';
 import type { ProfileLlm } from '../profile/deps.js';
+import type { Timer } from './retry.js';
 import type { RunnerLauncher } from './runner.js';
 
 /*
@@ -43,6 +44,11 @@ export interface EngineServices {
   emailProvider?: EmailProvider;
   /** Starts the headless agent runner for `runs.start`. Default: spawns `config.runner`. */
   launcher?: RunnerLauncher;
+  /**
+   * Runs a callback later (#122: dispatch a retried run when its delay is up). Default: an unref'd setTimeout,
+   * so a short-lived process (the MCP stdio server) never waits for it; `pp up`'s sweep also dispatches it.
+   */
+  timer?: Timer;
   /**
    * The OS jobs behind `config.schedules` (#29): launchd / systemd user timers, written by the CLI
    * (`pp schedules`). `pp up` wires it in; absent = `schedules.status` reports `unknown` and

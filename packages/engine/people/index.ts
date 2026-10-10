@@ -53,6 +53,16 @@ export {
 export { atDomain, fallbackPeople, pickTeamInbox, TEAM_INBOX_NAME, TEAM_MAILBOXES, teamMailboxRank } from './fallback.js';
 export { findPeople, PeopleFindInput, PersonHint } from './find.js';
 export {
+  bestTarget,
+  buildRoleGraph,
+  companyNodeId,
+  GRAPH_TIER_RANK,
+  type GraphInput,
+  type GraphPerson,
+  ME_NODE,
+  MUTUAL_TIER,
+} from './graph.js';
+export {
   type ComposeInput,
   composeAndDraft,
   draftContext,

@@ -50,6 +50,10 @@ On a role's **Resume** and **Cover** tabs, **Download** gives the tailored docum
 
 Guessed contact addresses are checked passively before they reach Needs you: syntax, the domain's MX (or A) record over DNS, disposable / role / free-mail lists, and the address format of real colleagues the connect skill finds in your own Gmail (read-only) or on public pages. Nothing ever connects to a mail server or a verification site, and no paid service or key is needed. An address seen exactly, or a format two colleagues share, is confirmed without asking; a domain with no mail records is dropped; the rest waits in Needs you, where **Check** opens an address checker (with the address copied) and **Valid** / **Invalid** records what you saw. Gmail drafts wait until the address is confirmed, then get their To.
 
+### Scheduled runs
+
+Scheduled runs (`pp schedules`) keep the Mac awake while they run (`caffeinate`, released when the run ends; Linux: `systemd-inhibit` if present), stop a run that hangs past its skill's time cap, and retry a dropped connection or a stalled run after 1, 5 and 15 minutes. If every try fails, the next `pp up` runs the schedule again and `pp doctor` shows the last failure.
+
 ## Uninstall
 
 ```sh

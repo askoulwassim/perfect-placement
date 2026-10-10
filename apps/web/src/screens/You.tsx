@@ -6,7 +6,19 @@ import { addEntries, ChipInput, splitEntries } from '../components/inputs';
 import { Constellation, DiffBlock, KIND_HEX, KIND_LABEL, type NodeData, ProfileNode, VersionTimeline } from '../components/profile';
 import { C, display, eyebrow, mono, X } from '../components/theme';
 import { Screen, useLayout } from '../layout';
-import { COMPONENT_NAME, chipText, DEFAULT_FIELDS, type DefaultField, defaultsInput, defaultsText, LIST_DEFAULTS } from '../lib/profile';
+import {
+  COMPONENT_NAME,
+  chipText,
+  DEFAULT_FIELDS,
+  type DefaultField,
+  defaultsInput,
+  defaultsText,
+  IDENTITY_EDIT_FIELDS,
+  type IdentityEditField,
+  identityInput,
+  identityText,
+  LIST_DEFAULTS,
+} from '../lib/profile';
 import { timeline } from '../lib/view';
 import { go, type YouFlow } from '../router';
 import { Onboarding } from './Onboarding';
@@ -99,6 +111,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
             </div>
             {reinterview && <Reinterview onClick={reinterview} />}
             {selected === 'voice' && <LearnVoice />}
+            {selected === 'story' && <Identity data={sel.data_json.contact} mobile />}
             {source && <ResumeSource path={source} />}
             {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} mobile />}
             {selDiff && <DiffBlock compact before={before} after={after} />}
@@ -210,6 +223,7 @@ function Profile({ component, profile }: { component?: ProfileComponentKey; prof
               </div>
               {reinterview && <Reinterview onClick={reinterview} />}
               {selected === 'voice' && <LearnVoice />}
+              {selected === 'story' && <Identity data={sel.data_json.contact} />}
               {source && <ResumeSource path={source} />}
               {selected === 'terms' && <Defaults data={sel.data_json.application_defaults} />}
               {weight != null && (
@@ -360,6 +374,59 @@ function ResumeSource({ path }: { path: string }) {
           {doc.data?.markdown ?? ''}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The contact on Story (#124): name, preferred first name, email, phone, city, LinkedIn; Fill uses them. One Save. */
+function Identity({ data, mobile }: { data: unknown; mobile?: boolean }) {
+  const act = useAct();
+  const { showToast } = useApp();
+  const saved = identityText(data);
+  const [text, setText] = useState(saved);
+  const dirty = IDENTITY_EDIT_FIELDS.some(([f]) => text[f].trim() !== saved[f].trim());
+  const save = async () => {
+    const o = await act('profile.set_identity', { contact: identityInput(text) });
+    if (o.status === 'ok') showToast('Contact saved');
+  };
+  const field = { minWidth: 0, height: 32, background: C['bg-2'], border: `1px solid ${C['line-2']}`, borderRadius: 8 } as const;
+  return (
+    <div className="identity" style={{ marginTop: 22 }}>
+      <div style={{ ...eyebrow(), marginBottom: 12 }}>Contact</div>
+      <div style={{ display: 'grid', gridTemplateColumns: mobile ? '96px 1fr' : '110px 1fr', gap: '8px 12px', alignItems: 'center' }}>
+        {IDENTITY_EDIT_FIELDS.map(([f, label, hint]) => (
+          <label key={f} style={{ display: 'contents' }}>
+            <span style={mono(11, C.muted)}>{label}</span>
+            <input
+              name={f}
+              value={text[f]}
+              placeholder={hint}
+              autoComplete="off"
+              onChange={(e) => setText((t) => ({ ...t, [f as IdentityEditField]: e.target.value }))}
+              style={{ ...field, color: C.fg, padding: '0 10px', fontSize: 13 }}
+            />
+          </label>
+        ))}
+      </div>
+      <Btn
+        op="profile.set_identity"
+        disabled={!dirty}
+        onClick={() => void save()}
+        style={{
+          marginTop: 12,
+          height: 34,
+          padding: '0 16px',
+          borderRadius: 999,
+          border: `1px solid ${C['line-2']}`,
+          background: 'transparent',
+          color: dirty ? C.fg : C.dim,
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Save
+      </Btn>
     </div>
   );
 }

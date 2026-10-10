@@ -165,6 +165,9 @@ describe('(b) one role through every stage, runOp only', () => {
         agent(),
       ),
     ).outreach;
+    // #132: no address at all = no Gmail draft (never one without To). With a known address it goes on.
+    expect(await e.runOp('outreach.to_gmail', { outreach_id: draft.id }, agent(sure))).toMatchObject({ code: 'conflict' });
+    e.db.prepare(`UPDATE contact SET email = 'rae@example.com', email_source = 'gmail', email_confidence = 1 WHERE id = ?`).run(rae);
     // Medium op: no confidence = Needs you; with confidence it runs (#17).
     expect((await e.runOp('outreach.to_gmail', { outreach_id: draft.id }, agent())).status).toBe('requires_human');
     expect(okOut(await e.runOp('outreach.to_gmail', { outreach_id: draft.id }, agent(sure))).gmail_draft_id).toBe('dryrun-1');

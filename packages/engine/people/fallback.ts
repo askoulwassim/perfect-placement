@@ -165,6 +165,8 @@ export const fallbackPeople: Handler<'people.fallback'> = async (raw, ctx, deps)
       is_hiring_team: true,
       path: prev?.path ?? null,
       via_tie_json: prev?.via_tie_json ?? null,
+      team_side: prev?.team_side ?? false,
+      brand: prev?.brand ?? null,
     };
     if (!dryRun) {
       if (prev) updateLink(db, link);

@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./graph": {
+      "types": "./dist/people/graph.d.ts",
+      "default": "./dist/people/graph.js"
+    },
     "./testing": {
       "types": "./testing/index.ts",
       "default": "./testing/index.ts"

@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type PolicyConfig,
+  type RenderDoc,
   type RunnerConfig,
   type Skill,
   VOICE_LEARN_MAX_EMAILS,
@@ -122,9 +123,17 @@ export interface PromptContext {
   questions?: string;
   /** `fill` (#106): the fill assist (Open and fill): upload the PDFs and fill the answer fields, stop before Submit. */
   assist?: boolean;
+  /**
+   * `fill` with assist (#123): the PDFs the engine rendered before launch (absolute paths, in `dir`, the one folder the
+   * session may read), or why rendering failed (then the run uploads nothing and reports both as skipped).
+   */
+  uploads?: AssistUploads;
   /** `voice` (#76): whether LinkedIn posts may be read (config.linkedin.mode is `live`) and the page cap. */
   voice?: { linkedin: boolean; max_pages: number };
 }
+
+/** The fill assist's rendered PDFs (#123): absolute paths in the role's `files/<role_id>/` folder, or the render error. */
+export type AssistUploads = { dir: string; files: Array<{ doc: RenderDoc; abs_path: string }> } | { error: string };
 
 /** Built-in web tools a skill may be granted (Claude Code names; see `SKILL_TOOLS`). */
 export type WebTool = 'WebSearch' | 'WebFetch';
@@ -350,14 +359,32 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     '',
     `Tools: the ${MCP_SERVER_NAME} MCP tools${extra.length ? ` and ${extra.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
+    ...(extra.some(isConnectorTool) ? [connectorLine(c.runId)] : []),
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
     ...(c.skill === 'fill' ? ['', fillLine(c.questions, c.assist === true)] : []),
+    ...(c.skill === 'fill' && c.assist === true ? [uploadsLine(c.uploads)] : []),
     ...(extra.some((t) => t.startsWith(CHROME_PREFIX)) ? ['', tabsLine(c.skill === 'fill' && c.assist === true)] : []),
     ...(c.voice ? ['', voiceLine(c.voice)] : []),
     '',
     skill,
     ...(assets.length ? ['', ...assets] : []),
   ].join('\n');
+}
+
+/** A claude.ai connector tool (Gmail) or a Claude in Chrome tool: these load with the session and can be late (#122). */
+export const isConnectorTool = (t: string): boolean => t.startsWith(GMAIL_PREFIX) || t.startsWith(CHROME_PREFIX);
+
+/** Skills granted a connector tool (#122): inbox, connect, voice (Gmail); connect, fill, voice (Chrome). */
+export const CONNECTOR_SKILLS: readonly Skill[] = (Object.keys(SKILL_TOOLS) as Skill[]).filter((s) =>
+  [...SKILL_TOOLS[s].gmail, ...(SKILL_TOOLS[s].chrome ?? [])].some(isConnectorTool),
+);
+
+/**
+ * The connector line of a prompt (#122): a granted connector tool that is not loaded in this session is not a denial.
+ * The run reports `error_code: "connector_unavailable"` and the engine retries it once after a short delay.
+ */
+export function connectorLine(runId: string): string {
+  return `If a Gmail or Claude in Chrome tool listed above is not available in this session at all (not loaded, as opposed to denied), do nothing else and finish with runs.finish { run_id: "${runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" }. The engine retries the run once a little later.`;
 }
 
 /** The LinkedIn line of a `connect` prompt (#82): mode, caps and today's budget, from config. */
@@ -393,7 +420,22 @@ export function tabsLine(assist = false): string {
 
 /** The fill assist line (#106): the user clicked Open and fill and is watching. */
 export const FILL_ASSIST_LINE =
-  'Fill assist (the user clicked Open and fill): after apply.fill, call apply.render_documents { role_id, formats: ["pdf"] }; in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload using each file\'s abs_path, and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the portal tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
+  'Fill assist (the user clicked Open and fill): after apply.fill, in the portal tab you read (reuse it, no new tab), upload the resume PDF (and the cover letter PDF where the portal takes one) with file_upload, passing each file\'s absolute path exactly as the Uploads line gives it (paths: ["/..."], never a vault-relative files/... path), and fill each answer field from the saved Answers with form_input (find / read_page to locate fields). Never click, press a key, run script or submit, and never touch a Submit, Apply or Send control. Leave the portal tab open on the last step, report with apply.fill_done { role_id, filled, uploaded, skipped }, then finish. The user reviews and submits.';
+
+/**
+ * The Uploads line of a fill assist prompt (#123). The engine renders the PDFs before launch and the session may
+ * read only that role's folder (`--add-dir`), so it uploads those absolute paths. Rendering failed: upload nothing,
+ * report both documents as skipped with the reason. No `uploads` (a prompt built outside the run queue): render here.
+ */
+export function uploadsLine(u?: AssistUploads): string {
+  if (!u) return 'Uploads: call apply.render_documents { role_id, formats: ["pdf"] } and upload each returned abs_path (absolute).';
+  if ('error' in u) {
+    const reason = `render failed: ${u.error}`.replace(/"/g, "'");
+    return `Uploads: none. Rendering the PDFs failed before launch (${u.error}). Upload nothing and do not call apply.render_documents; fill the answer fields, then report apply.fill_done with uploaded: [] and skipped including { label: "Resume", reason: "${reason}" } and { label: "Cover letter", reason: "${reason}" }.`;
+  }
+  const files = u.files.map((f) => `${f.doc}: ${f.abs_path}`).join(', ');
+  return `Uploads: rendered before launch, the only folder you can read is ${u.dir}. Upload these absolute paths with file_upload: ${files}. Do not render them again.`;
+}
 
 /** The sources line of a `voice` prompt (#76): Gmail sent mail read-only, LinkedIn posts only when live, caps. */
 export function voiceLine(v: NonNullable<PromptContext['voice']>): string {
@@ -423,8 +465,8 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
-    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.decision_id` is set (a guessed address waiting in Needs you) or `outreach.status` is not `drafted`, create nothing: finish ok with summary { outreach_id, skipped: "email pending" or "already in Gmail" } (the engine queues this step again once the address is confirmed). If `to.email` is null otherwise, leave To empty (`to.reason` says why); never use `to.guess`.',
-    "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
+    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.decision_id` is set (a guessed address waiting in Needs you), or `outreach.status` is not `drafted`, or `outreach.gmail_draft_id` is set, create nothing: finish ok with summary { outreach_id, skipped: "email pending" or "already in Gmail" } (the engine queues this step again once the address is confirmed). If `to.email` and `to.guess` are both null (the recipient has no address at all), create nothing: finish ok with summary { outreach_id, skipped: "no email" } (never a Gmail draft without To; the draft stays in the vault). If `to.email` is null otherwise, leave To empty (`to.reason` says why); never use `to.guess`.',
+    `3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft), once. Never call send, reply or forward. If your Gmail draft tool is not available in this session, create nothing and finish with runs_finish { run_id: "${c.runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: ${GMAIL_DRAFT_TOOL}" } (the engine retries the step once a little later).`,
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', section] : []),
@@ -446,7 +488,7 @@ export function gmailToPrompt(skillsDir: string, c: { runId: string; outreachId:
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the record: outreach_get { outreach_id }. The Gmail draft id is `outreach.gmail_draft_id`; To = `to.email` (confirmed). If `to.email` is null, change nothing and finish the run as error with a note.',
-    `2. Read the Gmail draft with ${GMAIL_GET_DRAFT_TOOL} (that id). Keep its subject and body exactly as they are in Gmail.`,
+    `2. Read the Gmail draft with ${GMAIL_GET_DRAFT_TOOL} (that id). Keep its subject and body exactly as they are in Gmail. If ${GMAIL_GET_DRAFT_TOOL} or ${GMAIL_UPDATE_TOOL} is not available in this session, change nothing and finish with runs_finish { run_id: "${c.runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" } (the engine retries the step once a little later).`,
     `3. Set its To with ${GMAIL_UPDATE_TOOL}: the same draft id, To = \`to.email\`, the subject and body you just read. Never call send, reply, forward, create_draft or delete.`,
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the same draft id>", confidence: <0 to 1, how sure you are the draft now has this To> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you set> } } (status "error" with a note if any step failed).`,
@@ -526,9 +568,19 @@ export function buildRunnerSpec(opts: {
   linkedin?: boolean;
   /** `fill` (#106): the fill assist; only then are `form_input` + `file_upload` allowed. Default false (read-only). */
   assist?: boolean;
+  /**
+   * `fill` with assist (#123): the absolute `<PP_HOME>/files/<role_id>` folder holding the rendered PDFs. Claude gets
+   * `--add-dir <it>` (that folder only, never PP_HOME or files/) so Claude in Chrome's file_upload can read the PDFs.
+   * Ignored for every other run. Codex and Cursor have no Claude in Chrome (no file_upload, no fill assist), so no
+   * equivalent is passed: Codex's `--add-dir` grants write access (sandbox) and Cursor documents none.
+   */
+  filesDir?: string;
 }): RunnerSpec {
   const { runner, prompt, mcp, home, runId } = opts;
   const extra = runner.args ?? [];
+  if (opts.filesDir !== undefined && !isAbsolute(opts.filesDir)) throw new Error(`filesDir must be absolute: ${opts.filesDir}`);
+  const addDir =
+    opts.skill === 'fill' && opts.assist === true && opts.filesDir && !opts.gmailDraft && !opts.gmailTo ? ['--add-dir', opts.filesDir] : [];
   // #50: the pp MCP server gets PP_RUN_ID too, so every op the run performs carries ctx.runId.
   const env = { ...mcp.env, PP_RUN_ID: runId };
   const server = { command: mcp.command, args: mcp.args, env };
@@ -595,6 +647,9 @@ export function buildRunnerSpec(opts: {
                       '--permission-mode',
                       'dontAsk',
                     ]),
+          // #123: the fill assist's file_upload reads the rendered PDFs; the session may read that one folder only.
+          // Followed by a flag, so the variadic --add-dir takes exactly this one directory.
+          ...addDir,
           '--permission-prompts',
           'none',
           '--output-format',
@@ -679,6 +734,30 @@ export function runnerAlive(runId: string, base: string = tmpdir()): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Kill the runner for `runId` and everything it started (#121, a stalled run): the spawn launcher starts it detached,
+ * so its pid is a process group; SIGTERM the group (falls back to the pid). False when there is no pid file (never
+ * launched here, or already gone) or the process is gone.
+ */
+export function killRunner(runId: string, base: string = tmpdir()): boolean {
+  let pid: number;
+  try {
+    pid = Number.parseInt(readFileSync(join(runnerDir(base), `${runId}.pid`), 'utf8'), 10);
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  for (const target of [-pid, pid]) {
+    try {
+      process.kill(target, 'SIGTERM');
+      return true;
+    } catch {
+      // try the pid alone, then give up
+    }
+  }
+  return false;
 }
 
 /**

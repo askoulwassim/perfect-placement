@@ -141,6 +141,8 @@ export interface GraphEdge {
   a: string;
   b: string;
   k: EdgeKind;
+  /** #131: an alternative to the recommended path, drawn fainter. */
+  muted?: boolean;
 }
 
 const EDGE_STYLE: Record<EdgeKind, [string, number, string | undefined, number]> = {
@@ -155,37 +157,54 @@ export function PeopleGraph({
   edges,
   bestTarget,
   onOpen,
+  mobile,
 }: {
   nodes: readonly GraphNode[];
   edges: readonly GraphEdge[];
   bestTarget?: string;
   onOpen?: (id: string) => void;
+  /** #131: phone width; smaller nodes, first names, no legend. */
+  mobile?: boolean;
 }) {
   const pos = new Map(nodes.map((n) => [n.id, n]));
-  const you = pos.get('you');
+  const you = nodes.find((n) => n.kind === 'you');
   const target = bestTarget ? pos.get(bestTarget) : undefined;
+  const dot = mobile ? 36 : 52;
+  // Phone width: pull the columns in so the outer nodes and their names stay inside the frame.
+  const gx = (x: number) => (mobile ? 60 + x * 0.88 : x);
   return (
     <div
       className="people-graph"
+      data-nodes={nodes.length}
+      data-edges={edges.length}
       style={{
         position: 'relative',
         background: C['bg-2'],
         borderRadius: 12,
-        height: 580,
+        height: mobile ? 340 : 580,
         overflow: 'hidden',
-        flex: '1 1 760px',
-        minWidth: 760,
+        ...(mobile ? { width: '100%', margin: '4px 0 16px' } : { flex: '1 1 760px', minWidth: 760 }),
       }}
     >
-      {[
-        ['YOU', '9%'],
-        ['1ST', '34%'],
-        ['2ND', '59%'],
-        ['HIRING TEAM', '86%'],
-      ].map(([l, x]) => (
+      {(
+        [
+          ['YOU', 90],
+          ['1ST', 340],
+          ['2ND', 590],
+          ['HIRING TEAM', 860],
+        ] as const
+      ).map(([l, x]) => (
         <div
           key={l}
-          style={{ position: 'absolute', top: 18, left: x, transform: 'translateX(-50%)', ...mono(10, C.dim), letterSpacing: '.1em' }}
+          style={{
+            position: 'absolute',
+            top: mobile ? 12 : 18,
+            left: `${gx(x) / 10}%`,
+            transform: 'translateX(-50%)',
+            ...mono(mobile ? 8.5 : 10, C.dim),
+            letterSpacing: '.1em',
+            whiteSpace: 'nowrap',
+          }}
         >
           {l}
         </div>
@@ -199,9 +218,9 @@ export function PeopleGraph({
         >
           {you && target && (
             <line
-              x1={you.x}
+              x1={gx(you.x)}
               y1={you.y}
-              x2={target.x}
+              x2={gx(target.x)}
               y2={target.y}
               stroke={C.emerald}
               strokeOpacity={0.14}
@@ -217,15 +236,17 @@ export function PeopleGraph({
             const [stroke, w, dash, op] = EDGE_STYLE[e.k];
             return (
               <line
-                key={`${e.a}-${e.b}`}
-                x1={a.x}
+                key={`${e.a}-${e.b}-${e.k}`}
+                className="graph__edge"
+                data-edge={e.k}
+                x1={gx(a.x)}
                 y1={a.y}
-                x2={b.x}
+                x2={gx(b.x)}
                 y2={b.y}
                 stroke={stroke}
                 strokeWidth={w}
                 strokeDasharray={dash}
-                strokeOpacity={op}
+                strokeOpacity={e.muted ? op * 0.45 : op}
                 vectorEffect="non-scaling-stroke"
                 strokeLinecap="round"
               />
@@ -245,9 +266,9 @@ export function PeopleGraph({
             onClick={() => onOpen?.(n.id)}
             style={{
               position: 'absolute',
-              left: `${n.x / 10}%`,
+              left: `${gx(n.x) / 10}%`,
               top: `${n.y / 5.8}%`,
-              transform: 'translate(-50%,-26px)',
+              transform: `translate(-50%,-${dot / 2}px)`,
               background: 'none',
               border: 0,
               padding: 0,
@@ -261,27 +282,29 @@ export function PeopleGraph({
           >
             <span
               style={{
-                width: 52,
-                height: 52,
-                borderRadius: isCo ? 14 : '50%',
+                width: dot,
+                height: dot,
+                borderRadius: isCo ? (mobile ? 10 : 14) : '50%',
                 background: isYou ? C.emerald : C['panel-2'],
                 border: isYou ? `2px solid ${C.emerald}` : isCo ? `1px solid ${C['line-2']}` : n.tier ? TIER_VIS[n.tier].ring : undefined,
                 display: 'grid',
                 placeItems: 'center',
-                ...mono(13),
+                ...mono(mobile ? 11 : 13),
                 fontWeight: 500,
                 color: isYou ? C['emerald-ink'] : C.fg,
-                boxShadow: isYou || n.best ? `0 0 0 6px ${X.em15}` : 'none',
+                boxShadow: isYou || n.best ? `0 0 0 ${mobile ? 4 : 6}px ${X.em15}` : 'none',
                 boxSizing: 'border-box',
               }}
             >
               {n.ini}
             </span>
-            <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>{n.name}</span>
+            <span style={{ fontSize: mobile ? 11 : 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {mobile && !isCo ? n.name.split(' ')[0] : n.name}
+            </span>
           </Btn>
         );
       })}
-      <div style={{ position: 'absolute', left: 20, bottom: 18, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+      <div style={{ position: 'absolute', left: 20, bottom: 18, display: mobile ? 'none' : 'flex', gap: 16, flexWrap: 'wrap' }}>
         {TIER_ORDER.map((t) => (
           <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 7, ...mono(10, C.muted), letterSpacing: '.06em' }}>
             <span style={{ width: 14, height: 14, borderRadius: '50%', border: TIER_VIS[t].ring, boxSizing: 'border-box' }} />
@@ -306,6 +329,7 @@ export function PersonRow({
   onOpen,
   mobile,
   email,
+  noEmail,
 }: {
   id: string;
   ini: string;
@@ -318,6 +342,8 @@ export function PersonRow({
   email?: { address: string; tag: string; sure: boolean } | null;
   onOpen?: () => void;
   mobile?: boolean;
+  /** #132: no address at all: shows No email (a draft to them stays in the vault, no Gmail draft). */
+  noEmail?: boolean;
 }) {
   return (
     <Btn
@@ -345,6 +371,7 @@ export function PersonRow({
         <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{name}</span>
         <span style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>{role}</span>
         {email && <EmailLine {...email} />}
+        {!email && noEmail && <NoEmail />}
       </span>
       <DraftStatusChip status={status} size={mobile ? 10 : 10.5} pad={mobile ? '0' : '3px 9px'} />
     </Btn>
@@ -360,6 +387,62 @@ export function EmailLine({ address, tag, sure, size = 11 }: { address: string; 
       <span style={{ ...ellipsis, minWidth: 0 }}>{address}</span>
       <span style={{ flex: 'none', color: sure ? C.emerald : C.gold }}>{tag}</span>
     </span>
+  );
+}
+
+/** #132: the recipient has no address at all. */
+export function NoEmail({ size = 11 }: { size?: number }) {
+  return (
+    <span className="no-email" style={{ display: 'block', marginTop: 3, ...mono(size, C.gold) }}>
+      No email
+    </span>
+  );
+}
+
+// ------------------------------------------------------------ LinkedIn fallback (#132)
+
+/** Copy to the clipboard; a refused or missing clipboard is ignored. */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    // No clipboard permission: the user copies the note by hand.
+  }
+}
+
+const fallbackPill = (mobile?: boolean) => ({
+  border: `1px solid ${C['line-2']}`,
+  background: 'transparent',
+  color: C.fg,
+  borderRadius: 999,
+  padding: mobile ? '0 14px' : '6px 14px',
+  height: mobile ? 36 : undefined,
+  fontSize: 13,
+  textDecoration: 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+});
+
+/**
+ * #132: a draft whose recipient has no email but a LinkedIn profile. **Copy note** copies the note locally;
+ * **Open profile** opens their profile in a new tab. pp never sends or messages on LinkedIn: the user does.
+ */
+export function LinkedInFallback({ note, profile, mobile }: { note: string; profile: string; mobile?: boolean }) {
+  return (
+    <div className="linkedin-fallback" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+      <Btn
+        op="local"
+        className="copy-note"
+        onClick={() => void copyText(note)}
+        style={fallbackPill(mobile)}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Copy note
+      </Btn>
+      <a className="open-profile" href={profile} target="_blank" rel="noopener noreferrer" data-op="nav" style={fallbackPill(mobile)}>
+        Open profile ↗
+      </a>
+    </div>
   );
 }
 
@@ -514,7 +597,7 @@ export function DraftList({
   onOpen,
   mobile,
 }: {
-  items: ReadonlyArray<{ id: string; recipient: string; about: string | null; status: OutreachStatus }>;
+  items: ReadonlyArray<{ id: string; recipient: string; about: string | null; status: OutreachStatus; noEmail?: boolean }>;
   onOpen?: (id: string) => void;
   mobile?: boolean;
 }) {
@@ -551,6 +634,7 @@ export function DraftList({
                 {`About ${o.about}`}
               </span>
             )}
+            {o.noEmail && <NoEmail />}
           </span>
           <DraftStatusChip status={o.status} size={10.5} pad={mobile ? '0' : '3px 9px'} />
         </Btn>

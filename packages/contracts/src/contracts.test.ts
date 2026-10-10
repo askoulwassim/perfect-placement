@@ -90,6 +90,8 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'onboard.propose_questions': 'low',
   // #42, #54
   'profile.set_defaults': 'low',
+  // #124
+  'profile.set_identity': 'low',
   'apply.resolve_claim': 'low',
   // #37
   'people.find_email': 'low',

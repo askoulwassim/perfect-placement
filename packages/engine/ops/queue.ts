@@ -27,6 +27,19 @@ export interface RunSummaryFields {
   triggered?: string[];
   queued_at?: string;
   launched_at?: string;
+  /** #122: why it failed, as a code (`runs.finish { error_code }`). */
+  error_code?: string;
+  error?: string;
+  /** #122: the failed run this one retries, which try this is (first = 1), and the earliest launch time. */
+  retry_of?: string;
+  attempt?: number;
+  not_before?: string;
+  /** #122: on a failed run, the run that retries it. */
+  retried?: string;
+  /** The schedule that started this run (`runs.start { schedule }`). */
+  schedule?: string;
+  /** #121: the schedule behind a run chained or retried from a scheduled run (it gets the scheduled retry policy and stall cap). */
+  schedule_origin?: string;
 }
 
 export const summaryOf = (r: Run): RunSummaryFields => (r.summary_json ?? {}) as RunSummaryFields;
@@ -50,6 +63,15 @@ export function sameScope(a: RunScope, b: RunScope): boolean {
   if (a.skill === 'research' && a.company_id && b.company_id) return a.company_id === b.company_id;
   return a.role_id === b.role_id && a.contact_id === b.contact_id && a.outreach_id === b.outreach_id;
 }
+
+/** #121: the schedule a run belongs to (started by it, or chained or retried from a run it started), or undefined. */
+export const scheduleOf = (r: Run): string | undefined => summaryOf(r).schedule ?? summaryOf(r).schedule_origin;
+
+/** A queued retry still waiting out its delay (#122): the dispatcher skips it until `not_before`. */
+export const waiting = (r: Run, now: Date): boolean => {
+  const t = summaryOf(r).not_before;
+  return typeof t === 'string' && Date.parse(t) > now.getTime();
+};
 
 /** A run the queue owns (a human or schedule started it), as opposed to an agent session's own run. */
 export const isQueueRun = (r: Run): boolean => summaryOf(r).actor !== undefined && summaryOf(r).actor !== 'agent';

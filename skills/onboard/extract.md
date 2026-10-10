@@ -7,6 +7,7 @@ The user uploaded a resume. The app kept it in the vault and showed an instant p
 1. `onboard.state {}` -> `resume.source_path` (the kept resume text). No `resume`: finish with `runs.finish { status: "error", summary: { error: "no kept resume" } }`.
 2. Read the kept resume with `vault.read { path: <resume.source_path> }` (the kept resume is a vault file).
 3. Extract into a Story object, copying text exactly as written (same words, numbers, dates, capitalization):
+   - `contact` (#124): `full_name` (the name line), `email`, `phone`, `city` (as written, e.g. "Springfield, IL"), `linkedin`, each exactly as written; `preferred_name` only when the resume shows it ("Alexander (Alex) Rivera": `Alex`). Leave out what is not there. The interview shows them to confirm or edit.
    - `headline`: the title line under the name, if any.
    - `summary`: the profile or summary paragraph, if any.
    - `roles`: one per job, newest first: `{ company, title, dates, summary?, bullets: [...] }`. `company`, `title` and `dates` exactly as written ("Mar 2022 - Present"). Every bullet verbatim.

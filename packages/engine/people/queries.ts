@@ -122,6 +122,8 @@ export function updateLink(R: Repos, l: ContactLink): void {
     is_hiring_team: l.is_hiring_team,
     path: l.path,
     via_tie_json: l.via_tie_json,
+    team_side: l.team_side,
+    brand: l.brand,
   });
 }
 

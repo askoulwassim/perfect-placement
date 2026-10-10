@@ -15,8 +15,37 @@ export const COMPONENT_NAME: Record<ProfileComponentKey, string> = {
   network: 'Network',
 };
 
-/** Provenance and links, not facts to show as chips (#38); Application defaults have their own editor (#42). */
-const META_KEYS = new Set(['source_path', 'source_file', 'dictated', 'extracted_by', 'years_basis', 'application_defaults']);
+/**
+ * Provenance and links, not facts to show as chips (#38); Application defaults (#42) and the contact (#124)
+ * have their own editors.
+ */
+const META_KEYS = new Set(['source_path', 'source_file', 'dictated', 'extracted_by', 'years_basis', 'application_defaults', 'contact']);
+
+/** The contact on Story (#124) as You edits it: field, label (1-3 words), placeholder. */
+export const IDENTITY_EDIT_FIELDS = [
+  ['full_name', 'Name', 'Alex Rivera'],
+  ['preferred_name', 'Goes by', 'Alex'],
+  ['email', 'Email', 'alex@example.com'],
+  ['phone', 'Phone', '+1 555 010 0199'],
+  ['city', 'City', 'Springfield, IL'],
+  ['linkedin', 'LinkedIn', 'linkedin.com/in/alex'],
+] as const;
+export type IdentityEditField = (typeof IDENTITY_EDIT_FIELDS)[number][0];
+
+/** The editor's text for each contact field. */
+export function identityText(c: unknown): Record<IdentityEditField, string> {
+  const o = c && typeof c === 'object' ? (c as Record<string, unknown>) : {};
+  const out = {} as Record<IdentityEditField, string>;
+  for (const [f] of IDENTITY_EDIT_FIELDS) out[f] = typeof o[f] === 'string' ? (o[f] as string) : '';
+  return out;
+}
+
+/** Editor text -> `profile.set_identity` input (an empty field clears it). */
+export function identityInput(t: Record<IdentityEditField, string>): Record<IdentityEditField, string> {
+  const out = {} as Record<IdentityEditField, string>;
+  for (const [f] of IDENTITY_EDIT_FIELDS) out[f] = t[f].trim();
+  return out;
+}
 
 /** Application defaults (#42) as You edits them: field, label (1-3 words), list or text. */
 export const DEFAULT_FIELDS = [

@@ -158,6 +158,8 @@ export function parseResumeHeuristic(text: string, now: Date = new Date()): Resu
     story.years = fromDates;
     story.years_basis = 'from dates';
   }
+  const contact = parseContact(text);
+  if (Object.keys(contact).length) story.contact = contact;
   story.extracted_by = 'preview';
 
   const titles = [headline ?? '', ...roles.map((r) => r.title)].filter(Boolean);
@@ -202,4 +204,89 @@ export function yearsFromDates(roles: ReadonlyArray<{ dates?: string }>, now: Da
   }
   if (!starts.length) return null;
   return Math.max(0, Math.max(...ends) - Math.min(...starts));
+}
+
+// ------------------------------------------------------------------ identity (#124)
+
+/** Lines of the resume header: everything before the first section heading or role line, at most 8. */
+function headerLines(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const md = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (md && (md[1]?.length ?? 1) > 1) break;
+    if (!md && line.length < 48 && SECTION_WORDS.test(line)) break;
+    out.push(md ? (md[2] ?? '') : line);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+const NAME_WORD =
+  /^(?:[A-Z][a-z'’-]*\.?|[A-Z][a-z]*[A-Z][a-z'’-]+|(?:de|da|del|della|der|di|du|la|le|van|von|bin|al|y|dos|das)|(?:Jr|Sr)\.?|II|III|IV)$/;
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/;
+const LINKEDIN_RE = /\b(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/[\w-]+\/?/i;
+const PHONE_RE = /(?<![\w/])\+?\(?\d[\d .()-]{8,18}\d(?![\w/])/g;
+/** "Springfield, IL", "Austin, TX 78701", "Lyon, France", "New York, NY". */
+const CITY_RE = /^([A-Z][A-Za-z'’.-]*(?: [A-Z][A-Za-z'’.-]*){0,3}), ([A-Z]{2}(?: \d{5})?|[A-Z][a-z]+(?: [A-Z][a-z]+){0,2})$/;
+
+/** Words that make "Staff Engineer, Payments" a title, not a "City, Region". */
+const JOB_WORDS =
+  /\b(engineer|engineering|manager|director|lead|product|designer|analyst|scientist|head|officer|president|founder|consultant|developer|architect|specialist|executive|sales|marketing|data|platform|platforms|remote|hybrid)\b/i;
+
+/** A plain name line: 2 to 5 capitalized words, no digits or symbols ("Alex J. Rivera", "Ana de la Cruz"). */
+export function nameOf(line: string): string | null {
+  const s = stripMd(line).trim();
+  if (!s || s.length > 60 || /[\d@/:|•·]/.test(s) || SECTION_WORDS.test(s)) return null;
+  const words = s.split(/\s+/);
+  if (words.length < 2 || words.length > 5 || !/^[A-Z]/.test(words[0] ?? '') || !words.every((w) => NAME_WORD.test(w))) return null;
+  return s;
+}
+
+/** A phone number: 10 to 15 digits, not a year range or a date. */
+function phoneOf(line: string): string | null {
+  for (const m of line.matchAll(PHONE_RE)) {
+    const v = m[0].trim().replace(/[.-]$/, '');
+    const digits = v.replace(/\D/g, '');
+    if (digits.length < 10 || digits.length > 15) continue;
+    if (/\b(19|20)\d{2}\s*[-–]\s*(19|20)\d{2}\b/.test(v)) continue;
+    return v;
+  }
+  return null;
+}
+
+/**
+ * Identity from the resume header (#124), copied as written; only where the pattern is reliable: the name
+ * line (the first header line, or the part of a "# Name - Title" heading before the dash), an email, a
+ * phone of 10 to 15 digits, a LinkedIn URL, and a "City, ST" / "City, Country" segment of a contact line.
+ * Never a preferred name (the interview asks it). The onboard agent's extraction replaces it.
+ */
+export function parseContact(text: string): Record<string, string> {
+  const lines = headerLines(text);
+  const out: Record<string, string> = {};
+  const first = lines[0];
+  if (first) {
+    const name = nameOf(first.split(DASH)[0] ?? '');
+    if (name) out.full_name = name;
+  }
+  for (const line of lines) {
+    const plain = stripMd(line);
+    const email = EMAIL_RE.exec(plain)?.[0];
+    const linkedin = LINKEDIN_RE.exec(plain)?.[0];
+    const phone = phoneOf(plain);
+    if (email) out.email ??= email;
+    if (linkedin) out.linkedin ??= linkedin;
+    if (phone) out.phone ??= phone;
+    // A city only on a contact line (an email, phone, link or separators), so a title line is never one.
+    if (!out.city && (email || phone || linkedin || /[|•·]/.test(plain))) {
+      const parts = plain
+        .split(/\s*[|•·]\s*|\s+[—–]\s+|\s+-\s+/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const city = parts.find((p) => CITY_RE.test(p) && !EMAIL_RE.test(p) && !JOB_WORDS.test(p));
+      if (city) out.city = city;
+    }
+  }
+  return out;
 }

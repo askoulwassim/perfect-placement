@@ -212,6 +212,10 @@ describe('outreach end to end on fixtures (dry-run Gmail)', () => {
     expect(got.body.endsWith('\n\nThanks,\nSam\n')).toBe(true);
     expect(got.body).not.toMatch(/—|–/);
 
+    // #132: a Gmail draft needs an address for its recipient.
+    v.db
+      .prepare(`UPDATE contact SET email = 'dev@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0002'`)
+      .run();
     const out = ok(await v.runOp('outreach.to_gmail', { outreach_id: drafted.outreach.id }, ctxAt('human')));
     expect(out.outreach.status).toBe('in_gmail');
     expect(gmail.drafts[0]?.body).toBe(got.body);

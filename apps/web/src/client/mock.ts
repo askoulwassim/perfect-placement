@@ -17,6 +17,7 @@ import {
   SCHEDULE_SKILL,
   type Score,
 } from '@perfect-placement/contracts';
+import { buildRoleGraph } from '@perfect-placement/engine/graph';
 import * as fx from '@perfect-placement/fixtures';
 import { composeReply } from '../../genui/src/compose';
 import { scriptedStream } from '../../genui/src/stream';
@@ -161,12 +162,18 @@ function readOp(
         fx.roles.find((r) => r.id === i.role_id),
         'role',
       );
+      const contacts = peopleFor(role);
+      const company = must(
+        fx.companies.find((c) => c.id === role.company_id),
+        'company',
+      );
       return ok({
         ...summary(role),
         application: fx.applications.find((a) => a.role_id === role.id) ?? null,
-        contacts: peopleFor(role),
+        contacts,
         md_body: read(role.md_path),
         connect: null,
+        graph: buildRoleGraph({ company, people: contacts, contactById: (id) => fx.contacts.find((c) => c.id === id) }),
       });
     }
     case 'companies.get': {
@@ -229,6 +236,7 @@ function readOp(
             ...o,
             recipient_name: fx.contacts.find((c) => c.id === o.contact_id)?.name ?? '',
             about_name: o.about_contact_id ? (fx.contacts.find((c) => c.id === o.about_contact_id)?.name ?? null) : null,
+            no_email: !fx.contacts.find((c) => c.id === o.contact_id)?.email,
           })),
       });
     case 'outreach.get': {
@@ -254,6 +262,8 @@ function readOp(
         email_confidence: contact.email_confidence,
         guess: contact.email,
         reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
+        decision_id: null,
+        linkedin_url: contact.linkedin_url,
       };
       const about = outreach.about_contact_id ? (fx.contacts.find((c) => c.id === outreach.about_contact_id) ?? null) : null;
       return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to, about });

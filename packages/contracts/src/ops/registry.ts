@@ -38,6 +38,7 @@ import {
   ProfileComponentKey,
   RoleSource,
   RoleStatus,
+  RunErrorCode,
   RunStatus,
   Skill,
   SubjectType,
@@ -45,7 +46,7 @@ import {
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
-import { ApplicationDefaults, FILL_KINDS } from '../profile-data.js';
+import { ApplicationDefaults, FILL_KINDS, StoryContact } from '../profile-data.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
 import { RENDER_DOCS, RENDER_FORMATS } from '../vault.js';
 import { Ack, defineOp, Page } from './define.js';
@@ -134,6 +135,35 @@ export const profileSetDefaults = defineOp({
   description: 'Save the standard application answers (sponsorship, work authorization, relocation, notice, office days, comp, EEO).',
   input: z.object({ defaults: ApplicationDefaults }),
   output: z.object({ version: ProfileVersion.nullable(), defaults: ApplicationDefaults }),
+  impact: 'low',
+  emits: ['profile_diff_proposed', 'profile_diff_applied'],
+  owner: 'E',
+});
+
+/**
+ * Added (#124): save the user's identity and contact (Story `contact`: full name, preferred first name, email,
+ * phone, city, LinkedIn) from You. Merged into what is saved; an empty string clears a field. A human edit
+ * applies at once as profile v+1 (a Story diff: an asset, never rescored, never a hard exclusion); from any
+ * other actor the diff goes through the resolver like every Story diff. An email must look like one.
+ */
+export const IdentityInput = z.object({
+  full_name: z.string().max(120).optional(),
+  preferred_name: z.string().max(60).optional(),
+  email: z
+    .string()
+    .max(200)
+    .refine((v) => !v.trim() || z.email().safeParse(v.trim()).success, { message: 'not an email address' })
+    .optional(),
+  phone: z.string().max(40).optional(),
+  city: z.string().max(120).optional(),
+  linkedin: z.string().max(200).optional(),
+});
+export const profileSetIdentity = defineOp({
+  name: 'profile.set_identity',
+  description:
+    'Save your name, preferred first name, email, phone, city and LinkedIn (Story contact); Fill uses them for the identity fields.',
+  input: z.object({ contact: IdentityInput }),
+  output: z.object({ version: ProfileVersion.nullable(), contact: StoryContact }),
   impact: 'low',
   emits: ['profile_diff_proposed', 'profile_diff_applied'],
   owner: 'E',
@@ -783,6 +813,42 @@ export const ConnectPaths = z.object({
 });
 export type ConnectPaths = z.infer<typeof ConnectPaths>;
 
+/**
+ * Added (#131): one node of a role's people graph. `me` (the user), `company` (the role's company), or a
+ * `person`: every contact linked to the role plus every mutual named by a link's `via_contact_id` (a mutual
+ * needs no role link of its own). `recommended` marks the nodes on the path the primary action drafts.
+ */
+export const RoleGraphNode = z.object({
+  id: z.string(),
+  kind: z.enum(['me', 'company', 'person']),
+  contact_id: Id.optional(),
+  name: z.string(),
+  degree: ContactDegree.optional(),
+  tier: ContactTier.optional(),
+  /** On the team side: the hiring team (`is_hiring_team`) or, #132, the link's `team_side`. */
+  team_side: z.boolean().optional(),
+  recommended: z.boolean().optional(),
+});
+export type RoleGraphNode = z.infer<typeof RoleGraphNode>;
+
+/**
+ * Added (#131): a relationship. `knows`: me -> a 1st-degree person; `via`: mutual -> 2nd-degree target;
+ * `works_at` / `hiring` / `team`: person -> company (`hiring` for the hiring team; #132 `team` for a team-side
+ * person not on the hiring team).
+ */
+export const RoleGraphEdge = z.object({
+  from: z.string(),
+  to: z.string(),
+  kind: z.enum(['knows', 'via', 'works_at', 'hiring', 'team']),
+  degree: ContactDegree.optional(),
+  recommended: z.boolean().optional(),
+});
+export type RoleGraphEdge = z.infer<typeof RoleGraphEdge>;
+
+/** Added (#131): the people graph for a role, built by the engine. Node ids are unique. */
+export const RoleGraph = z.object({ nodes: z.array(RoleGraphNode), edges: z.array(RoleGraphEdge) });
+export type RoleGraph = z.infer<typeof RoleGraph>;
+
 const RoleSummary = z.object({
   role: Role,
   company: Company,
@@ -795,11 +861,13 @@ export const rolesGet = defineOp({
   input: z.object({ role_id: Id }),
   output: RoleSummary.extend({
     application: Application.nullable(),
-    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team target with a mutual, else null. */
+    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team (or #132 team-side) target with a mutual, else null. */
     contacts: z.array(z.object({ contact: Contact, link: ContactLink, paths: ConnectPaths.nullable().default(null) })),
     md_body: z.string().nullable(),
     /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
     connect: ConnectState.nullable().default(null),
+    /** Added (#131): me, the company and every person (mutuals included) with their relationships. */
+    graph: RoleGraph.default({ nodes: [], edges: [] }),
   }),
   impact: 'low',
   readOnly: true,
@@ -1181,6 +1249,14 @@ export const PeopleFindHint = z.object({
     .optional(),
   /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
   hiring_team: z.boolean().optional(),
+  /**
+   * Added (#132, judgment): on the team side though not the hiring team: works at the company or one of its
+   * product brands (dossier aliases), in the role's org or an adjacent function (product, design,
+   * engineering leadership on that product). Gets ranked direct / bridge paths. Only ever adds.
+   */
+  team_side: z.boolean().optional(),
+  /** Added (#132): the product brand they work under when it differs from the company name. */
+  brand: z.string().min(1).max(120).nullable().optional(),
 });
 export type PeopleFindHint = z.infer<typeof PeopleFindHint>;
 
@@ -1486,6 +1562,8 @@ export const DraftRecipient = z.object({
    * (the engine queues the Gmail step once the address is confirmed).
    */
   decision_id: Id.nullable().default(null),
+  /** Added (#132): the recipient's LinkedIn profile URL (Open profile when there is no email); null when none. */
+  linkedin_url: z.string().nullable().default(null),
 });
 export type DraftRecipient = z.infer<typeof DraftRecipient>;
 
@@ -1553,6 +1631,8 @@ export const outreachList = defineOp({
       Outreach.extend({
         recipient_name: z.string().default(''),
         about_name: z.string().nullable().default(null),
+        /** Added (#132): the recipient has no address at all (no Gmail draft until one is confirmed). */
+        no_email: z.boolean().default(false),
       }),
     ),
   }),
@@ -1592,7 +1672,8 @@ export const outreachToGmail = defineOp({
    * #99: refused (`conflict`) while the recipient's address is a guess waiting in Needs you, unless the
    * agent already made the draft (`gmail_draft_id`: recorded with no To, filled once confirmed). The To
    * used is kept on `outreach.gmail_to`. Recording the same `gmail_draft_id` again on an `in_gmail`
-   * draft with no To (the To update step) sets `gmail_to` to the confirmed address.
+   * draft with no To (the To update step) sets `gmail_to` to the confirmed address. #132: refused
+   * (`conflict`) when the recipient has no address at all: never a Gmail draft without To.
    */
   output: z.object({
     outreach: Outreach,
@@ -1820,6 +1901,13 @@ export const runsStart = defineOp({
      * `summary_json.assist`.
      */
     assist: z.boolean().optional(),
+    /**
+     * Added (#122): the failed run this one retries (engine use: `runs.finish` re-queues a run that ended
+     * `error_code: "connector_unavailable"` once). Same skill; that run must be `error` and not retried yet. Kept as
+     * `summary_json.retry_of` with `attempt` (the first try is 1) and `not_before` (the dispatcher waits until then);
+     * the retried run gets `summary_json.retried` = this run's id.
+     */
+    retry_of: Id.optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
@@ -1880,6 +1968,15 @@ export const runsFinish = defineOp({
      * open, and only its `portal` tab.
      */
     tabs: RunTabs.optional(),
+    /**
+     * Added (#122): why the run failed, as a code (status `error`). `connector_unavailable`: a connector tool the
+     * skill is granted (Gmail, Claude in Chrome) is missing from the session; the engine retries the run once
+     * after a short delay. Kept as `summary_json.error_code`. `stalled` (#121): set by the engine when a run passes
+     * its wall-clock cap.
+     */
+    error_code: RunErrorCode.optional(),
+    /** Added (#122): the one-line error (kept as `summary_json.error`, over `summary.error`). */
+    error: z.string().optional(),
   }),
   output: z.object({ run: Run }),
   impact: 'low',
@@ -1998,6 +2095,7 @@ export const OPS = {
   'profile.reject_diff': profileRejectDiff,
   'profile.undo_diff': profileUndoDiff,
   'profile.set_defaults': profileSetDefaults,
+  'profile.set_identity': profileSetIdentity,
   'profile.learn': profileLearn,
   'profile.propose_voice': profileProposeVoice,
   'onboard.start': onboardStart,

@@ -6,7 +6,8 @@ import { humanize } from './format';
  * A run row: `op` = the skill; `summary_json` = { skill, role_id?, company_id? (research), contact_id?,
  * outreach_id?, actor, runner, queued_at?, launched_at?, triggered_by? + triggered_by_skill? (the run
  * that queued it, #30), triggered? (runs it queued), ...what the skill reported (counts), error?,
- * denied_tools?, runner_log?, tabs? (Chrome tabs opened / closed / left open, #107) }.
+ * denied_tools?, runner_log?, tabs? (Chrome tabs opened / closed / left open, #107), error_code?, retried? (the run
+ * that retries it), retry_of? + attempt? + not_before? (a connector retry, #122) }.
  */
 
 export const SKILL_LABEL: Record<Skill, string> = {
@@ -53,6 +54,13 @@ export interface RunSummary {
   denied_tools?: string[];
   runner_log?: string;
   tabs?: { opened?: number[]; closed?: number[]; left_open?: number[]; portal?: number };
+  /** #122: why it failed as a code; the run that retries it; the run it retries, which try it is. */
+  error_code?: string;
+  retried?: string;
+  retry_of?: string;
+  attempt?: number;
+  not_before?: string;
+  retry_skipped?: string;
   [k: string]: unknown;
 }
 export const summaryOf = (r: Run): RunSummary => (r.summary_json ?? {}) as RunSummary;
@@ -83,6 +91,12 @@ const META = new Set([
   'schedule',
   'assist',
   'tabs',
+  'error_code',
+  'retried',
+  'retry_of',
+  'attempt',
+  'not_before',
+  'retry_skipped',
 ]);
 
 /** What changed, from the numbers the skill reported: "12 added · 3 duplicates". Null when it reported none. */
@@ -111,6 +125,9 @@ export function runTabs(r: Run): string | null {
   const parts = [`${n(t.opened)} opened`, `${n(t.closed)} closed`, ...(n(t.left_open) ? [`${n(t.left_open)} left open`] : [])];
   return parts.join(' · ');
 }
+
+/** A failed run the engine retried (#122): the list shows it as Retried, not Failed. */
+export const wasRetried = (r: Run): boolean => r.status === 'error' && typeof summaryOf(r).retried === 'string';
 
 /** The one-line reason a run failed. */
 export function runReason(r: Run): string {

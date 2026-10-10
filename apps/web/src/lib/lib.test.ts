@@ -2,6 +2,7 @@ import type { Run } from '@perfect-placement/contracts';
 import { contactLinks, contacts, decisions } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { probColor } from '../components/theme';
+import { runStatusLabel } from '../screens/Runs';
 import { cadence, lastResult, nextRun } from '../screens/Settings';
 import { altsOf, pickOf, SHORT_Q, valueLabel } from './decisions';
 import { bestPath, emailTag, linkedinState, type Person } from './people';
@@ -19,6 +20,7 @@ import {
   scoreInput,
   scoreRunFor,
   triggeredBy,
+  wasRetried,
 } from './runs';
 import { stageOf } from './stage';
 
@@ -187,6 +189,20 @@ describe('runs (#21)', () => {
     );
     expect(runTabs(run({}))).toBeNull();
     expect(runCounts(r)).toBeNull();
+  });
+  it('a failed run the engine retried reads Retried; the attempt of a retry is not a count (#122)', () => {
+    const failed = run({
+      status: 'error',
+      summary_json: { skill: 'inbox', error_code: 'connector_unavailable', error: 'connector_unavailable: x', retried: 'rn_2' },
+    });
+    expect(wasRetried(failed)).toBe(true);
+    expect(runStatusLabel(failed)).toBe('Retried');
+    expect(runOutcome(failed)).toBe('connector_unavailable: x');
+    const retry = run({ status: 'ok', summary_json: { skill: 'inbox', retry_of: 'rn_1', attempt: 2, not_before: 'x', classified: 3 } });
+    expect(wasRetried(retry)).toBe(false);
+    expect(runStatusLabel(retry)).toBe('Done');
+    expect(runOutcome(retry)).toBe('3 classified');
+    expect(runStatusLabel(run({ status: 'error', summary_json: { error: 'boom' } }))).toBe('Failed');
   });
   it('shows duration', () => {
     expect(duration(run({ finished_at: '2026-10-08T10:00:42.000Z' }), new Date())).toBe('42s');

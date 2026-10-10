@@ -16,6 +16,7 @@ import {
 import { type EngineServices, ops } from '@perfect-placement/engine';
 import type { Args } from '../args.js';
 import { CliError, type Io } from '../io.js';
+import { holdAwake } from '../system/awake.js';
 import { jobManager, launchAgentsDir, removeJobs, scheduleJobsService, syncJobs, systemdUserDir } from '../system/schedules.js';
 import { sysOf } from './kev.js';
 
@@ -115,8 +116,28 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
   if (args.has('no-wait')) return 0;
 
   const sys = sysOf(io);
+  // #121: a scheduled run keeps the machine awake while it (and what it chains) runs; tests that inject services
+  // without sys never spawn anything.
+  const awake = scheduled && !(io.services && !io.sys) ? holdAwake(sys, { cwd: engine.home }) : null;
+  try {
+    return await follow(engine, root, ctx, io, drain, sys);
+  } finally {
+    awake?.release();
+  }
+}
+
+/** Drain and poll until `root`, the runs it triggered and their retries are done; exit code from the final try. */
+async function follow(
+  engine: ops.Engine,
+  root: string,
+  ctx: { actor: 'schedule' | 'human'; now: () => Date },
+  io: Io,
+  drain: Drain,
+  sys: ReturnType<typeof sysOf>,
+): Promise<number> {
   const pending = new Set([root]);
   const done = new Map<string, Run>();
+  let final = root;
   for (let i = 0; i < RUN_MAX_POLLS; i++) {
     await drain(engine);
     for (const id of [...pending]) {
@@ -129,9 +150,14 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
       if ((RUN_ACTIVE_STATUSES as readonly string[]).includes(run.status)) continue;
       pending.delete(id);
       done.set(id, run);
-      const s = (run.summary_json ?? {}) as { error?: string; triggered?: string[] };
-      io.out(`pp run: ${run.op} run ${id} ${run.status}${s.error ? `: ${s.error}` : ''}`);
+      const s = (run.summary_json ?? {}) as { error?: string; triggered?: string[]; retried?: string };
+      io.out(`pp run: ${run.op} run ${id} ${run.status}${s.error ? `: ${s.error}` : ''}${s.retried ? ` (retry ${s.retried} queued)` : ''}`);
       for (const t of s.triggered ?? []) if (!done.has(t)) pending.add(t);
+      // #122, #121: a retry stands in for the run it retries: wait for it, and its outcome is the result.
+      if (s.retried && !done.has(s.retried)) {
+        pending.add(s.retried);
+        if (final === id) final = s.retried;
+      }
     }
     if (!pending.size) break;
     await sys.sleep(RUN_POLL_MS);
@@ -140,6 +166,6 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
     io.err(`pp run: still running after the wait: ${[...pending].join(', ')}`);
     return 1;
   }
-  const status = done.get(root)?.status;
+  const status = done.get(final)?.status;
   return status === 'ok' || status === 'partial' ? 0 : 1;
 }

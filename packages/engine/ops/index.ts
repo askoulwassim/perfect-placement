@@ -62,6 +62,7 @@ export {
   scopeOf,
 } from './queue.js';
 export { ALL_HANDLERS } from './registry.js';
+export * from './retry.js';
 export {
   buildRunnerSpec,
   CELLAR_NODE,
@@ -71,6 +72,7 @@ export {
   defaultMcpServer,
   deniedTools,
   deniedToolsError,
+  killRunner,
   MCP_SERVER_NAME,
   type McpServerSpec,
   pidAlive,
@@ -104,9 +106,9 @@ export {
   type RunLogEntry,
   requiresHuman,
 } from './runtime.js';
-export { catchUpSchedules, lastScheduledRun } from './schedules.js';
+export { catchUpSchedules, failedForGood, lastScheduledRun } from './schedules.js';
 export type { EngineServices, ScheduleJobs } from './services.js';
-export { INTERRUPTED, interruptStaleRuns, type StaleRunOptions } from './stale-runs.js';
+export { capStalledRuns, INTERRUPTED, interruptStaleRuns, type StaleRunOptions, type StallOptions } from './stale-runs.js';
 export { deepMerge, readConfig, renderMarkdown, resolveHome, stripFrontmatter, VaultTx } from './vault.js';
 
 export interface OpenEngineOptions {

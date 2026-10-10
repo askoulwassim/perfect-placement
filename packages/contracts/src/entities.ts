@@ -266,6 +266,14 @@ export const ContactLink = z.object({
   path: ConnectPath.nullable().default(null),
   /** Added (#98): the mutual's tie to the target (degree 2 with a via only). */
   via_tie_json: BridgeTie.nullable().default(null),
+  /**
+   * Added (#132): on the team side though not on the hiring team (the connect skill's judgment): works at the
+   * company or one of its product brands, in the role's org or an adjacent function (product, design,
+   * engineering leadership on that product). Gets ranked direct / bridge paths like a hiring-team target.
+   */
+  team_side: z.boolean().default(false),
+  /** Added (#132): the company's product brand the person works under, when it differs from the company name. */
+  brand: z.string().max(120).nullable().default(null),
 });
 export type ContactLink = z.infer<typeof ContactLink>;
 
@@ -436,6 +444,6 @@ export type TableName = keyof typeof TABLES;
 /** INTEGER 0/1 columns that are booleans in the contract. Repository layers convert on read/write. */
 export const BOOLEAN_COLUMNS: Partial<Record<TableName, readonly string[]>> = {
   role: ['remote_ok'],
-  contact_link: ['is_hiring_team'],
+  contact_link: ['is_hiring_team', 'team_side'],
   decision: ['overridden'],
 };
