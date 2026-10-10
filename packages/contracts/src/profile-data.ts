@@ -65,6 +65,28 @@ export const StoryItem = z.looseObject({
 });
 
 /**
+ * Added (#124): the user's identity and contact, Story `contact` (where email and LinkedIn already lived as
+ * free strings). Every field optional: a profile without them stays valid. Taken from the resume during
+ * onboarding (confirmed or edited in the interview), edited on You (`profile.set_identity`), read by
+ * `apply.fill` for the Name, First name, Last name, Preferred name, Phone and City / Location fields.
+ * Vault only; fixtures and tests use synthetic values. Unknown keys are kept (loose).
+ */
+export const IDENTITY_FIELDS = ['full_name', 'preferred_name', 'email', 'phone', 'city', 'linkedin'] as const;
+export type IdentityField = (typeof IDENTITY_FIELDS)[number];
+export const StoryContact = z.looseObject({
+  /** As on the resume ("Alex J. Rivera"); Fill splits it into first and last name. */
+  full_name: Text.optional(),
+  /** The first name the user goes by ("AJ"); unset = the first word of `full_name`. */
+  preferred_name: Text.optional(),
+  email: Text.optional(),
+  phone: Text.optional(),
+  /** Where the user lives, as written ("Springfield, IL"); a City field gets the part before the comma. */
+  city: Text.optional(),
+  linkedin: Text.optional(),
+});
+export type StoryContact = z.infer<typeof StoryContact>;
+
+/**
  * Added (#42): Application defaults, the saved answers to the standard portal questions (Terms
  * `application_defaults`). Set once in onboarding or You, reused by `apply.fill` on every application.
  * Never scored: changing only these does not rescore.
@@ -97,7 +119,22 @@ export type ApplicationDefaults = z.infer<typeof ApplicationDefaults>;
  *  - written: drafted from Story, CONTEXT (JD, dossier) and Voice, fact-checked.
  */
 export const FILL_KINDS = ['autofill', 'standard', 'written'] as const;
-export const AUTOFILL_FIELDS = ['name', 'email', 'phone', 'linkedin', 'github', 'website', 'resume', 'cover_letter', 'other'] as const;
+export const AUTOFILL_FIELDS = [
+  'name',
+  /** Added (#124): from Story `contact`: the full name split; Preferred name wins `preferred_name`; City from `city`. */
+  'first_name',
+  'last_name',
+  'preferred_name',
+  'email',
+  'phone',
+  'city',
+  'linkedin',
+  'github',
+  'website',
+  'resume',
+  'cover_letter',
+  'other',
+] as const;
 export const STANDARD_FIELDS = [
   'sponsorship',
   'work_authorization',
@@ -145,7 +182,8 @@ export const COMPONENT_DATA_SCHEMAS = {
     /** Added (#38): who extracted the facts (`agent` run or the instant `preview`). */
     extracted_by: z.enum(['agent', 'preview']).optional(),
     summary: Text.optional(),
-    contact: z.record(z.string(), z.string()).optional(),
+    /** Identity and contact (#124: typed fields; was a string record, still accepted). */
+    contact: StoryContact.optional(),
     roles: z.array(StoryRole).optional(),
     wins: TextList.optional(),
     stories: z.array(StoryItem).optional(),

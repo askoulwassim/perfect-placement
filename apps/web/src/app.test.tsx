@@ -434,6 +434,30 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
+  it('You -> Story: the contact saves once with one op and Fill reads it (#124)', async () => {
+    const { container } = await boot('#/you/story');
+    const box = await waitFor(() => $(container, '.identity'));
+    const save = within(box).getByText('Save') as HTMLButtonElement;
+    expect(save.getAttribute('data-op')).toBe('profile.set_identity');
+    expect(save.disabled).toBe(true);
+    // The contact has its own editor, not chips.
+    fireEvent.change($<HTMLInputElement>(box, 'input[name="full_name"]'), { target: { value: 'Avery Testperson' } });
+    fireEvent.change($<HTMLInputElement>(box, 'input[name="phone"]'), { target: { value: '+1 555 010 0142' } });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(live?.calls.filter((c) => c.name === 'profile.set_identity').at(-1)?.body).toMatchObject({
+        contact: { full_name: 'Avery Testperson', phone: '+1 555 010 0142', city: '' },
+      }),
+    );
+    await waitFor(async () => {
+      const p = await live?.as('human', 'profile.get', {});
+      const comps =
+        p?.status === 'ok' ? (p.output as { components: { key: string; data_json: Record<string, unknown> }[] }).components : [];
+      expect(comps.find((c) => c.key === 'story')?.data_json.contact).toEqual({ full_name: 'Avery Testperson', phone: '+1 555 010 0142' });
+    });
+    assertButtons(container);
+  });
+
   it('Role -> Answers tab groups Needs you, Written, Standard and Portal fills (#42)', async () => {
     const { container } = await boot(`#/role/${R.linearDraft}`, (l) =>
       l.as('agent', 'apply.fill', {
@@ -807,7 +831,9 @@ describe('click paths', () => {
     fireEvent.click(primary(container));
     // What the resume implies is confirmed first (#22): Yes / Edit, with what was pulled beside it.
     await waitFor(() =>
-      expect($(container, '.onboard-q__text').textContent).toBe('Looks like your headline is "Senior Product Manager". Right?'),
+      expect($(container, '.onboard-q__text').textContent).toBe(
+        'Looks like you are Riley Sample, and your headline is "Senior Product Manager". Right?',
+      ),
     );
     expect(Array.from(container.querySelectorAll('.onboard-q .chip')).map((c) => c.textContent)).toEqual(['Yes', 'Edit']);
     expect($(container, '.onboard-q__for').textContent).toBe('Q 1 · Story');

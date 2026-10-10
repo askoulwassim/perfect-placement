@@ -21,6 +21,7 @@ import {
   profileProposeDiff,
   profileRejectDiff,
   profileSetDefaults,
+  profileSetIdentity,
   undoDiff,
 } from '../../profile/profile-ops.js';
 import { profileProposeVoice } from '../../profile/voice-learn.js';
@@ -95,6 +96,9 @@ export const LANE_E_HANDLERS = {
   'profile.reject_diff': defineHandler('profile.reject_diff', { run: (i, h) => profileRejectDiff(profileDeps(h), i, h.ctx).output }),
   'profile.set_defaults': defineHandler('profile.set_defaults', {
     run: (i, h) => routed(() => profileSetDefaults(profileDeps(h), i, h.ctx)),
+  }),
+  'profile.set_identity': defineHandler('profile.set_identity', {
+    run: (i, h) => routed(() => profileSetIdentity(profileDeps(h), i, h.ctx)),
   }),
   'profile.undo_diff': defineHandler('profile.undo_diff', { run: (i, h) => undoDiff(profileDeps(h), i.diff_id, h.ctx) }),
   'profile.learn': defineHandler('profile.learn', {

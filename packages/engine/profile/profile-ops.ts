@@ -443,3 +443,35 @@ export async function profileSetDefaults(
   const applied = await profileApplyDiff(deps, { diff_id: output.diff.id }, ctx);
   return { version: applied.output.version, defaults: merged };
 }
+
+// ------------------------------------------------------------------ identity (#124)
+
+/**
+ * Save the user's identity and contact (Story `contact`): merge the given fields (an empty string clears
+ * one), then propose and apply one Story diff. A human applies at once; any other actor goes through the
+ * resolver like every Story diff (RequiresHuman). Story is an asset: never rescored, never a hard exclusion.
+ */
+export async function profileSetIdentity(
+  deps: ProfileDeps,
+  input: OpInput<'profile.set_identity'>,
+  ctx: OpContext,
+): Promise<OpOutput<'profile.set_identity'>> {
+  const version = requireCurrent(deps);
+  const comp = getComponent(deps.repos, version.id, 'story');
+  if (!comp) throw new OpError('not_found', `component story missing on ${version.id}`);
+  const raw = comp.data_json.contact;
+  const current = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  const merged: Record<string, unknown> = clone(current ?? {});
+  for (const [k, v] of Object.entries(input.contact)) {
+    if (typeof v !== 'string') continue;
+    const t = v.trim().replace(/\s+/g, ' ');
+    if (t) merged[k] = t;
+    else delete merged[k];
+  }
+  if (deepEqual(merged, current ?? {}) || ctx.dryRun) return { version: null, contact: merged };
+  const before = current ? { contact: current } : {};
+  const after = Object.keys(merged).length ? { contact: merged } : {};
+  const { output } = profileProposeDiff(deps, { component: 'story', before, after, evidence: ['Contact'] }, ctx);
+  const applied = await profileApplyDiff(deps, { diff_id: output.diff.id }, ctx);
+  return { version: applied.output.version, contact: merged };
+}

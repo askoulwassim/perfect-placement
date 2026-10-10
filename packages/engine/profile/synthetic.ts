@@ -178,3 +178,21 @@ export function synthPdf(lines: string[]): Buffer {
   out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(out, 'latin1');
 }
+
+/**
+ * A SYNTHETIC resume with a full contact header (#124): name line, email, phone, city and LinkedIn. A made-up
+ * person at reserved example values (555-01xx numbers, example.com); never real data.
+ */
+export const SYNTH_RESUME_CONTACT = `# Avery Testperson - Resume
+
+**Title:** Senior Data Product Manager
+avery.testperson@example.com | +1 (555) 010-0142 | Springfield, IL | linkedin.com/in/avery-testperson
+
+## Experience
+
+### Example Metrics Co — Senior Data Product Manager — 2020–Present
+- Shipped a metrics layer used by 40 teams.
+
+### Sample Retail — Product Analyst — 2017–2020
+- Built the weekly demand dashboard.
+`;

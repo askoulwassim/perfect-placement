@@ -67,14 +67,48 @@ const CONTACT_RE: Record<string, RegExp> = {
   github: /\b(?:https?:\/\/)?(?:www\.)?github\.com\/[\w-]+\/?/i,
 };
 
+const PARTICLES = new Set(['de', 'da', 'del', 'della', 'der', 'di', 'du', 'la', 'le', 'van', 'von', 'bin', 'al', 'dos', 'das', 'st.']);
+const SUFFIX = /^(jr\.?|sr\.?|ii|iii|iv|phd|md|mba)$/i;
+
+/**
+ * A full name split for First name / Last name fields (#124): credentials after a comma dropped ("Alex
+ * Rivera, PhD"), the first word is the first name, the last word (with a surname particle before it, "de la
+ * Cruz", and a suffix after it, "Jr.") is the last name; middle names and initials go in neither.
+ */
+export function nameParts(full: string): { first: string; last: string | null } {
+  const words = (full.split(',')[0] ?? '').trim().split(/\s+/).filter(Boolean);
+  const first = words[0] ?? '';
+  let end = words.length;
+  while (end > 2 && SUFFIX.test(words[end - 1] ?? '')) end--;
+  if (end < 2) return { first, last: null };
+  let start = end - 1;
+  while (start > 1 && PARTICLES.has((words[start - 1] ?? '').toLowerCase())) start--;
+  return { first, last: words.slice(start).join(' ') };
+}
+
+/** The user's name as saved (Story contact, #124), else an older `name` field, else the resume's heading. */
+function fullName(s: Saved): string | null {
+  const contact = (s.story.contact ?? {}) as Record<string, unknown>;
+  const heading = /^#\s+(.+)$/m.exec(s.resumeText)?.[1]?.split(/\s+[-–—|]\s+/)[0] ?? null;
+  return str(contact.full_name) ?? str(s.story.name) ?? str(contact.name) ?? str(heading);
+}
+
+/** The saved city (#124), else Work mode's home location. */
+const cityOf = (s: Saved) => str(((s.story.contact ?? {}) as Record<string, unknown>).city) ?? str(s.workMode.home_location);
+
 /** A portal-fill value from the profile: Story contact first, then the kept resume text. */
 function autofillValue(field: string, s: Saved, paths: Record<string, string>): string | null {
   const contact = (s.story.contact ?? {}) as Record<string, unknown>;
   if (field === 'resume' || field === 'cover_letter') return paths[field] ?? null;
-  if (field === 'name') {
-    const heading = /^#\s+(.+)$/m.exec(s.resumeText)?.[1]?.split(/\s+[-–—|]\s+/)[0] ?? null;
-    return str(s.story.name) ?? str(contact.name) ?? str(heading);
+  if (field === 'name') return fullName(s);
+  if (field === 'first_name' || field === 'last_name' || field === 'preferred_name') {
+    const full = fullName(s);
+    const parts = full ? nameParts(full) : null;
+    if (field === 'preferred_name') return str(contact.preferred_name) ?? str(parts?.first);
+    return str(field === 'first_name' ? parts?.first : parts?.last);
   }
+  // A City field takes the city alone ("Springfield, IL" -> "Springfield").
+  if (field === 'city') return str(cityOf(s)?.split(',')[0]);
   const saved = str(contact[field]);
   if (saved) return saved;
   const re = CONTACT_RE[field];
@@ -171,7 +205,8 @@ export function standardAnswer(field: string, a: Pick<FillIn, 'question' | 'coun
       return { reason: 'no saved answer for office days' };
     }
     case 'location': {
-      const v = str(s.workMode.home_location) ?? list(s.workMode.locations)[0] ?? null;
+      // #124: the saved city first (where the user lives), then Work mode.
+      const v = cityOf(s) ?? list(s.workMode.locations)[0] ?? null;
       return v ? { answer: v } : { reason: 'no saved location' };
     }
     case 'eeo': {

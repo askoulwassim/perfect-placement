@@ -1,5 +1,5 @@
 import { PROFILE_COMPONENT_KEYS, type ProfileComponentKey, VOICE_SAMPLE_MAX_CHARS, VOICE_SAMPLES_MAX } from '@perfect-placement/contracts';
-import { CONFIRM_MIN, type ComponentHint, type ResumeHints } from './hints.js';
+import { CONFIRM_MIN, type ComponentHint, contactOf, IDENTITY_KEYS, type ResumeHints } from './hints.js';
 import { deepEqual } from './json.js';
 import { FALLBACK_OPTIONS, type OptionKey, type PersonaOptions, personaOfCraft, titlesForFunctions, uniq } from './persona.js';
 
@@ -69,6 +69,8 @@ export interface QuestionDef {
   max_chars?: number;
   /** The list kept so far (list questions). */
   items?: (d: Draft) => string[];
+  /** Added (#124): the Story `contact` key this question sets (fields is ['contact']). */
+  contactKey?: (typeof IDENTITY_KEYS)[number];
   /** Already answered by the draft (resume, earlier answer, current profile). */
   known: (d: Draft) => boolean;
   /** Only ask when this holds (adaptive follow-ups). */
@@ -142,6 +144,31 @@ export function nextSamples(current: readonly string[], v: AnswerValue): string[
   return list;
 }
 
+/** Story `contact` (#124), created on first write. */
+const contactOfDraft = (d: Draft) => {
+  const c = comp(d, 'story');
+  if (!c.contact || typeof c.contact !== 'object' || Array.isArray(c.contact)) c.contact = {};
+  return c.contact as Record<string, unknown>;
+};
+const knownContact = (f: string) => (d: Draft) => !!contactOf(d.story ?? {})[f];
+/** An identity question (#124): one Story `contact` field, free text, pre-filled from the resume. */
+const identityQuestion = (id: string, f: (typeof IDENTITY_KEYS)[number], label: string, example?: string): QuestionDef => ({
+  id,
+  component: 'story',
+  label,
+  ...(example ? { example } : {}),
+  answer_type: 'text',
+  fields: ['contact'],
+  contactKey: f,
+  dictated: false,
+  known: (d) => knownContact(f)(d) || knownContact('full_name')(d),
+  apply: (d, v) => {
+    const t = asStr(v).replace(/\s+/g, ' ');
+    if (t) contactOfDraft(d)[f] = t;
+    else delete contactOfDraft(d)[f];
+  },
+});
+
 /** story.years option that drops a derived number. */
 export const YEARS_LEAVE_OUT = 'leave out';
 
@@ -189,6 +216,13 @@ export const QUESTION_BANK: QuestionDef[] = [
       }
     },
   },
+  // Story identity (#124): Fill uses these for the portal's identity fields. A name read from the resume is
+  // confirmed with Story (Yes / Edit), so these are asked only on Edit or when the resume has no name line:
+  // each is known once a full name is kept, which is why the name comes last.
+  identityQuestion('story.preferred_name', 'preferred_name', 'What first name do you go by?', 'Example: AJ.'),
+  identityQuestion('story.phone', 'phone', 'What phone number should employers call?', 'Example: +1 555 010 0199.'),
+  identityQuestion('story.city', 'city', 'Which city do you live in?', 'Example: Springfield, IL.'),
+  identityQuestion('story.name', 'full_name', 'What full name should applications use?', 'Example: Alex J. Rivera.'),
   // Craft
   {
     id: 'craft.functions',
@@ -627,6 +661,13 @@ const MODE_PHRASE: Record<string, string> = { ic: 'as an individual contributor'
 
 /** "Looks like ... Right?" for a component's high-confidence hint. */
 export function confirmLabel(k: ProfileComponentKey, data: Record<string, unknown>): string {
+  if (k === 'story' && data.contact && typeof data.contact === 'object') {
+    const c = contactOf({ contact: data.contact });
+    const more = [c.preferred_name ? `goes by ${c.preferred_name}` : '', c.phone ?? '', c.city ?? ''].filter(Boolean);
+    const who = `${c.full_name ?? ''}${more.length ? ` (${more.join(', ')})` : ''}`;
+    const head = typeof data.headline === 'string' ? `, and your headline is "${data.headline}"` : '';
+    return `Looks like you are ${who}${head}. Right?`;
+  }
   if (k === 'story' && typeof data.headline === 'string') return `Looks like your headline is "${data.headline}". Right?`;
   if (k === 'craft') {
     const level = typeof data.level === 'string' ? data.level : '';
@@ -662,11 +703,23 @@ function confirmQuestion(k: ProfileComponentKey, hint: ComponentHint | undefined
     known: () => false,
     apply: (d, v) => {
       const c = comp(d, k);
-      if (asStr(v) === CONFIRM_YES) {
-        for (const [f, val] of Object.entries(hint.data)) if (!done.has(f)) c[f] = val;
-      } else {
+      const yes = asStr(v) === CONFIRM_YES;
+      for (const [f, val] of Object.entries(hint.data)) {
+        if (done.has(f)) continue;
+        if (f === 'contact') {
+          // #124: Yes merges the contact into what is kept (an email already there stays); Edit clears only
+          // the identity questions' fields (email and LinkedIn have no question) so they are asked, pre-filled.
+          const kept = contactOf(c);
+          const hinted = val as Record<string, unknown>;
+          if (yes) c.contact = { ...kept, ...hinted };
+          else {
+            for (const key of IDENTITY_KEYS) if (kept[key] === hinted[key]) delete kept[key];
+            if (Object.keys(kept).length) c.contact = kept;
+            else delete c.contact;
+          }
+        } else if (yes) c[f] = val;
         // Edit: the component's questions are asked, the hint pre-filled.
-        for (const [f, val] of Object.entries(hint.data)) if (!done.has(f) && deepEqual(c[f], val)) delete c[f];
+        else if (deepEqual(c[f], val)) delete c[f];
       }
     },
   };
@@ -747,6 +800,8 @@ export function nextQuestion(
 ): QuestionDef | null {
   for (const q of questionsFor(plan, answered, scope)) {
     if (scope && !scope.includes(q.component)) continue;
+    // #124: a re-interview leaves the contact alone (You edits it directly).
+    if (scope && q.contactKey) continue;
     if (answered.includes(q.id)) continue;
     if (q.when && !q.when(draft)) continue;
     if (!scope && q.known(draft)) continue;
@@ -784,6 +839,7 @@ export function optionsOf(q: QuestionDef, d: Draft, plan?: InterviewPlan | null)
 export function suggestedFor(q: QuestionDef, d: Draft, plan?: InterviewPlan | null): AnswerValue | undefined {
   const hint = plan?.hints[q.component];
   const f = q.fields?.[0];
+  if (q.contactKey) return suggestedContact(q.contactKey, d, hint);
   if (!hint || !f || q.kind === 'confirm' || q.max_items) return undefined;
   const v = hint.data[f] ?? hint.suggest[f];
   if (v == null) return undefined;
@@ -797,6 +853,19 @@ export function suggestedFor(q: QuestionDef, d: Draft, plan?: InterviewPlan | nu
   const xs = list(v);
   if (q.answer_type === 'list') return xs.length ? xs : undefined;
   return xs.length ? (f === 'wins' ? xs[0] : xs.join(', ')) : undefined;
+}
+
+/**
+ * An identity question's pre-fill (#124): the resume's value, else for the preferred name the first word of
+ * the full name.
+ */
+function suggestedContact(key: (typeof IDENTITY_KEYS)[number], d: Draft, hint: ComponentHint | undefined): string | undefined {
+  const fromHint = { ...contactOf(hint?.suggest ?? {}), ...contactOf(hint?.data ?? {}) };
+  const v = fromHint[key] ?? contactOf(d.story ?? {})[key];
+  if (v) return v;
+  if (key !== 'preferred_name') return undefined;
+  const full = contactOf(d.story ?? {}).full_name ?? fromHint.full_name;
+  return full?.split(/\s+/)[0]?.replace(/[.,]$/, '') || undefined;
 }
 
 /** Longest free entry (Other) for a persona-dependent option. */

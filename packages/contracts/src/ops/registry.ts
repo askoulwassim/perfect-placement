@@ -45,7 +45,7 @@ import {
 } from '../enums.js';
 import { PolicyConfig, ROUTABLE_BACKENDS, ScheduleSpec } from '../policy.js';
 import { CriterionScore, Id, IsoTimestamp, Probability, VaultPath } from '../primitives.js';
-import { ApplicationDefaults, FILL_KINDS } from '../profile-data.js';
+import { ApplicationDefaults, FILL_KINDS, StoryContact } from '../profile-data.js';
 import { ScheduleJobState, ScheduleKey } from '../schedules.js';
 import { RENDER_DOCS, RENDER_FORMATS } from '../vault.js';
 import { Ack, defineOp, Page } from './define.js';
@@ -134,6 +134,35 @@ export const profileSetDefaults = defineOp({
   description: 'Save the standard application answers (sponsorship, work authorization, relocation, notice, office days, comp, EEO).',
   input: z.object({ defaults: ApplicationDefaults }),
   output: z.object({ version: ProfileVersion.nullable(), defaults: ApplicationDefaults }),
+  impact: 'low',
+  emits: ['profile_diff_proposed', 'profile_diff_applied'],
+  owner: 'E',
+});
+
+/**
+ * Added (#124): save the user's identity and contact (Story `contact`: full name, preferred first name, email,
+ * phone, city, LinkedIn) from You. Merged into what is saved; an empty string clears a field. A human edit
+ * applies at once as profile v+1 (a Story diff: an asset, never rescored, never a hard exclusion); from any
+ * other actor the diff goes through the resolver like every Story diff. An email must look like one.
+ */
+export const IdentityInput = z.object({
+  full_name: z.string().max(120).optional(),
+  preferred_name: z.string().max(60).optional(),
+  email: z
+    .string()
+    .max(200)
+    .refine((v) => !v.trim() || z.email().safeParse(v.trim()).success, { message: 'not an email address' })
+    .optional(),
+  phone: z.string().max(40).optional(),
+  city: z.string().max(120).optional(),
+  linkedin: z.string().max(200).optional(),
+});
+export const profileSetIdentity = defineOp({
+  name: 'profile.set_identity',
+  description:
+    'Save your name, preferred first name, email, phone, city and LinkedIn (Story contact); Fill uses them for the identity fields.',
+  input: z.object({ contact: IdentityInput }),
+  output: z.object({ version: ProfileVersion.nullable(), contact: StoryContact }),
   impact: 'low',
   emits: ['profile_diff_proposed', 'profile_diff_applied'],
   owner: 'E',
@@ -1998,6 +2027,7 @@ export const OPS = {
   'profile.reject_diff': profileRejectDiff,
   'profile.undo_diff': profileUndoDiff,
   'profile.set_defaults': profileSetDefaults,
+  'profile.set_identity': profileSetIdentity,
   'profile.learn': profileLearn,
   'profile.propose_voice': profileProposeVoice,
   'onboard.start': onboardStart,

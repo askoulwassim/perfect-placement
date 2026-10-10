@@ -178,11 +178,30 @@ function voiceHint(text: string, story: Record<string, unknown>): ComponentHint 
 
 // ------------------------------------------------------------------ story
 
+/** Identity fields the interview confirms or edits (#124): Story `contact` minus email and LinkedIn. */
+export const IDENTITY_KEYS = ['full_name', 'preferred_name', 'phone', 'city'] as const;
+
+/** The identity and contact pulled from the resume (#124), as strings. */
+export function contactOf(story: Record<string, unknown>): Record<string, string> {
+  const c = story.contact;
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return {};
+  return Object.fromEntries(Object.entries(c).filter((e): e is [string, string] => typeof e[1] === 'string' && !!e[1].trim()));
+}
+
+/** "Alex Rivera · +1 555 010 0199 · Springfield, IL": what the interview shows for the contact. */
+export function contactLine(c: Record<string, unknown>): string {
+  return [c.full_name, c.preferred_name ? `goes by ${String(c.preferred_name)}` : '', c.phone, c.city]
+    .filter((x): x is string => typeof x === 'string' && !!x)
+    .join(' · ');
+}
+
 function storyHint(text: string, story: Record<string, unknown>): ComponentHint | null {
   const roles = rolesOf(story);
   const wins = Array.isArray(story.wins) ? (story.wins as string[]) : [];
   const headline = typeof story.headline === 'string' ? story.headline : undefined;
+  const contact = contactOf(story);
   const items = [
+    contact.full_name ? `Contact: ${contactLine(contact)}` : '',
     headline ? `Headline: ${headline}` : '',
     roles.length ? `${roles.length} role${roles.length === 1 ? '' : 's'}, latest ${roles[0]?.title ?? ''}`.trim() : '',
     wins.length ? `${wins.length} win${wins.length === 1 ? '' : 's'} with a number` : '',
@@ -191,7 +210,19 @@ function storyHint(text: string, story: Record<string, unknown>): ComponentHint 
   if (!items.length) return null;
   // A "Title:" line is the person's own headline; a heading line is a weaker guess.
   const conf = headline ? (/\*\*Title:\*\*/i.test(text) || story.extracted_by === 'agent' ? 0.9 : 0.6) : 0.5;
-  const hint = makeHint(headline ? { headline } : {}, conf, items, story.extracted_by === 'agent' ? 'agent' : 'preview');
+  const by = story.extracted_by === 'agent' ? 'agent' : 'preview';
+  // #124: a name line read from the resume is confirmed (Yes / Edit) with the headline when that is sure too.
+  if (contact.full_name) {
+    const sure = !!headline && conf >= CONFIRM_MIN;
+    return {
+      data: { contact, ...(sure ? { headline } : {}) },
+      suggest: headline && !sure ? { headline } : {},
+      confidence: Math.max(conf, 0.8),
+      items: items.slice(0, 6),
+      by,
+    };
+  }
+  const hint = makeHint(headline ? { headline } : {}, conf, items, by);
   // Roles and wins are verbatim facts with no field to confirm: still shown as pulled.
   return hint ?? { data: {}, suggest: {}, confidence: conf, items, by: 'preview' };
 }
