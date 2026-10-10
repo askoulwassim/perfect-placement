@@ -737,6 +737,30 @@ export function runnerAlive(runId: string, base: string = tmpdir()): boolean {
 }
 
 /**
+ * Kill the runner for `runId` and everything it started (#121, a stalled run): the spawn launcher starts it detached,
+ * so its pid is a process group; SIGTERM the group (falls back to the pid). False when there is no pid file (never
+ * launched here, or already gone) or the process is gone.
+ */
+export function killRunner(runId: string, base: string = tmpdir()): boolean {
+  let pid: number;
+  try {
+    pid = Number.parseInt(readFileSync(join(runnerDir(base), `${runId}.pid`), 'utf8'), 10);
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  for (const target of [-pid, pid]) {
+    try {
+      process.kill(target, 'SIGTERM');
+      return true;
+    } catch {
+      // try the pid alone, then give up
+    }
+  }
+  return false;
+}
+
+/**
  * Spawns the runner detached; output goes to a log file in the OS temp dir (never the vault), next to
  * a `<runId>.pid` file (removed on exit) so a restarted `pp up` can tell a live runner from a dead one.
  * `exit` settles with the log when the runner ends, as long as this process is still alive.

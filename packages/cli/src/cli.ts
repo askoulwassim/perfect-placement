@@ -153,19 +153,27 @@ const SWEEP_MS = 30_000;
  * runs that fit. `pp up` does this on start and every SWEEP_MS; `pp drain` does it once (schedules,
  * headless use). Runs started or finished anywhere also dispatch on their own.
  */
-async function drainQueue(engine: ops.Engine, io: Io): Promise<{ interrupted: string[]; launched: string[]; queued: number }> {
+async function drainQueue(
+  engine: ops.Engine,
+  io: Io,
+): Promise<{ interrupted: string[]; stalled: string[]; launched: string[]; queued: number }> {
   const interrupted = await ops
     .interruptStaleRuns(engine.runOp, io.runnerAlive ? { isAlive: (r) => (io.runnerAlive as (id: string) => boolean)(r.id) } : {})
     .catch(() => [] as string[]);
+  // #121: a scheduled run past its skill's cap is killed and finished `stalled` (then retried with backoff).
+  const stalled = await ops
+    .capStalledRuns(engine.runOp, io.killRunner ? { kill: (r) => (io.killRunner as (id: string) => void)(r.id) } : {})
+    .catch(() => [] as string[]);
   const o = await engine.runOp('runs.dispatch', {}, { actor: 'schedule', now: () => new Date() });
   const out = o.status === 'ok' ? (o.output as { launched: string[]; queued: number }) : { launched: [], queued: 0 };
-  return { interrupted, launched: out.launched, queued: out.queued };
+  return { interrupted, stalled, launched: out.launched, queued: out.queued };
 }
 
 async function drain(engine: ops.Engine, io: Io): Promise<number> {
   const r = await drainQueue(engine, io);
   if (r.interrupted.length)
     io.out(`pp drain: ${r.interrupted.length} interrupted run${r.interrupted.length === 1 ? '' : 's'} marked error`);
+  if (r.stalled.length) io.out(`pp drain: ${r.stalled.length} stalled run${r.stalled.length === 1 ? '' : 's'} stopped`);
   io.out(`pp drain: ${r.launched.length} launched${r.launched.length ? ` (${r.launched.join(', ')})` : ''}, ${r.queued} queued`);
   return 0;
 }
@@ -196,6 +204,8 @@ async function upCommand(args: Args, home: string, io: Io, waitForStop: WaitForS
     const r = await drainQueue(engine, io);
     const ids = r.interrupted;
     if (ids.length) io.out(`pp up: ${ids.length} interrupted run${ids.length === 1 ? '' : 's'} marked error (${ids.join(', ')})`);
+    if (r.stalled.length)
+      io.out(`pp up: ${r.stalled.length} stalled run${r.stalled.length === 1 ? '' : 's'} stopped (${r.stalled.join(', ')})`);
     if (r.launched.length) io.out(`pp up: launched ${r.launched.length} queued run${r.launched.length === 1 ? '' : 's'}`);
   };
   // #29 fallback for the OS jobs: a schedule that fired since its last run started (machine off,

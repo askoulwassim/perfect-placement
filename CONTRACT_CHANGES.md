@@ -891,3 +891,14 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Why: a connect Gmail step failed with "no Gmail draft tool" when the claude.ai connector loaded late; the same step two minutes later worked (#122).
 - Shim: none for callers (fields optional; a run without `error_code` finishes as before).
 - Status: accepted
+
+## Scheduled-run resilience
+
+### `RunErrorCode` `stalled` (#121)
+- Lane: r4/04-scheduled-resilience (B, D)
+- Date: 2026-10-10
+- Contract: enums `RUN_ERROR_CODES` gains `stalled` (`runs.finish { error_code: "stalled" }`, set by the engine). No migration. Not contracts: engine `retry.ts` `SCHEDULE_RETRY` (4 tries: 1, 5, 15 min; all transient codes and patterns), `retryPolicyFor`, `STALL_LIMIT_MS` / `stallLimitMs` (inbox 10 min, freshness 20, scout 15, score 15, research 10, connect 10, fill 10, voice 10, tailor 10; default 20), `transientMarker`; `stale-runs.ts` `capStalledRuns`; `runner.ts` `killRunner` (SIGTERM the runner's process group from its pid file); `schedules.ts` `failedForGood`; `summary_json.schedule_origin` (the schedule behind a run chained or retried from a scheduled run); doctor check `scheduled_failures` (informational, always ok); CLI `system/awake.ts` (`awakeCommand`, `holdAwake`), `Io.killRunner`.
+- Change: one retry policy per queue run: a scheduled run (`schedule` or `schedule_origin`) gets `SCHEDULE_RETRY` for any transient failure (`connector_unavailable`, `stalled`, idle timeout, ECONNRESET, ETIMEDOUT; a runner that exits without `runs.finish` adds the transient marker its output shows), every other queue run keeps #122's `CONNECTOR_RETRY` (connector_unavailable once after 45 s); agent runs are never retried. So a scheduled connector failure is retried on the schedule backoff only, never also after 45 s. Each try is `runs.start { retry_of }` with `attempt` and `not_before`, logged in both runs. `pp up`'s sweep and `pp run`'s drain stop a scheduled run still running past its skill's cap (kill the runner's process group, `runs.finish { error_code: "stalled" }`), which is then retried. When the tries are spent the run stays `error`; `pp up`'s catch-up queues that schedule again; `system.doctor` lists the last failure per schedule. `pp run --schedule` holds `caffeinate -i -s -w <its pid>` (Linux `systemd-inhibit ... tail --pid=<pid>`, if present) while it waits, released when it returns; injected through `SystemDeps`, never in tests.
+- Why: a scheduled inbox run started in a battery maintenance wake, the Mac slept mid-run, the Gmail connector idled out and reset (ECONNRESET), and the run failed after 58 min (#121).
+- Shim: none (a new enum value; old runs and callers unchanged).
+- Status: accepted

@@ -1920,7 +1920,8 @@ export const runsFinish = defineOp({
     /**
      * Added (#122): why the run failed, as a code (status `error`). `connector_unavailable`: a connector tool the
      * skill is granted (Gmail, Claude in Chrome) is missing from the session; the engine retries the run once
-     * after a short delay. Kept as `summary_json.error_code`.
+     * after a short delay. Kept as `summary_json.error_code`. `stalled` (#121): set by the engine when a run passes
+     * its wall-clock cap.
      */
     error_code: RunErrorCode.optional(),
     /** Added (#122): the one-line error (kept as `summary_json.error`, over `summary.error`). */

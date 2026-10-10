@@ -47,6 +47,54 @@ export const CONNECTOR_RETRY: RetryPolicy = {
   patterns: [],
 };
 
+/**
+ * A scheduled run (#121: started by a schedule, or chained or retried from one) that failed transiently: any
+ * transient code or text (`TRANSIENT_ERROR_CODES`, `TRANSIENT_PATTERNS`), retried after 1, 5, then 15 minutes, so the
+ * first try plus up to three retries. It replaces `CONNECTOR_RETRY` for those runs (one policy per run, never both).
+ */
+export const SCHEDULE_RETRY: RetryPolicy = {
+  attempts: 4,
+  backoffMs: [60_000, 5 * 60_000, 15 * 60_000],
+};
+
+/**
+ * The one retry policy for a queue run (#121): `SCHEDULE_RETRY` when it is scheduled (`summary_json.schedule` or
+ * `schedule_origin`), else `CONNECTOR_RETRY`. An agent's own run is never retried (the caller checks).
+ */
+export function retryPolicyFor(s: { schedule?: string | null | undefined; schedule_origin?: string | null | undefined }): RetryPolicy {
+  return s.schedule || s.schedule_origin ? SCHEDULE_RETRY : CONNECTOR_RETRY;
+}
+
+const MIN = 60_000;
+
+/**
+ * Wall-clock cap per skill for a scheduled run (#121), from launch: past it the runner's process tree is killed and the
+ * run finishes `error_code: "stalled"` (transient, so it is retried under `SCHEDULE_RETRY`). Skills without an entry
+ * get `DEFAULT_STALL_LIMIT_MS`.
+ */
+export const STALL_LIMIT_MS: Readonly<Record<string, number>> = {
+  inbox: 10 * MIN,
+  freshness: 20 * MIN,
+  scout: 15 * MIN,
+  score: 15 * MIN,
+  research: 10 * MIN,
+  connect: 10 * MIN,
+  fill: 10 * MIN,
+  voice: 10 * MIN,
+  tailor: 10 * MIN,
+};
+export const DEFAULT_STALL_LIMIT_MS = 20 * MIN;
+export const stallLimitMs = (skill: string): number => STALL_LIMIT_MS[skill] ?? DEFAULT_STALL_LIMIT_MS;
+
+/** The first transient marker in a runner's output (#121), e.g. "ECONNRESET", so a runner that died on one is retried. */
+export function transientMarker(output: string): string | null {
+  for (const p of TRANSIENT_PATTERNS) {
+    const m = p.exec(output);
+    if (m) return m[0];
+  }
+  return null;
+}
+
 /** Is this failure transient under the policy? */
 export function isTransient(f: Failure, policy: Pick<RetryPolicy, 'codes' | 'patterns'> = {}): boolean {
   const codes = policy.codes ?? TRANSIENT_ERROR_CODES;

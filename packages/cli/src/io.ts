@@ -19,6 +19,8 @@ export interface Io {
   sys?: SystemDeps;
   /** Is a headless runner still alive (stale-run sweep in `pp up`)? Default: the launcher's pid file. */
   runnerAlive?(runId: string): boolean;
+  /** Kill a stalled run's runner process tree (#121, the sweep). Default: the launcher's pid file, SIGTERM its group. */
+  killRunner?(runId: string): void;
 }
 
 export const processIo: Io = {

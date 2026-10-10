@@ -8,8 +8,8 @@ import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
 import { newId } from '../ids.js';
 import { peopleDeps } from '../lanes/people.js';
-import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scopeOf, summaryOf, waiting } from '../queue.js';
-import { CONNECTOR_RETRY, nextRetry, realTimer } from '../retry.js';
+import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scheduleOf, scopeOf, summaryOf, waiting } from '../queue.js';
+import { isTransient, nextRetry, realTimer, retryPolicyFor, transientMarker } from '../retry.js';
 import { get, insert, select, update } from '../rows.js';
 import {
   type AssistUploads,
@@ -84,7 +84,7 @@ export const runsStart = defineHandler('runs.start', {
     // #122: a retry of a failed run (runs.finish queues it): same skill, once, after the policy's delay.
     const retried = input.retry_of ? get(h.db, 'run', input.retry_of) : null;
     if (input.retry_of && !retried) throw notFound('run', input.retry_of);
-    let retry: { of: string; attempt: number; not_before: string } | null = null;
+    let retry: { of: string; attempt: number; attempts: number; not_before: string } | null = null;
     if (retried) {
       const rs = summaryOf(retried);
       if (h.ctx.actor === 'agent' && input.queue !== true)
@@ -92,11 +92,15 @@ export const runsStart = defineHandler('runs.start', {
       if (retried.op !== input.skill) throw new OpError('invalid_input', `run ${retried.id} is a ${retried.op} run, not ${input.skill}`);
       if (retried.status !== 'error') throw new OpError('conflict', `run ${retried.id} is ${retried.status}; only a failed run is retried`);
       if (rs.retried) throw new OpError('conflict', `run ${retried.id} was already retried by ${rs.retried}`);
-      const plan = nextRetry(CONNECTOR_RETRY, { code: rs.error_code, message: rs.error }, rs.attempt ?? 1, h.ctx.now());
+      // #121: one policy per run: scheduled runs get SCHEDULE_RETRY, other queue runs CONNECTOR_RETRY.
+      const policy = retryPolicyFor(rs);
+      const plan = nextRetry(policy, { code: rs.error_code, message: rs.error }, rs.attempt ?? 1, h.ctx.now());
       if (!plan)
         throw new OpError('conflict', `run ${retried.id} is not retried (${rs.error_code ?? 'no error code'}, try ${rs.attempt ?? 1})`);
-      retry = { of: retried.id, attempt: plan.attempt, not_before: plan.at.toISOString() };
+      retry = { of: retried.id, attempt: plan.attempt, attempts: policy.attempts, not_before: plan.at.toISOString() };
     }
+    // #121: a run chained or retried from a scheduled run belongs to that schedule (retry policy, stall cap).
+    const origin = input.schedule ? undefined : ((parent ? scheduleOf(parent) : undefined) ?? (retried ? scheduleOf(retried) : undefined));
     // Research writes one dossier per company: its scope is the company.
     const companyId = input.skill === 'research' && role ? role.company_id : undefined;
     // An agent is the session doing the work, unless it asks for a queued headless run (#39: Ask delegates).
@@ -144,6 +148,7 @@ export const runsStart = defineHandler('runs.start', {
         ...(outreachId ? { outreach_id: outreachId, step: step ?? 'gmail_draft' } : {}),
         ...(parent ? { triggered_by: parent.id, triggered_by_skill: parent.op } : {}),
         ...(input.schedule ? { schedule: input.schedule } : {}),
+        ...(origin ? { schedule_origin: origin } : {}),
         ...(input.skill === 'fill' && input.assist ? { assist: true } : {}),
         ...(retry ? { retry_of: retry.of, attempt: retry.attempt, not_before: retry.not_before } : {}),
         actor: asked ? 'ask' : h.ctx.actor,
@@ -157,15 +162,14 @@ export const runsStart = defineHandler('runs.start', {
       // The failed run names its retry (the UI shows it as Retried); both logs link the tries.
       update(h.db, 'run', retry.of, { summary_json: { ...(retried as Run).summary_json, retried: id } });
       const prev = (retried as Run).log_path;
-      if (prev)
-        h.vault.append(prev, `\nretried: ${id} (try ${retry.attempt} of ${CONNECTOR_RETRY.attempts}, not before ${retry.not_before})\n`);
+      if (prev) h.vault.append(prev, `\nretried: ${id} (try ${retry.attempt} of ${retry.attempts}, not before ${retry.not_before})\n`);
     }
     const by = `${asked ? 'agent (Ask)' : h.ctx.actor}${input.schedule ? ` (schedule ${input.schedule})` : ''}${parent ? ` after ${parent.op} run ${parent.id}` : ''}`;
     h.vault.write(
       log_path,
       renderMarkdown(
         { id, type: 'run' },
-        `# ${date} ${input.skill}${outreachId ? (step === 'gmail_to' ? ' Gmail To' : ' Gmail draft') : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).${retry ? `\n\nRetry of ${retry.of} (try ${retry.attempt} of ${CONNECTOR_RETRY.attempts}): ${summaryOf(retried as Run).error_code ?? 'error'}. Not before ${retry.not_before}.` : ''}`,
+        `# ${date} ${input.skill}${outreachId ? (step === 'gmail_to' ? ' Gmail To' : ' Gmail draft') : ''}${input.role_id ? ` (${input.role_id})` : ''}\n\n${agent ? 'Started' : 'Queued'} ${iso} by ${by} (runner: ${h.config.runner.command}).${retry ? `\n\nRetry of ${retry.of} (try ${retry.attempt} of ${retry.attempts}): ${summaryOf(retried as Run).error_code ?? 'error'}. Not before ${retry.not_before}.` : ''}`,
       ),
     );
     h.emit('run_started', 'run', id, {
@@ -287,9 +291,11 @@ function launchRun(run: Run, h: HandlerContext): void {
     const got = await runOp('runs.get', { run_id: id }, ctx);
     if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
     const denied = command === 'claude' ? deniedTools(r.output) : [];
+    // #121: a runner that died on a connection reset or idle timeout says so, so a scheduled run is retried.
+    const marker = denied.length ? null : transientMarker(r.output);
     const error = denied.length
       ? deniedToolsError(skill, denied)
-      : `runner ${command} exited (code ${r.code ?? 'none'}) without calling runs.finish`;
+      : `runner ${command} exited (code ${r.code ?? 'none'}) without calling runs.finish${marker ? ` (${marker})` : ''}`;
     await runOp(
       'runs.finish',
       {
@@ -439,7 +445,7 @@ export const runsFinish = defineHandler('runs.finish', {
         update(h.db, 'run', run.id, { summary_json: patch.summary_json });
         if (run.log_path) h.vault.append(run.log_path, `\nQueued next: ${triggered.join(', ')}\n`);
       }
-      const retry = input.status === 'error' ? await retryConnector(h, { ...run, ...patch }) : null;
+      const retry = input.status === 'error' ? await retryTransient(h, { ...run, ...patch }) : null;
       if (retry && 'skipped' in retry) {
         patch.summary_json = { ...patch.summary_json, retry_skipped: retry.skipped };
         update(h.db, 'run', run.id, { summary_json: patch.summary_json });
@@ -449,7 +455,7 @@ export const runsFinish = defineHandler('runs.finish', {
       const timer = h.services.timer ?? realTimer;
       h.afterCommit(async () => {
         await runOp('runs.dispatch', {}, ctx);
-        // #122: launch the retry when its delay is up (pp up's sweep and pp run's drain dispatch it too).
+        // #122, #121: launch the retry when its delay is up (pp up's sweep and pp run's drain dispatch it too).
         if (retry && 'run' in retry) timer(() => void runOp('runs.dispatch', {}, ctx).catch(() => {}), retry.delayMs);
       });
     }
@@ -458,18 +464,24 @@ export const runsFinish = defineHandler('runs.finish', {
 });
 
 /**
- * #122: a queue run that failed because a connector tool it is granted was not loaded (`error_code:
- * "connector_unavailable"`, Gmail or Claude in Chrome) is re-queued once after `CONNECTOR_RETRY_DELAY_MS`, same
- * inputs, linked by `retry_of`. Never when the run may already have changed the outside world in a way a retry
- * would repeat: a Gmail draft that exists (the outreach has a `gmail_draft_id`) or waits to be recorded (a pending
- * `outreach.to_gmail` decision). Null: not a connector failure (nothing to note).
+ * Transient failures of a queue run are re-queued with the same inputs, linked by `retry_of`, under ONE policy per
+ * run (`retryPolicyFor`): a scheduled run (#121: started by a schedule, or chained or retried from one) gets
+ * `SCHEDULE_RETRY` (any transient code or text: connector_unavailable, stalled, idle timeout, ECONNRESET, ETIMEDOUT;
+ * 1, 5, 15 min; up to 3 retries); any other queue run gets `CONNECTOR_RETRY` (#122: `connector_unavailable` only,
+ * once after `CONNECTOR_RETRY_DELAY_MS`). Never when the run may already have changed the outside world in a way a
+ * retry would repeat: a Gmail draft that exists (the outreach has a `gmail_draft_id`) or waits to be recorded (a
+ * pending `outreach.to_gmail` decision). Null: not a transient failure under its policy (nothing to note).
  */
-async function retryConnector(h: HandlerContext, run: Run): Promise<{ run: Run; delayMs: number } | { skipped: string } | null> {
+async function retryTransient(h: HandlerContext, run: Run): Promise<{ run: Run; delayMs: number } | { skipped: string } | null> {
   const s = summaryOf(run);
-  if (s.error_code !== 'connector_unavailable' || !isQueueRun(run)) return null;
-  if (!CONNECTOR_SKILLS.includes(run.op as Skill)) return { skipped: `${run.op} uses no connector` };
-  const plan = nextRetry(CONNECTOR_RETRY, { code: s.error_code }, s.attempt ?? 1, h.ctx.now());
-  if (!plan) return { skipped: `try ${s.attempt ?? 1} of ${CONNECTOR_RETRY.attempts}` };
+  if (!isQueueRun(run)) return null;
+  const policy = retryPolicyFor(s);
+  const failure = { code: s.error_code, message: s.error };
+  if (!isTransient(failure, policy)) return null;
+  if (s.error_code === 'connector_unavailable' && !CONNECTOR_SKILLS.includes(run.op as Skill))
+    return { skipped: `${run.op} uses no connector` };
+  const plan = nextRetry(policy, failure, s.attempt ?? 1, h.ctx.now());
+  if (!plan) return { skipped: `try ${s.attempt ?? 1} of ${policy.attempts}` };
   const gmailDone = gmailDraftMade(h, run);
   if (gmailDone) return { skipped: gmailDone };
   const raw = run.summary_json as { schedule?: string; assist?: boolean; step?: string };

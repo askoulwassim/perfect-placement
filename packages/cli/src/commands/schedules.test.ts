@@ -10,6 +10,7 @@ import { fakeBackend, fakeLauncher, noNetwork } from '@perfect-placement/engine/
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from '../cli.js';
 import type { Io } from '../io.js';
+import { awakeCommand, holdAwake } from '../system/awake.js';
 import { type FakeDeps, fakeDeps } from '../system/fake-deps.test-helpers.js';
 import { onCalendar } from '../system/schedules.js';
 
@@ -179,6 +180,61 @@ describe('pp run <skill> --schedule (what each job runs)', () => {
     expect(launcher.specs.map((s) => s.runId)).toEqual([runId]);
     const items = await status();
     expect(items.find((s) => s.key === 'scout_score')?.last_run?.status).toBe('ok');
+  });
+
+  it('holds a power assertion on its own pid while the scheduled run runs, released when it ends (#121)', async () => {
+    d = fakeDeps(home, { env: { PATH: '/usr/bin' }, bins: ['caffeinate'] });
+    io = { ...io, sys: d };
+    const idOf = () => /inbox run (\S+) queued/.exec(out.join('\n'))?.[1] as string;
+    let heldDuringRun = false;
+    d.sleep = async () => {
+      heldDuringRun = d.spawned.length === 1 && d.livePids.has((d.spawned[0] as { pid: number }).pid);
+      const e = ops.openEngine({ home: ppHome, services: services() });
+      await e.runOp('runs.finish', { run_id: idOf(), status: 'ok' }, { actor: 'agent', now: () => new Date() });
+      e.close();
+    };
+    out.length = 0;
+    expect(await runCli(['run', 'inbox', '--schedule'], io)).toBe(0);
+    expect(d.spawned.map((s) => [s.cmd, s.args])).toEqual([['caffeinate', ['-i', '-s', '-w', String(process.pid)]]]);
+    expect(heldDuringRun).toBe(true);
+    const pid = (d.spawned[0] as { pid: number }).pid;
+    expect(d.killed).toEqual([pid]);
+    // A human's pp run holds nothing.
+    d.sleep = async () => {
+      const e = ops.openEngine({ home: ppHome, services: services() });
+      const id = /inbox run (\S+) queued$/.exec(out.at(-1) ?? '')?.[1] as string;
+      await e.runOp('runs.finish', { run_id: id, status: 'ok' }, { actor: 'agent', now: () => new Date() });
+      e.close();
+    };
+    out.length = 0;
+    expect(await runCli(['run', 'inbox'], io)).toBe(0);
+    expect(d.spawned).toHaveLength(1);
+  });
+
+  it('awake command per platform: caffeinate, systemd-inhibit tied to the pid, or nothing', () => {
+    expect(awakeCommand(fakeDeps(home, { bins: ['caffeinate'] }), 77)).toEqual({ cmd: 'caffeinate', args: ['-i', '-s', '-w', '77'] });
+    expect(awakeCommand(fakeDeps(home, { bins: [] }), 77)).toBeNull();
+    const linux = fakeDeps(home, { platform: 'linux', bins: ['systemd-inhibit', 'tail'] });
+    expect(awakeCommand(linux, 77)?.args).toEqual([
+      '--what=sleep:idle',
+      '--who=Perfect Placement',
+      '--why=scheduled run',
+      '--mode=block',
+      'tail',
+      '--pid=77',
+      '-f',
+      '/dev/null',
+    ]);
+    expect(awakeCommand(fakeDeps(home, { platform: 'linux', bins: ['tail'] }), 77)).toBeNull();
+    expect(awakeCommand(fakeDeps(home, { platform: 'win32', bins: ['caffeinate'] }), 77)).toBeNull();
+    const hold = holdAwake(linux, { pid: 77, cwd: root });
+    expect(hold.tool).toBe('systemd-inhibit');
+    hold.release();
+    hold.release();
+    expect(linux.killed).toEqual([hold.pid]);
+    const none = holdAwake(fakeDeps(home, { bins: [] }), { pid: 77, cwd: root });
+    expect(none.tool).toBeNull();
+    none.release();
   });
 
   it('a skill without a schedule is refused; --no-wait returns after queueing', async () => {

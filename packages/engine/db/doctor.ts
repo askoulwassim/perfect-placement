@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type OpOutput, ROLE_STATUSES, type RoleStatus } from '@perfect-placement/contracts';
+import { type OpOutput, ROLE_STATUSES, type RoleStatus, SCHEDULE_KEYS } from '@perfect-placement/contracts';
 import { appliedVersions, type Db, listMigrations, openDb } from './connection.js';
 import { configPath, dbPath, findClaudeMdInParents, findGitRoot, parseMd, readConfig, vaultAbs } from './vault.js';
 
@@ -72,6 +72,37 @@ export function countsByStatus(db: Db): Record<RoleStatus, number> {
   return counts;
 }
 
+/**
+ * #121: per schedule, its latest failed run, e.g. "inbox stalled 2026-10-10 07:31Z try 4 (ok since)": the error code
+ * (else the error text, cut short), when it started (UTC), which try it was, and whether a later run of that schedule
+ * ended ok. Schedules with no failed run are left out.
+ */
+export function scheduledFailures(db: Db): string[] {
+  const failed = db.prepare(
+    `SELECT started_at, summary_json FROM run WHERE json_extract(summary_json, '$.schedule') = ? AND status = 'error' ORDER BY started_at DESC, id DESC LIMIT 1`,
+  );
+  const okSince = db.prepare(
+    `SELECT 1 FROM run WHERE json_extract(summary_json, '$.schedule') = ? AND status IN ('ok', 'partial') AND started_at > ? LIMIT 1`,
+  );
+  const out: string[] = [];
+  for (const key of SCHEDULE_KEYS) {
+    const r = failed.get(key) as { started_at: string; summary_json: string | null } | undefined;
+    if (!r) continue;
+    let s: { error_code?: unknown; error?: unknown; attempt?: unknown } = {};
+    try {
+      s = JSON.parse(r.summary_json ?? '{}');
+    } catch {
+      // unreadable summary: report the failure without a reason
+    }
+    const text = typeof s.error === 'string' && s.error ? (s.error.length > 40 ? `${s.error.slice(0, 39)}…` : s.error) : 'error';
+    const why = typeof s.error_code === 'string' ? s.error_code : text;
+    const at = `${r.started_at.slice(0, 10)} ${r.started_at.slice(11, 16)}Z`;
+    const tryN = typeof s.attempt === 'number' ? ` try ${s.attempt}` : '';
+    out.push(`${key} ${why} ${at}${tryN}${okSince.get(key, r.started_at) ? ' (ok since)' : ''}`);
+  }
+  return out;
+}
+
 export function doctor(opts: DoctorOptions): DoctorResult {
   const { home } = opts;
   const checks: Check[] = [];
@@ -138,6 +169,10 @@ export function doctor(opts: DoctorOptions): DoctorResult {
     for (const r of MD_ROOTS) walkMd(home, r, onDisk);
     const orphans = onDisk.filter((p) => !refs.has(p));
     add('no_orphan_files', orphans.length === 0, orphans.length ? `${orphans.length} unreferenced: ${list(orphans)}` : undefined);
+
+    // #121: the last scheduled failure per schedule (after its retries), short; informational, never fails doctor.
+    const fails = scheduledFailures(db);
+    add('scheduled_failures', true, fails.length ? fails.join('; ') : 'none');
 
     const counts = countsByStatus(db);
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
