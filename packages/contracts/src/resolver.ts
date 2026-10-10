@@ -5,7 +5,7 @@ import type { Thresholds } from './policy.js';
 import { Probability } from './primitives.js';
 
 /*
- * Resolver interface (contracts.md). Lane I implements; every other lane calls `ask()`.
+ * Resolver interface. `@perfect-placement/resolver` implements it; everything else calls `ask()`.
  * System One models (Kev) only answer typed questions. They never write text.
  * Routing (wave1-decisions #9): rule -> kev -> agent (the calling session) -> human.
  */

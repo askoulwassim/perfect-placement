@@ -1,6 +1,6 @@
 # packages/engine/ops
 
-**Owner: lane B** (`docs/v2/lanes/`). The integration point: `runOp(name, input, ctx)` is the only way anything writes `pp.db` or the vault, and every op in the registry has a handler here (lanes A, B, E, F, G, H, I).
+The integration point: `runOp(name, input, ctx)` is the only way anything writes `pp.db` or the vault, and every op in the registry has a handler here (lanes A, B, E, F, G, H, I).
 
 ## Engine factory (what surfaces call)
 

@@ -1,7 +1,5 @@
 # packages/engine/freshness
 
-**Owner: lane G** (`docs/v2/lanes/`). Only lane G writes here.
-
 Daily freshness ladder for `FRESHNESS_SCOPE` (inbox, active, held, on-deck, draft-ready): ATS API -> page fetch -> resolver Noulli. Outcomes open / closed / unsure, stale flag.
 
 Unverified postings (#77): each unsure check bumps `flags_json.unverified_checks` (an open check clears it). The `UNVERIFIED_CLOSE_AFTER` (2nd) one in a row records a rule `freshness.closed` decision (`resolver.record`, backend `rule`) that replaces the role's pending closes: p by what the check saw (`UNVERIFIED_P`: contradicted closed evidence 0.97, no ATS match or no URL 0.95, bot wall 0.93, a page that loads with nothing decisive 0.75), with a per-call `confident_outcome: 'auto_undo'`, so a confident close is auto + undo and the rest wait in Needs you. `precheck: true` (the pipeline before scoring, `runs.finish`) closes hard closed evidence on a rule decision (p 0.97) without asking a backend.

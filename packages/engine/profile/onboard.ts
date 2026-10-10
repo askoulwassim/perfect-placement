@@ -43,13 +43,13 @@ import { extractResumeText, resumeKind } from './resume-text.js';
 import { type ComponentDraft, getComponents, getCurrentVersion, insertVersion } from './versions.js';
 
 /*
- * Onboarding protocol (blueprint.md): resume in -> interview by component -> calibrate -> confirm.
+ * Onboarding protocol (docs/architecture.md): resume in -> interview by component -> calibrate -> confirm.
  * Ops: onboard.ingest_resume, onboard.answer, onboard.calibrate, onboard.confirm.
  * Resume-adaptive (#22): the resume's drafts per component (hints, with a confidence) are confirmed
  * (yes / edit) or pre-fill the questions; the onboard agent run refines them (onboard.extract drafts)
  * and proposes follow-ups (onboard.propose_questions).
  * Plus startComponentInterview(): re-interview one component without redoing the rest
- * (no op in the contract yet; CONTRACT_CHANGES lane E).
+ * (no op in the contract yet; docs/history/contract-changes.md, lane E).
  */
 
 type OnboardState = OpOutput<'onboard.ingest_resume'>;

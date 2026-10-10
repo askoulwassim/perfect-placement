@@ -34,7 +34,7 @@ import {
 } from './index.js';
 import { nextFire, parseSchedule, prevFire, SCHEDULE_SKILL, scheduleForSkill, scheduleMissed } from './schedules.js';
 
-/** The ops table in docs/v2/contracts.md. Every one must be in the registry. */
+/** The ops table from the original contracts spec. Every one must be in the registry. */
 const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'profile.get': 'low',
   'profile.history': 'low',
@@ -119,7 +119,7 @@ const WAVE2_READ_ONLY = [
 ] as const;
 
 describe('ops registry', () => {
-  it('contains every op from contracts.md with its impact tier', () => {
+  it('contains every op from the contracts spec with its impact tier', () => {
     for (const [name, impact] of Object.entries(CONTRACT_TABLE)) {
       const op = OPS[name as keyof typeof OPS];
       expect(op, name).toBeDefined();

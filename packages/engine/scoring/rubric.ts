@@ -10,7 +10,7 @@ import {
 
 /*
  * Rubric = the weights + bands + scale a score was computed with.
- * Weights come from the profile version (decisions.md #5, blueprint "Scoring v2").
+ * Weights come from the profile version (decisions.md #5, docs/architecture.md "Scoring v2").
  * Every score row stores `rubricSnapshot(...)` in `rubric_json`.
  */
 

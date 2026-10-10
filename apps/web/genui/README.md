@@ -1,6 +1,6 @@
 # apps/web/genui
 
-**Owner: lane J.** Ask replies as generated UI: OpenUI Lang (`@openuidev/react-lang` + `@openuidev/lang-core`, pinned 0.3.2) parsed and streamed into lane D's cards inside the CommandBar. Part of the `apps/web` build, typecheck and vitest run (no package of its own, no lockfile). The spike verdict is in [`VERDICT.md`](./VERDICT.md).
+Ask replies as generated UI: OpenUI Lang (`@openuidev/react-lang` + `@openuidev/lang-core`, pinned 0.3.2) parsed and streamed into lane D's cards inside the CommandBar. Part of the `apps/web` build, typecheck and vitest run (no package of its own, no lockfile). The spike verdict is in [`VERDICT.md`](./VERDICT.md).
 
 | Path | What |
 | --- | --- |

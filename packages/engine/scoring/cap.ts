@@ -1,5 +1,5 @@
 /*
- * Per-company cap (blueprint "Scoring v2"): the top `company_active_cap` roles per company stay `active`,
+ * Per-company cap (docs/architecture.md "Scoring v2"): the top `company_active_cap` roles per company stay `active`,
  * the rest go to `held` (held_reason company_cap). When a slot frees, the best held role is promoted.
  * Only `active` and `held` roles take part; on-deck and later are never touched by the cap.
  */

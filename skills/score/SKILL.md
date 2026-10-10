@@ -5,7 +5,7 @@ description: Score inbox roles. Call roles.score without criteria so Kev judges 
 
 # score
 
-**Owner: lane F.** You supply judgment. `roles.score` supplies mechanics. Never compute a total, band, affinity, cap or status yourself.
+You supply judgment. `roles.score` supplies mechanics. Never compute a total, band, affinity, cap or status yourself.
 
 ## Inputs
 

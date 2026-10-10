@@ -5,7 +5,7 @@ description: Learn the user's writing voice from their own writing (recent sent 
 
 # voice (Learn voice)
 
-**Owner: lane E.** Supplies judgment only; every write is an op. Never submit an application or send an email.
+Supplies judgment only; every write is an op. Never submit an application or send an email.
 
 The user clicked **Learn voice** in You > Voice: that click is the consent for this run to read their own sent mail and, when `config.linkedin.mode` is `live`, their own LinkedIn posts. The prompt states which sources are on and the caps.
 

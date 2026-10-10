@@ -1,7 +1,5 @@
 # packages/engine/profile
 
-**Owner: lane E** (`docs/v2/lanes/E-profile-onboarding.md`). Only lane E writes here.
-
 11 component schemas, versions + diffs, onboarding (interview + calibration), learn loop, v1 profile converter.
 
 | File | What |

@@ -1,4 +1,6 @@
-# Contract change requests
+# Contract change requests (build log)
+
+The log of contract change requests made while the first version was built in parallel lanes (A to J) and waves. It is kept for the reasoning behind the contracts; new contract changes are proposed in a pull request (see `CONTRIBUTING.md`). Numbers like `#24` refer to `docs/decisions.md` and `docs/wave1-decisions.md`, or to GitHub issues.
 
 `packages/contracts` and `packages/engine/db/migrations/001_init.sql` are frozen during Wave 1. A lane that needs a change appends an entry below and works against a local shim inside its own folders. Wave 2 resolves every entry (accept, amend, or reject) before merging lanes.
 
@@ -362,10 +364,10 @@ All shims below live in `apps/web/src/client/types.ts` (`ShimOps`) and are serve
 - Lane: D
 - Date: 2026-10-08
 - Contract: registry.ts
-- Change: add `system.backends` {} -> { items: { name: 'jev'|'kev'|'llm', mode: 'hosted'|'local', status: 'ok'|'slow'|'down', latencyMs: number|null }[] }, owner I (or fold into `system.doctor` checks).
+- Change: add `system.backends` {} -> { items: { name: 'kev'|'llm', mode: 'hosted'|'local', status: 'ok'|'slow'|'down', latencyMs: number|null }[] }, owner I (or fold into `system.doctor` checks).
 - Why: Settings BackendCards show status dots and latency.
 - Shim: `ShimOps['system.backends']`.
-- Status: amended: items `{ name: 'rule'|'kev'|'agent'|'jev'|'llm', mode: 'hosted'|'local'|'session', status, latencyMs }`, owner I.
+- Status: amended: items `{ name: 'rule'|'kev'|'agent'|'llm', mode: 'hosted'|'local'|'session', status, latencyMs }`, owner I.
 
 ### runs.start: optional contact_id, connect run summary
 - Lane: D
@@ -502,7 +504,7 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Date: 2026-10-08
 - Contract: registry `outreachDraft.input`, `outreachGet.output`, `OnboardState.next_question`; profile-data `voice` (`signoff`), `VOICE_SAMPLES_MAX`, `VOICE_SAMPLE_MAX_CHARS`
 - Change: `outreach.draft` gains optional `signoff` (default: Voice `signoff`, else "Thanks," plus the Story first name), stored as a `## Sign-off` section of the vault draft. `outreach.get` gains `signoff: string` (stored or default) and `body: string`, the Gmail body exactly as `outreach.to_gmail` composes it (greeting line, Hook, Proof, Ask, sign-off); the agent's Gmail draft step uses `body`. `next_question` gains optional `max_items`, `max_chars` and `items` for list text questions: `voice.sample` keeps up to `VOICE_SAMPLES_MAX` (5) samples of at most `VOICE_SAMPLE_MAX_CHARS` (1500); a string answer appends one, a string[] answer replaces the list (removes items); `items` is the list kept so far. Voice data gains `signoff?: string` (`samples` unchanged, still a loose string list).
-- Why: drafts read as bare fragments; Wassim wants real emails grounded in his Story, the role and the company, in his own voice, with several writing samples as style exemplars.
+- Why: drafts read as bare fragments; the owner wants real emails grounded in the user's Story, the role and the company, in their own voice, with several writing samples as style exemplars.
 - Shim: none (all additions optional on input; older drafts without a sign-off get the default).
 - Status: accepted
 
@@ -865,7 +867,7 @@ Contract changes made while wiring the engine (docs/v2/wave2-plan.md "Phase 2").
 - Lane: r3/10-agent-latency (I, D, cli Ask)
 - Date: 2026-10-09
 - Contract: `systemBackends.output.items[].latencyMs` stays `number | null` (already nullable; now documented as null when unknown). `AskThreadTurn` gains optional `ms` (int, >= 0): how long the Ask turn took, launch to done. No migration (`ask_thread.turns_json` is JSON; older turns have no `ms`). Not contracts: engine `agentLatencyMs(db, n)`, `AGENT_LATENCY_SAMPLES` (20), `backendStatus(config, services, home?, db?)`, `AskThreads.time()`; web `BackendCard` shows `n/a` for null and `ms p50` on the session card.
-- Change: the agent item no longer reports the agent backend's constant `health().latencyMs: 0`. Its `latencyMs` is the median of the last 20 measured agent durations: Ask turns (`turns_json[].ms`, newest threads first) and agent-answered decisions with `latency_ms > 0` (0 means not measured and is skipped), merged by recency; none: `null`. The agent never reads `slow` (a session turn is model think time, not a round trip). Rule keeps its honest in-process 0; Kev and Jev keep their measured health round trip; the API adapter reports none (null).
+- Change: the agent item no longer reports the agent backend's constant `health().latencyMs: 0`. Its `latencyMs` is the median of the last 20 measured agent durations: Ask turns (`turns_json[].ms`, newest threads first) and agent-answered decisions with `latency_ms > 0` (0 means not measured and is skipped), merged by recency; none: `null`. The agent never reads `slow` (a session turn is model think time, not a round trip). Rule keeps its honest in-process 0; Kev keeps its measured health round trip; the API adapter reports none (null).
 - Why: Settings always showed the agent session at 0 ms (#100).
 - Shim: none for callers (the field was already nullable; `ms` is optional).
 - Status: accepted

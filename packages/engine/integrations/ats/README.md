@@ -1,7 +1,5 @@
 # packages/engine/integrations/ats
 
-**Owner: lane G** (`docs/v2/lanes/`). Only lane G writes here.
-
 Greenhouse, Lever, Ashby public posting API adapters; ATS detection from URL; JD capture. Recorded fixtures only in CI.
 
 - `detectAts(url, hint?)`: Greenhouse (`boards`, `job-boards`, EU, embed, `gh_jid` with company hint), Lever (US/EU, UUID ids), Ashby (UUID ids, `ashby_jid` with hint).

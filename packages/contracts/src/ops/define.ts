@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Actor, Backend, Impact } from '../enums.js';
 import type { EventType } from '../events.js';
 
-/** Lanes that implement ops (docs/v2/lanes). */
+/** The build lane that owns each op's handler (a historical grouping of the code). */
 export type Lane = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J';
 
 export interface OpDef<N extends string = string, I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {

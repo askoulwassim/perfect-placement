@@ -1,6 +1,6 @@
 # @perfect-placement/mcp
 
-**Owner: lane C.** The MCP server for Perfect Placement, on the real engine (`openEngine()` from `@perfect-placement/engine`). A thin adapter over the ops registry: no business logic lives here.
+The MCP server for Perfect Placement, on the real engine (`openEngine()` from `@perfect-placement/engine`). A thin adapter over the ops registry: no business logic lives here.
 
 - **Tools:** one per op in `OPS` (`packages/contracts`), generated at startup. Name = op name with dots as underscores (`roles.list` -> `roles_list`, see "Tool names"); `title` and `_meta["perfect-placement/op"].op` keep the dotted op name. Description = op description plus policy notes from the op flags; input schema = `opInputJsonSchema(op)` (minus `$schema`); annotations from `readOnly` / `impact`; `_meta["perfect-placement/op"]` = `{ op, impact, dynamicImpact, humanOnly, unimplemented, readOnly, emits, owner }`. Nothing is hand-written per op.
 - **Confidence:** every writing tool (not `readOnly`) takes an optional `confidence` number (0 to 1). It is stripped from the op input and passed as `ctx.confidence = { p, backend: 'agent' }`, so medium-impact calls (`roles.move`, `roles.archive`, ...) go through the policy grid (wave1-decisions #17, #24). Without it they wait in Needs you.

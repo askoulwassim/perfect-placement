@@ -52,7 +52,7 @@ import { RENDER_DOCS, RENDER_FORMATS } from '../vault.js';
 import { Ack, defineOp, Page } from './define.js';
 
 /*
- * The ops registry (contracts.md "Ops"). Every write in the system is one of these.
+ * The ops registry. Every write in the system is one of these.
  * UI buttons, MCP tools, CLI commands and skills all call `runOp(name, input, ctx)`.
  * Handlers live in packages/engine/ops (lane B) or the owning lane's folder.
  */
@@ -2086,7 +2086,7 @@ export const configUpdate = defineOp({
   owner: 'B',
 });
 
-/** Every op, keyed by name. Order follows contracts.md. */
+/** Every op, keyed by name. */
 export const OPS = {
   'profile.get': profileGet,
   'profile.history': profileHistory,

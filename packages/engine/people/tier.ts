@@ -6,7 +6,7 @@ export const HIRING_TEAM_ROLES: readonly ContactRole[] = ['hiring_manager', 'hir
 export const isHiringTeam = (role: ContactRole): boolean => HIRING_TEAM_ROLES.includes(role);
 
 /**
- * Tier = degree x hiring team (blueprint.md "Connect").
+ * Tier = degree x hiring team (docs/architecture.md "Connect").
  *   1st:  warm_hiring | warm_other
  *   2nd:  bridge (same draft either way: a note to the mutual)
  *   cold: cold_hiring | cold_other

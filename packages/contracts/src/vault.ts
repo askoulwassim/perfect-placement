@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Id } from './primitives.js';
 
 /*
- * Data home (contracts.md "Data home"). Pure constants and path builders; no fs here.
+ * Data home (docs/decisions.md #2). Pure constants and path builders; no fs here.
  * PP_HOME defaults to ~/.perfect-placement. It must never be inside a git repo.
  */
 

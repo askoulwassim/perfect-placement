@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // ---------------------------------------------------------------------------
-// Role status machine (blueprint.md "Flow")
+// Role status machine (docs/architecture.md "Flow")
 // ---------------------------------------------------------------------------
 
 /** Pipeline order. Index = funnel rank. */
@@ -16,7 +16,7 @@ export type RoleStatus = z.infer<typeof RoleStatus>;
  */
 export const PROTECTED_STATUSES = ['draft-ready', 'applied', 'interviews', 'offers'] as const satisfies readonly RoleStatus[];
 
-/** Statuses the freshness check covers (blueprint.md "Freshness"; inbox since #77). */
+/** Statuses the freshness check covers (docs/architecture.md "Freshness"; inbox since #77). */
 export const FRESHNESS_SCOPE = ['inbox', 'active', 'held', 'on-deck', 'draft-ready'] as const satisfies readonly RoleStatus[];
 
 /**
@@ -116,7 +116,7 @@ export const ScoreDecision = z.enum(SCORE_DECISIONS);
 export type ScoreDecision = z.infer<typeof ScoreDecision>;
 
 // ---------------------------------------------------------------------------
-// Profile (blueprint.md "Profile: 11 components")
+// Profile (docs/architecture.md "Profile: 11 components")
 // ---------------------------------------------------------------------------
 
 export const PROFILE_COMPONENT_KEYS = [
@@ -191,7 +191,7 @@ export const ProfileDiffStatus = z.enum(PROFILE_DIFF_STATUSES);
 export type ProfileDiffStatus = z.infer<typeof ProfileDiffStatus>;
 
 // ---------------------------------------------------------------------------
-// People + outreach (blueprint.md "Connect")
+// People + outreach (docs/architecture.md "Connect")
 // ---------------------------------------------------------------------------
 
 export const CONTACT_DEGREES = ['1', '2', 'cold'] as const;
@@ -310,7 +310,7 @@ export type DecisionStatus = z.infer<typeof DecisionStatus>;
 
 /**
  * Decision kinds. `config.json` `overrides` is keyed by these.
- * Add new kinds via CONTRACT_CHANGES.md.
+ * Add new kinds in a contract-change pull request.
  */
 export const DECISION_KINDS = [
   'freshness.closed',

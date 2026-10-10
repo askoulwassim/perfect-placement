@@ -1,6 +1,6 @@
 # @perfect-placement/resolver
 
-**Owner: lane I.** The decision layer. Every judgment a human would otherwise make goes through `ask()`; the human sees the pick and its p, never a blank question.
+The decision layer. Every judgment a human would otherwise make goes through `ask()`; the human sees the pick and its p, never a blank question.
 
 Interface: `packages/contracts/src/resolver.ts`. Policy grid + config: `packages/contracts/src/policy.ts`.
 

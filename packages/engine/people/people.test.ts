@@ -559,7 +559,7 @@ describe('end to end on a picked role (dry run)', () => {
     const byName = Object.fromEntries(found.map((f) => [f.contact.name, f.contact.id]));
     const story = { data: { wins: ['Launched a self-serve analytics product to 400 teams'] }, text: '' };
     const drafted: string[] = [];
-    // cold_other is skipped unless asked (blueprint "Connect").
+    // cold_other is skipped unless asked (docs/architecture.md "Connect").
     for (const name of ['Ana B.', 'Ben C.', 'Cara D.', 'Gus H.']) {
       const tier = tierOf[name] as 'warm_hiring';
       const text = templateDraft({

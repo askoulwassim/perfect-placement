@@ -33,7 +33,7 @@ export const EVENT_TYPES = [
 export const EventType = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventType>;
 
-/** Events the Learn loop listens to (blueprint.md "Learning signals"). */
+/** Events the Learn loop listens to (docs/architecture.md "Learning signals"). */
 export const LEARNING_EVENTS = [
   'role_picked',
   'role_skipped',
