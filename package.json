@@ -2,7 +2,7 @@
   "name": "perfect-placement",
   "private": true,
   "license": "MIT",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "engines": {
