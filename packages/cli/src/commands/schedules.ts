@@ -117,6 +117,7 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
   const sys = sysOf(io);
   const pending = new Set([root]);
   const done = new Map<string, Run>();
+  let final = root;
   for (let i = 0; i < RUN_MAX_POLLS; i++) {
     await drain(engine);
     for (const id of [...pending]) {
@@ -129,9 +130,14 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
       if ((RUN_ACTIVE_STATUSES as readonly string[]).includes(run.status)) continue;
       pending.delete(id);
       done.set(id, run);
-      const s = (run.summary_json ?? {}) as { error?: string; triggered?: string[] };
-      io.out(`pp run: ${run.op} run ${id} ${run.status}${s.error ? `: ${s.error}` : ''}`);
+      const s = (run.summary_json ?? {}) as { error?: string; triggered?: string[]; retried?: string };
+      io.out(`pp run: ${run.op} run ${id} ${run.status}${s.error ? `: ${s.error}` : ''}${s.retried ? ` (retry ${s.retried} queued)` : ''}`);
       for (const t of s.triggered ?? []) if (!done.has(t)) pending.add(t);
+      // #122: a connector retry stands in for the run it retries: wait for it, and its outcome is the result.
+      if (s.retried && !done.has(s.retried)) {
+        pending.add(s.retried);
+        if (final === id) final = s.retried;
+      }
     }
     if (!pending.size) break;
     await sys.sleep(RUN_POLL_MS);
@@ -140,6 +146,6 @@ export async function runCommand(engine: ops.Engine, args: Args, io: Io, drain: 
     io.err(`pp run: still running after the wait: ${[...pending].join(', ')}`);
     return 1;
   }
-  const status = done.get(root)?.status;
+  const status = done.get(final)?.status;
   return status === 'ok' || status === 'partial' ? 0 : 1;
 }

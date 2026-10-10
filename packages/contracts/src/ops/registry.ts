@@ -38,6 +38,7 @@ import {
   ProfileComponentKey,
   RoleSource,
   RoleStatus,
+  RunErrorCode,
   RunStatus,
   Skill,
   SubjectType,
@@ -1849,6 +1850,13 @@ export const runsStart = defineOp({
      * `summary_json.assist`.
      */
     assist: z.boolean().optional(),
+    /**
+     * Added (#122): the failed run this one retries (engine use: `runs.finish` re-queues a run that ended
+     * `error_code: "connector_unavailable"` once). Same skill; that run must be `error` and not retried yet. Kept as
+     * `summary_json.retry_of` with `attempt` (the first try is 1) and `not_before` (the dispatcher waits until then);
+     * the retried run gets `summary_json.retried` = this run's id.
+     */
+    retry_of: Id.optional(),
   }),
   /** `deduped` (#30): an active run for the same skill and scope already existed; `run` is that run. */
   output: z.object({ run: Run, deduped: z.boolean().optional() }),
@@ -1909,6 +1917,14 @@ export const runsFinish = defineOp({
      * open, and only its `portal` tab.
      */
     tabs: RunTabs.optional(),
+    /**
+     * Added (#122): why the run failed, as a code (status `error`). `connector_unavailable`: a connector tool the
+     * skill is granted (Gmail, Claude in Chrome) is missing from the session; the engine retries the run once
+     * after a short delay. Kept as `summary_json.error_code`.
+     */
+    error_code: RunErrorCode.optional(),
+    /** Added (#122): the one-line error (kept as `summary_json.error`, over `summary.error`). */
+    error: z.string().optional(),
   }),
   output: z.object({ run: Run }),
   impact: 'low',

@@ -62,6 +62,7 @@ export {
   scopeOf,
 } from './queue.js';
 export { ALL_HANDLERS } from './registry.js';
+export * from './retry.js';
 export {
   buildRunnerSpec,
   CELLAR_NODE,

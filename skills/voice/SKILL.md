@@ -21,7 +21,7 @@ The user clicked **Learn voice** in You > Voice: that click is the consent for t
 
 ## Tools
 
-A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`. A Gmail or Claude in Chrome tool from this list that is not available in the session at all (the connector did not load; not a denial) is reported as `runs.finish { run_id, status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" }` before doing anything else: the engine retries the run once about 45 s later (#122).
 
 - `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
 - `mcp__claude_ai_Gmail__search_threads`: search the user's sent mail (`in:sent`).

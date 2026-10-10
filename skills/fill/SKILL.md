@@ -54,7 +54,7 @@ Only when the prompt has a **Fill assist** line (the user clicked **Open and fil
 6. **Stop before Submit.** Never click, press a key, run script or submit; never `form_input` on a Submit, Apply, Send, Next or Finish control. Leave the portal tab open where the user can review; close any other tab you opened or used with `tabs_close_mcp`.
 7. Report: `apply.fill_done { role_id, filled: [<field labels>], uploaded: ["resume", "cover_letter"], skipped: [{ label, reason }] }` (it refuses a submit-like label), then `runs.finish { run_id, status: "ok", summary: { filled, uploaded, skipped }, tabs: { opened: [<tab ids used>], closed: [<ids closed>], left_open: [<portal tab id>], portal: <portal tab id> } }` (only the portal tab may stay open, #107). The Role screen's primary becomes **Open portal**; the user reviews and submits. After they submit, the inbox skill moves the role to `applied` from the confirmation email.
 
-A tool missing (Codex, Cursor, or a denied Chrome tool): do not work around it; finish as error with the tool named, the Answers stay saved.
+A tool missing (Codex, Cursor, or a denied Chrome tool): do not work around it; finish as error with the tool named, the Answers stay saved. Claude in Chrome granted but not loaded in this session: `error_code: "connector_unavailable"` (Tools below); the engine retries once.
 
 ## Answers from Ask
 
@@ -62,7 +62,7 @@ The user can also work a question out in Ask (Cmd+K). When they want that answer
 
 ## Tools
 
-A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/ops/runner.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`. A Gmail or Claude in Chrome tool from this list that is not available in the session at all (the connector did not load; not a denial) is reported as `runs.finish { run_id, status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" }` before doing anything else: the engine retries the run once about 45 s later (#122).
 
 - `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
 - `WebFetch`: read a plain posting page (a JD or apply link) without the browser.

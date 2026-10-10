@@ -4,7 +4,7 @@ import { Btn } from '../components/Btn';
 import { C, ellipsis, eyebrow, mono } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { ago } from '../lib/format';
-import { duration, isActive, retryInput, runLabel, runOutcome, runTabs, summaryOf, triggeredBy } from '../lib/runs';
+import { duration, isActive, retryInput, runLabel, runOutcome, runTabs, summaryOf, triggeredBy, wasRetried } from '../lib/runs';
 import { go } from '../router';
 
 /* Runs (#21): every skill run with its state, outcome and log. List from runs.list, detail from runs.get. */
@@ -24,12 +24,16 @@ export const RUN_STATUS_HEX: Record<RunStatus, string> = {
   error: C.coral,
 };
 
-export function RunStatusChip({ status }: { status: RunStatus }) {
-  const c = RUN_STATUS_HEX[status];
+/** The status a run shows: its status, or Retried for a failed run the engine retried (#122). */
+export const runStatusLabel = (r: Run): string => (wasRetried(r) ? 'Retried' : RUN_STATUS_LABEL[r.status]);
+
+export function RunStatusChip({ status, label }: { status: RunStatus; label?: string }) {
+  const c = label === 'Retried' ? C.gold : RUN_STATUS_HEX[status];
   return (
     <span
       className="run-status"
       data-status={status}
+      data-retried={label === 'Retried' ? 'true' : undefined}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...eyebrow(c, 10), whiteSpace: 'nowrap' }}
     >
       <span
@@ -42,7 +46,7 @@ export function RunStatusChip({ status }: { status: RunStatus }) {
           border: `1.5px solid ${c}`,
         }}
       />
-      {RUN_STATUS_LABEL[status]}
+      {label ?? RUN_STATUS_LABEL[status]}
     </span>
   );
 }
@@ -59,6 +63,7 @@ export function RunRow({ run, now, onOpen }: { run: Run; now: Date; onOpen: () =
       className="run-row"
       data-run-id={run.id}
       data-status={run.status}
+      data-retried={wasRetried(run) ? 'true' : undefined}
       onClick={onOpen}
       style={{
         display: 'grid',
@@ -78,10 +83,10 @@ export function RunRow({ run, now, onOpen }: { run: Run; now: Date; onOpen: () =
       hover={{ background: C.panel }}
     >
       <span style={{ fontWeight: 600 }}>{runLabel(run)}</span>
-      {!mobile && <RunStatusChip status={run.status} />}
+      {!mobile && <RunStatusChip status={run.status} label={runStatusLabel(run)} />}
       {!mobile && <span style={{ ...mono(12, C.muted), ...ellipsis }}>{scope}</span>}
       <span style={{ color: run.status === 'error' ? C.coral : C.muted, ...ellipsis }}>
-        {mobile ? `${RUN_STATUS_LABEL[run.status]} · ${runOutcome(run)}` : runOutcome(run)}
+        {mobile ? `${runStatusLabel(run)} · ${runOutcome(run)}` : runOutcome(run)}
       </span>
       <span style={{ ...mono(12, C.dim), textAlign: 'right' }}>{ago(run.started_at, now)}</span>
     </Btn>
@@ -118,7 +123,8 @@ function RunDetail({ runId }: { runId: string }) {
   if (!run) return <div data-screen-label="Run" aria-busy={!res.error} />;
   const s = summaryOf(run);
   const t = now();
-  const again = !isActive(run.status) ? retryInput(run) : null;
+  // A run the engine already retried (#122) has no Retry: its retry is linked below.
+  const again = !isActive(run.status) && !wasRetried(run) ? retryInput(run) : null;
   const primary = again
     ? {
         label: 'Retry',
@@ -138,25 +144,30 @@ function RunDetail({ runId }: { runId: string }) {
     ...(s.role_id ? ([['Role', s.role_id]] as Array<[string, string]>) : []),
     // #107: the Chrome tabs the run used and closed.
     ...(runTabs(run) ? ([['Tabs', runTabs(run) as string]] as Array<[string, string]>) : []),
+    // #122: a connector retry says which try it is.
+    ...(typeof s.attempt === 'number' ? ([['Try', String(s.attempt)]] as Array<[string, string]>) : []),
   ];
   // The chain (#30): the run that queued this one, and the runs this one queued.
   const from = triggeredBy(run);
   const chain: Array<{ key: string; label: string; id: string }> = [
     ...(from ? [{ key: 'From', label: from.label, id: from.id }] : []),
+    // #122: the try this run retries, and the run that retried it.
+    ...(s.retry_of ? [{ key: 'Retry of', label: runLabel(run), id: s.retry_of }] : []),
+    ...(s.retried ? [{ key: 'Retried', label: runLabel(run), id: s.retried }] : []),
     ...(s.triggered ?? []).map((id) => {
       const next = runs.find((r) => r.id === id);
       return { key: 'Then', label: next ? runLabel(next) : 'Run', id };
     }),
   ];
   return (
-    <Screen label="Run" eyebrow={RUN_STATUS_LABEL[run.status]} title={runLabel(run)} back={() => go({ screen: 'runs' })} primary={primary}>
+    <Screen label="Run" eyebrow={runStatusLabel(run)} title={runLabel(run)} back={() => go({ screen: 'runs' })} primary={primary}>
       <div
         className="run-detail"
         data-status={run.status}
         style={{ maxWidth: 1000, display: 'flex', flexDirection: 'column', gap: 24, marginTop: 24 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-          <RunStatusChip status={run.status} />
+          <RunStatusChip status={run.status} label={runStatusLabel(run)} />
           <span className="run-outcome" style={{ fontSize: 16, fontWeight: 600, color: run.status === 'error' ? C.coral : C.fg }}>
             {runOutcome(run)}
           </span>
@@ -169,7 +180,7 @@ function RunDetail({ runId }: { runId: string }) {
             </div>
           ))}
           {chain.map((c) => (
-            <div key={`${c.key}-${c.id}`} className="run-chain" data-chain={c.key.toLowerCase()} data-run-id={c.id}>
+            <div key={`${c.key}-${c.id}`} className="run-chain" data-chain={c.key.toLowerCase().replace(/ /g, '-')} data-run-id={c.id}>
               <div style={eyebrow(C.dim, 10)}>{c.key}</div>
               <Btn
                 op={null}

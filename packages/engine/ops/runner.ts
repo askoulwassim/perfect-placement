@@ -359,6 +359,7 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     '',
     `Tools: the ${MCP_SERVER_NAME} MCP tools${extra.length ? ` and ${extra.join(', ')}` : ''}, nothing else. The skill's files (SKILL.md${assets.length ? `, ${(SKILL_ASSETS[c.skill] ?? []).join(', ')}` : ''}) are below; they live in the repo, not the vault, so never look for them with vault.read.`,
     `If a tool you need is denied or missing, do not work around it: finish with runs.finish { run_id: "${c.runId}", status: "error", summary: { error: "tool denied: <tool>", denied_tools: ["<tool>"] }, note: "<what you could not do>" }.`,
+    ...(extra.some(isConnectorTool) ? [connectorLine(c.runId)] : []),
     ...(c.linkedin ? ['', linkedinLine(c.linkedin)] : []),
     ...(c.skill === 'fill' ? ['', fillLine(c.questions, c.assist === true)] : []),
     ...(c.skill === 'fill' && c.assist === true ? [uploadsLine(c.uploads)] : []),
@@ -368,6 +369,22 @@ export function skillPrompt(skillsDir: string, c: PromptContext): string {
     skill,
     ...(assets.length ? ['', ...assets] : []),
   ].join('\n');
+}
+
+/** A claude.ai connector tool (Gmail) or a Claude in Chrome tool: these load with the session and can be late (#122). */
+export const isConnectorTool = (t: string): boolean => t.startsWith(GMAIL_PREFIX) || t.startsWith(CHROME_PREFIX);
+
+/** Skills granted a connector tool (#122): inbox, connect, voice (Gmail); connect, fill, voice (Chrome). */
+export const CONNECTOR_SKILLS: readonly Skill[] = (Object.keys(SKILL_TOOLS) as Skill[]).filter((s) =>
+  [...SKILL_TOOLS[s].gmail, ...(SKILL_TOOLS[s].chrome ?? [])].some(isConnectorTool),
+);
+
+/**
+ * The connector line of a prompt (#122): a granted connector tool that is not loaded in this session is not a denial.
+ * The run reports `error_code: "connector_unavailable"` and the engine retries it once after a short delay.
+ */
+export function connectorLine(runId: string): string {
+  return `If a Gmail or Claude in Chrome tool listed above is not available in this session at all (not loaded, as opposed to denied), do nothing else and finish with runs.finish { run_id: "${runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" }. The engine retries the run once a little later.`;
 }
 
 /** The LinkedIn line of a `connect` prompt (#82): mode, caps and today's budget, from config. */
@@ -448,8 +465,8 @@ export function gmailDraftPrompt(skillsDir: string, c: { runId: string; outreach
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the draft: outreach_get { outreach_id }. Subject = its subject (if null: the role title from roles_get, then " at " and the company name). Body = its `body` field, exactly as returned (greeting, Hook, Proof, Ask, sign-off; plain text).',
-    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.decision_id` is set (a guessed address waiting in Needs you) or `outreach.status` is not `drafted`, create nothing: finish ok with summary { outreach_id, skipped: "email pending" or "already in Gmail" } (the engine queues this step again once the address is confirmed). If `to.email` is null otherwise, leave To empty (`to.reason` says why); never use `to.guess`.',
-    "3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft). Never call send, reply or forward. If you have no Gmail draft tool, finish the run as error with a note saying so.",
+    '2. Recipient: outreach_get returns `to` (the contact, or the mutual for a bridge draft). To = `to.email`. If `to.decision_id` is set (a guessed address waiting in Needs you), or `outreach.status` is not `drafted`, or `outreach.gmail_draft_id` is set, create nothing: finish ok with summary { outreach_id, skipped: "email pending" or "already in Gmail" } (the engine queues this step again once the address is confirmed). If `to.email` is null otherwise, leave To empty (`to.reason` says why); never use `to.guess`.',
+    `3. Create a Gmail DRAFT with your Gmail draft tool (Claude Code: the Gmail connector's create_draft), once. Never call send, reply or forward. If your Gmail draft tool is not available in this session, create nothing and finish with runs_finish { run_id: "${c.runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: ${GMAIL_DRAFT_TOOL}" } (the engine retries the step once a little later).`,
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', section] : []),
@@ -471,7 +488,7 @@ export function gmailToPrompt(skillsDir: string, c: { runId: string; outreachId:
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the record: outreach_get { outreach_id }. The Gmail draft id is `outreach.gmail_draft_id`; To = `to.email` (confirmed). If `to.email` is null, change nothing and finish the run as error with a note.',
-    `2. Read the Gmail draft with ${GMAIL_GET_DRAFT_TOOL} (that id). Keep its subject and body exactly as they are in Gmail.`,
+    `2. Read the Gmail draft with ${GMAIL_GET_DRAFT_TOOL} (that id). Keep its subject and body exactly as they are in Gmail. If ${GMAIL_GET_DRAFT_TOOL} or ${GMAIL_UPDATE_TOOL} is not available in this session, change nothing and finish with runs_finish { run_id: "${c.runId}", status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" } (the engine retries the step once a little later).`,
     `3. Set its To with ${GMAIL_UPDATE_TOOL}: the same draft id, To = \`to.email\`, the subject and body you just read. Never call send, reply, forward, create_draft or delete.`,
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the same draft id>", confidence: <0 to 1, how sure you are the draft now has this To> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you set> } } (status "error" with a note if any step failed).`,
