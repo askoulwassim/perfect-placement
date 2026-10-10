@@ -89,23 +89,49 @@ function RailItem({
   );
 }
 
-export const PPMark = ({ mb = 0 }: { mb?: number }) => (
-  <div
-    style={{
-      width: 36,
-      height: 36,
-      borderRadius: 10,
-      background: C.emerald,
-      color: C['emerald-ink'],
-      display: 'grid',
-      placeItems: 'center',
-      ...display(14, 800, '-0.04em'),
-      marginBottom: mb,
-      flex: 'none',
-    }}
+/** The Perfect Placement mark (docs/assets/logo-mark.svg): the fit ring with two overlapping P's. */
+export const PPMark = ({ mb = 0, size = 36 }: { mb?: number; size?: number }) => (
+  <svg
+    viewBox="0 0 100 100"
+    width={size}
+    height={size}
+    role="img"
+    aria-label="Perfect Placement"
+    style={{ display: 'block', flex: 'none', marginBottom: mb }}
   >
-    PP
-  </div>
+    <circle cx="50" cy="50" r="50" fill={C.panel} />
+    <circle cx="50" cy="50" r="38" fill="none" stroke={C.line} strokeWidth="7" />
+    <circle
+      cx="50"
+      cy="50"
+      r="38"
+      fill="none"
+      stroke={C.emerald}
+      strokeWidth="7"
+      strokeLinecap="round"
+      strokeDasharray="195.8 238.8"
+      transform="rotate(-90 50 50)"
+    />
+    <circle cx="15.6" cy="33.8" r="6.5" fill={C.fg} stroke={C.panel} strokeWidth="2.5" />
+    <text x="44" y="59.5" textAnchor="middle" fontFamily={F.display} fontWeight={800} fontSize="44" fill={C.emerald}>
+      P
+    </text>
+    <text
+      x="56"
+      y="71.5"
+      textAnchor="middle"
+      fontFamily={F.display}
+      fontWeight={800}
+      fontSize="44"
+      fill={C.fg}
+      stroke={C.panel}
+      strokeWidth="3"
+      strokeLinejoin="round"
+      paintOrder="stroke"
+    >
+      P
+    </text>
+  </svg>
 );
 
 // ------------------------------------------------------------ RunIndicator (#21)
