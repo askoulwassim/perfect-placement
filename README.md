@@ -42,9 +42,9 @@ pp kev start | stop | status         # background process; pid + log in $PP_HOME
 
 Supported: Apple Silicon (MLX), and Linux with an NVIDIA GPU (the Kev README's PyTorch/CUDA path). The first start downloads the model from Hugging Face (several GB). Memory: `kev-4b` (default) wants 8 GB+ free, so on a 16 GB machine use `--model kev-0.8b` (~4 GB). The choice is stored in `config.json` (`backends.kev.model`). Details: `packages/resolver/docs/kev-setup.md`.
 
-### Email check (optional)
+### Email check
 
-Guessed contact addresses are checked before they reach Needs you: the domain's MX record always, and, if you pick a provider in **Settings > Email check** (NeverBounce, ZeroBounce or Hunter), each candidate mailbox with your own key. Put the key in an environment variable (default `NEVERBOUNCE_API_KEY`, `ZEROBOUNCE_API_KEY` or `HUNTER_API_KEY`, or the name you set under **Key variable**) in the shell that runs `pp up`; it is never stored in `config.json` or the db. A deliverable address is confirmed without asking; an undeliverable one is dropped. Gmail drafts wait until the address is confirmed, then get their To.
+Guessed contact addresses are checked passively before they reach Needs you: syntax, the domain's MX (or A) record over DNS, disposable / role / free-mail lists, and the address format of real colleagues the connect skill finds in your own Gmail (read-only) or on public pages. Nothing ever connects to a mail server or a verification site, and no paid service or key is needed. An address seen exactly, or a format two colleagues share, is confirmed without asking; a domain with no mail records is dropped; the rest waits in Needs you, where **Check** opens an address checker (with the address copied) and **Valid** / **Invalid** records what you saw. Gmail drafts wait until the address is confirmed, then get their To.
 
 ## Uninstall
 

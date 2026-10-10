@@ -1,5 +1,6 @@
 import type { Impact } from '@perfect-placement/contracts';
 import { useState } from 'react';
+import { EMAIL_CHECKER_URL } from '../lib/decisions';
 import { Btn } from './Btn';
 import { ImpactChip, SecondaryButton } from './controls';
 import { type Fresh, RoleTile, WhoDecidesGlyph } from './glyphs';
@@ -25,7 +26,11 @@ export interface DecisionView {
   alts: ReadonlyArray<{ label: string; value: string | boolean | number }>;
   /** Free-text change (#54 fact check: rewrite the line); the text is the changed value. */
   edit?: string;
+  /** #99: email candidates with their evidence labels; the user checks each by hand (Check, Valid, Invalid). */
+  emailChecks?: ReadonlyArray<{ address: string; labels: readonly string[] }>;
 }
+
+export type EmailCheckResult = 'valid' | 'invalid';
 
 function ObjectMark({ v, size }: { v: DecisionView; size: number }) {
   const fs = size > 40 ? 13 : 12;
@@ -64,6 +69,7 @@ export function DecisionCard({
   onToggleChange,
   onPick,
   onSkip,
+  onEmailCheck,
 }: {
   v: DecisionView;
   thresholds: { auto: number; second_opinion: number };
@@ -73,8 +79,10 @@ export function DecisionCard({
   onToggleChange: () => void;
   onPick: (value: string | boolean | number) => void;
   onSkip: () => void;
+  onEmailCheck?: (address: string, result: EmailCheckResult) => void;
 }) {
   const [ev, setEv] = useState(-1);
+  const checks = v.emailChecks?.length ? <EmailChecks rows={v.emailChecks} mobile={mobile} onCheck={onEmailCheck} /> : null;
   const evChips = v.evidence.map((e, i) => {
     const open = ev === i;
     return (
@@ -184,6 +192,7 @@ export function DecisionCard({
             <ProbabilityBar p={v.p} thresholds={thresholds} small />
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 16 }}>{evChips}</div>
+          {checks}
           {changeOpen && (
             <div
               className="decision__alts"
@@ -246,6 +255,7 @@ export function DecisionCard({
         <div style={label}>Why</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{evChips}</div>
       </div>
+      {checks}
       {changeOpen && (
         <div
           className="decision__alts"
@@ -284,6 +294,89 @@ export function DecisionCard({
         )}
       </div>
     </article>
+  );
+}
+
+/** Copy to the clipboard; a refused or missing clipboard is ignored (the link still opens). */
+async function copy(text: string) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    // No clipboard permission: the user types or pastes the address themselves.
+  }
+}
+
+const pill = (mobile?: boolean) => ({
+  border: `1px solid ${C['line-2']}`,
+  background: 'transparent',
+  color: C.fg,
+  borderRadius: 999,
+  padding: mobile ? '0 12px' : '5px 12px',
+  height: mobile ? 36 : undefined,
+  fontSize: 12,
+  textDecoration: 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+});
+
+/**
+ * #99: one row per candidate: the address, its evidence labels, **Check** (opens the address checker in a
+ * new tab and copies the address; no op), **Valid** and **Invalid** (`people.email_checked`).
+ */
+function EmailChecks({
+  rows,
+  mobile,
+  onCheck,
+}: {
+  rows: NonNullable<DecisionView['emailChecks']>;
+  mobile?: boolean;
+  onCheck?: (address: string, result: EmailCheckResult) => void;
+}) {
+  return (
+    <div className="decision__checks" style={{ marginTop: mobile ? 16 : 24, paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+      <div style={{ ...label, marginBottom: 10 }}>Check</div>
+      {rows.map((r) => (
+        <div
+          key={r.address}
+          className="email-check"
+          data-address={r.address}
+          style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0' }}
+        >
+          <span style={{ ...mono(12), flex: mobile ? '1 1 100%' : '1 1 220px', minWidth: 0, ...ellipsis }}>{r.address}</span>
+          {r.labels.map((l) => (
+            <span key={l} className="email-check__label" style={{ ...mono(11, C.muted), whiteSpace: 'nowrap' }}>
+              {l}
+            </span>
+          ))}
+          <a
+            href={EMAIL_CHECKER_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-op="local"
+            onClick={() => void copy(r.address)}
+            style={pill(mobile)}
+          >
+            Check
+          </a>
+          <Btn
+            op="people.email_checked"
+            onClick={() => onCheck?.(r.address, 'valid')}
+            style={pill(mobile)}
+            hover={{ borderColor: C['emerald-2'] }}
+          >
+            Valid
+          </Btn>
+          <Btn
+            op="people.email_checked"
+            onClick={() => onCheck?.(r.address, 'invalid')}
+            style={pill(mobile)}
+            hover={{ borderColor: X.gold50 }}
+          >
+            Invalid
+          </Btn>
+        </div>
+      ))}
+    </div>
   );
 }
 

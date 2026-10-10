@@ -1,16 +1,19 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { OpOutcome } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { FetchLike } from '../integrations/ats/http.js';
 import { createDryRunGmail, type DryRunGmail } from '../integrations/gmail/index.js';
 import { GMAIL_DRAFT_TOOL, GMAIL_GET_DRAFT_TOOL, GMAIL_PREFIX, GMAIL_UPDATE_TOOL } from '../ops/runner.js';
 import type { EngineServices } from '../ops/services.js';
 import { ctxAt, type FixtureEngine, openFixtureEngine } from '../testing/index.js';
-import { createEmailVerifier, DELIVERABLE_P, type EmailVerifier, hunter, neverBounce, verifyCandidates, zeroBounce } from './verify.js';
+import { createMailResolver } from './dns.js';
+import { NO_CANDIDATE } from './email.js';
+import { checkCandidates, domainCheck, isValidSyntax, PROVEN_P, riskOf } from './verify.js';
 
 /*
- * #99: email verification before Needs you, and the Gmail draft waiting for a confirmed address.
- * Synthetic data on a temp fixture vault; a fake MX resolver, fake providers and a fake fetch (never the
- * network, never DNS, never a mail server); the runner launcher is the fixture fake (nothing spawns).
+ * #99: the passive email check before Needs you, the user's own manual check, and the Gmail draft waiting
+ * for a confirmed address. Synthetic data on a temp fixture vault; fake DNS lookups and a fake domain
+ * resolver (never the network, never a mail server); the runner launcher is the fixture fake.
  */
 
 // biome-ignore lint/suspicious/noExplicitAny: test helper returns loosely typed output
@@ -19,99 +22,112 @@ const ok = (o: OpOutcome<unknown>): any => {
   return o.output;
 };
 
-/** A fetch that answers one JSON body per URL prefix and records the URLs it saw. */
-function fakeFetch(routes: Record<string, unknown>, status = 200): FetchLike & { urls: string[] } {
-  const urls: string[] = [];
-  const f = (async (url: string) => {
-    urls.push(url);
-    const hit = Object.entries(routes).find(([p]) => url.startsWith(p));
-    if (!hit) throw new Error(`unexpected url ${url}`);
-    return { status, url, redirected: false, headers: { get: () => null }, text: async () => JSON.stringify(hit[1]) };
-  }) as FetchLike & { urls: string[] };
-  f.urls = urls;
-  return f;
-}
+const dnsError = (code: string) => Object.assign(new Error(code), { code });
 
-/** A provider double: a status per address (default `unknown`). */
-const fakeVerifier = (answers: Record<string, string>, calls: string[] = []): EmailVerifier => ({
-  name: 'fake',
-  async verify(email) {
-    calls.push(email);
-    return (answers[email] ?? 'unknown') as never;
-  },
-});
-
-describe('provider adapters (injected fetch, no network)', () => {
-  it('NeverBounce, ZeroBounce and Hunter map their answers to the five statuses', async () => {
-    const nb = fakeFetch({ 'https://api.neverbounce.com/v4/single/check': { status: 'success', result: 'catchall' } });
-    expect(await neverBounce('k1', nb).verify('a@acme.example')).toBe('catch_all');
-    expect(nb.urls[0]).toContain('email=a%40acme.example');
-    expect(await zeroBounce('k2', fakeFetch({ 'https://api.zerobounce.net/v2/validate': { status: 'valid' } })).verify('a@x.example')).toBe(
-      'deliverable',
-    );
-    expect(
-      await zeroBounce('k2', fakeFetch({ 'https://api.zerobounce.net/v2/validate': { status: 'spamtrap' } })).verify('a@x.example'),
-    ).toBe('risky');
-    const hu = fakeFetch({ 'https://api.hunter.io/v2/email-verifier': { data: { status: 'invalid', result: 'undeliverable' } } });
-    expect(await hunter('k3', hu).verify('a@x.example')).toBe('undeliverable');
-    expect(
-      await hunter('k3', fakeFetch({ 'https://api.hunter.io/v2/email-verifier': { data: { status: 'accept_all' } } })).verify(
-        'a@x.example',
-      ),
-    ).toBe('catch_all');
+describe('passive checks (no network)', () => {
+  it('syntax: an RFC 5322 subset', () => {
+    for (const good of ['maya.rivera@acme.example', "o'neil+jobs@acme.co.uk", 'a_b-c@sub.acme-x.io'])
+      expect(isValidSyntax(good), good).toBe(true);
+    for (const bad of [
+      'maya',
+      'maya@',
+      '@acme.example',
+      'maya..r@acme.example',
+      '.maya@acme.example',
+      'maya.@acme.example',
+      'ma ya@acme.example',
+      'maya@acme',
+      'maya@-acme.example',
+      'maya@acme-.example',
+      'maya@acme.123',
+      'a@b@acme.example',
+      `${'x'.repeat(65)}@acme.example`,
+    ])
+      expect(isValidSyntax(bad), bad).toBe(false);
+    expect(domainCheck('maya@acme.example', true)).toBe('ok');
+    expect(domainCheck('maya@acme.example', false)).toBe('no_mx');
+    expect(domainCheck('maya@acme.example', null)).toBe('unknown');
+    expect(domainCheck('maya..r@acme.example', true)).toBe('invalid');
   });
 
-  it('an HTTP error throws without the key in the message', async () => {
-    const f = fakeFetch({ 'https://api.hunter.io': {} }, 401);
-    await expect(hunter('secret-key', f).verify('a@x.example')).rejects.toThrow(/HTTP 401/);
-    await expect(hunter('secret-key', f).verify('a@x.example')).rejects.not.toThrow(/secret-key/);
-  });
-
-  it('built from config: the key comes from the named environment variable; none or no key = MX only', () => {
-    const f = fakeFetch({});
-    expect(createEmailVerifier(undefined, {}, f)).toBeNull();
-    expect(createEmailVerifier({ provider: 'none' }, { X: 'k' }, f)).toBeNull();
-    expect(createEmailVerifier({ provider: 'hunter' }, {}, f)).toBeNull();
-    expect(createEmailVerifier({ provider: 'hunter' }, { HUNTER_API_KEY: 'k' }, f)?.name).toBe('hunter');
-    expect(createEmailVerifier({ provider: 'zerobounce', keyEnv: 'MY_ZB' }, { MY_ZB: 'k' }, f)?.name).toBe('zerobounce');
-    expect(createEmailVerifier({ provider: 'zerobounce', keyEnv: 'MY_ZB' }, { ZEROBOUNCE_API_KEY: 'k' }, f)).toBeNull();
-  });
-});
-
-describe('verifyCandidates', () => {
-  const ranked = [
-    { email: 'a@acme.example', pattern: 'first.last', p: 0.45 },
-    { email: 'b@acme.example', pattern: 'flast', p: 0.2 },
-    { email: 'c@acme.example', pattern: 'first', p: 0.15 },
-  ];
-
-  it('MX only: every candidate is unknown with the MX result, p unchanged', async () => {
-    const r = await verifyCandidates(ranked, true, null);
-    expect(r.dropped).toEqual([]);
-    expect(r.candidates.map((c) => [c.p, c.verify])).toEqual(ranked.map((c) => [c.p, { status: 'unknown', mx: true, provider: null }]));
-  });
-
-  it('undeliverable is dropped, deliverable is raised to the top and stops further checks', async () => {
-    const calls: string[] = [];
-    const v = fakeVerifier({ 'a@acme.example': 'undeliverable', 'b@acme.example': 'deliverable' }, calls);
-    const r = await verifyCandidates(ranked, true, v);
-    expect(r.dropped).toEqual(['a@acme.example']);
-    expect(r.candidates[0]).toMatchObject({
-      email: 'b@acme.example',
-      p: DELIVERABLE_P,
-      verify: { status: 'deliverable', provider: 'fake' },
+  it('domain: MX, else an A record (injected lookups); none = false, a failed lookup = null', async () => {
+    const seen: string[] = [];
+    const lookups = (mx: () => Promise<unknown[]>, a: () => Promise<unknown[]>) => ({
+      resolveMx: (d: string) => {
+        seen.push(`mx ${d}`);
+        return mx();
+      },
+      resolve4: (d: string) => {
+        seen.push(`a ${d}`);
+        return a();
+      },
     });
-    expect(calls).toEqual(['a@acme.example', 'b@acme.example']);
-    expect(r.candidates[1]?.verify).toEqual({ status: 'unknown', mx: true, provider: null });
+    const none = () => Promise.reject(dnsError('ENODATA'));
+    expect(await createMailResolver(lookups(async () => [{ exchange: 'mx.acme.example' }], none))('acme.example')).toBe(true);
+    expect(seen).toEqual(['mx acme.example']);
+    expect(await createMailResolver(lookups(none, async () => ['192.0.2.1']))('acme.example')).toBe(true);
+    expect(await createMailResolver(lookups(async () => [], none))('acme.example')).toBe(false);
+    expect(await createMailResolver(lookups(() => Promise.reject(dnsError('ENOTFOUND')), none))('nope.example')).toBe(false);
+    expect(await createMailResolver(lookups(() => Promise.reject(dnsError('ESERVFAIL')), none))('acme.example')).toBeNull();
+    expect(
+      await createMailResolver(
+        lookups(() => new Promise(() => {}), none),
+        5,
+      )('slow.example'),
+    ).toBeNull();
   });
 
-  it('no MX record: the provider is not asked; a provider failure is unknown', async () => {
-    const calls: string[] = [];
-    await verifyCandidates(ranked, false, fakeVerifier({}, calls));
-    expect(calls).toEqual([]);
-    const failing: EmailVerifier = { name: 'down', verify: async () => Promise.reject(new Error('down')) };
-    const r = await verifyCandidates(ranked.slice(0, 1), true, failing);
-    expect(r.candidates[0]?.verify).toEqual({ status: 'unknown', mx: true, provider: 'down' });
+  it('risk lists (vendored AfterShip/email-verifier): disposable, role, free, none', () => {
+    expect(riskOf('maya@mailinator.com')).toBe('disposable');
+    expect(riskOf('jobs@acme.example')).toBe('role');
+    expect(riskOf('Sales+x@acme.example')).toBe('role');
+    expect(riskOf('maya.rivera@gmail.com')).toBe('free');
+    expect(riskOf('maya.rivera@acme.example')).toBe('none');
+  });
+
+  it('checkCandidates: no MX and invalid drop the candidate; proven is raised; the rest is capped for Needs you', () => {
+    const ranked = [
+      { email: 'maya.rivera@acme.example', pattern: 'first.last', p: 0.8 },
+      { email: 'mrivera@acme.example', pattern: 'flast', p: 0.1 },
+    ];
+    const noMx = checkCandidates(ranked, { mail: false, peers: [], exact: new Set(), unprovenMax: 0.69 });
+    expect(noMx).toEqual({ candidates: [], dropped: ['maya.rivera@acme.example', 'mrivera@acme.example'] });
+    const peers = [
+      { address: 'lee.park@acme.example', fits: ['first.last'] },
+      { address: 'sam.ortiz@acme.example', fits: ['first.last'] },
+    ];
+    const proven = checkCandidates(ranked, { mail: true, peers, exact: new Set(), unprovenMax: 0.69 });
+    expect(proven.candidates[0]).toEqual({
+      ...ranked[0],
+      p: PROVEN_P,
+      check: { domain: 'ok', risk: 'none', pattern_peers: 2, public_match: false },
+    });
+    expect(proven.candidates[1]?.check?.pattern_peers).toBe(0);
+    const conflict = checkCandidates(ranked, {
+      mail: true,
+      peers: [...peers, { address: 'kdunn@acme.example', fits: ['flast'] }],
+      exact: new Set(),
+      unprovenMax: 0.69,
+    });
+    expect(conflict.candidates[0]?.p).toBe(0.69);
+    const exact = checkCandidates(ranked, { mail: null, peers: [], exact: new Set(['mrivera@acme.example']), unprovenMax: 0.69 });
+    expect(exact.candidates[0]).toMatchObject({
+      email: 'mrivera@acme.example',
+      p: PROVEN_P,
+      check: { domain: 'unknown', public_match: true },
+    });
+  });
+
+  it('no mail server, ever: nothing in people/ opens a socket (net, tls, SMTP)', () => {
+    const dir = import.meta.dirname;
+    const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+    expect(files.length).toBeGreaterThan(5);
+    for (const f of files) {
+      const src = readFileSync(join(dir, f), 'utf8');
+      expect(src, f).not.toMatch(/from ['"](node:)?(net|tls|dgram|smtp)['"]/);
+      expect(src, f).not.toMatch(/require\(['"](node:)?(net|tls)['"]\)/);
+      expect(src, f).not.toMatch(/createConnection|nodemailer|\bEHLO\b|RCPT TO/);
+    }
   });
 });
 
@@ -141,46 +157,6 @@ const pending = (id: string) =>
 const outreachRow = (id: string) =>
   engine().db.prepare('SELECT status, gmail_draft_id, gmail_to FROM outreach WHERE id = ?').get(id) as Record<string, unknown>;
 const flag = (args: readonly string[], f: string) => args[args.indexOf(f) + 1];
-
-describe('people.find_email with a verifier (#99)', () => {
-  it('a deliverable address skips Needs you: auto-applied and confirmed', async () => {
-    open({ emailVerifier: fakeVerifier({ 'maya@linear.app': 'deliverable' }) });
-    const out = ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(out).toMatchObject({ email: 'maya@linear.app', confirmed: true, outcome: 'auto' });
-    expect(out.confidence).toBe(DELIVERABLE_P);
-    expect(out.candidates[0].verify).toEqual({ status: 'deliverable', mx: true, provider: 'fake' });
-    expect(pending('ct_0001')).toEqual([]);
-  });
-
-  it('configured provider + key in the environment, through the injected fetch', async () => {
-    const f = fakeFetch({ 'https://api.hunter.io/v2/email-verifier': { data: { status: 'valid' } } });
-    open({ fetch: f, env: { MY_HUNTER: 'k' } }, { email_verifier: { provider: 'hunter', keyEnv: 'MY_HUNTER' } });
-    const out = ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(out).toMatchObject({ confirmed: true, outcome: 'auto' });
-    expect(f.urls).toHaveLength(1);
-    // The key is never stored.
-    expect(JSON.stringify(engine().db.prepare('SELECT * FROM decision').all())).not.toContain('MY_HUNTER');
-  });
-
-  it('undeliverable drops the candidate; catch-all goes to Needs you with the result per candidate', async () => {
-    open({ emailVerifier: fakeVerifier({ 'maya@linear.app': 'undeliverable', 'mayar@linear.app': 'catch_all' }) });
-    const out = ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(out.dropped).toEqual(['maya@linear.app']);
-    expect(out.candidates.map((c: { email: string }) => c.email)).not.toContain('maya@linear.app');
-    expect(out).toMatchObject({ email: 'mayar@linear.app', confirmed: false, outcome: 'human' });
-    const q = JSON.parse(pending('ct_0001')[0]?.question_json as string);
-    expect(q.options).toEqual(['mayar@linear.app', 'other']);
-    expect(q.candidates[0].verify).toEqual({ status: 'catch_all', mx: true, provider: 'fake' });
-    expect(q.dropped).toEqual(['maya@linear.app']);
-  });
-
-  it('every candidate undeliverable: no guess, nothing asked', async () => {
-    open({ emailVerifier: fakeVerifier({ 'maya@linear.app': 'undeliverable', 'mayar@linear.app': 'undeliverable' }) });
-    const out = ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(out).toMatchObject({ email: null, candidates: [], decision_id: null, reason: 'every candidate is undeliverable' });
-    expect(pending('ct_0001')).toEqual([]);
-  });
-});
 
 describe('the Gmail draft waits for a confirmed address (#99)', () => {
   /** An unsure guess for a contact: stored, a people.email decision pending in Needs you. */
@@ -261,14 +237,131 @@ describe('the Gmail draft waits for a confirmed address (#99)', () => {
     const run = engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).get() as { summary_json: string };
     expect(JSON.parse(run.summary_json)).toMatchObject({ outreach_id: 'or_0001', step: 'gmail_to' });
   });
+});
 
-  it('a verified deliverable address queues the waiting draft without Needs you', async () => {
-    open({ emailVerifier: fakeVerifier({ 'maya@linear.app': 'deliverable' }) });
+describe('people.find_email: pattern evidence and the passive check (#99)', () => {
+  const fullName = () => engine().db.prepare(`UPDATE contact SET name = 'Maya Rivera' WHERE id = 'ct_0001'`).run();
+  const peer = (address: string, name: string) => ({ kind: 'inbox_peer', address, source: 'gmail', name });
+  const find = (input: Record<string, unknown> = {}) =>
+    engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE, ...input }, ctxAt('agent'));
+  const connectRuns = () =>
+    (engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).all() as Array<{ summary_json: string }>).map((r) =>
+      JSON.parse(r.summary_json),
+    );
+
+  it('two inbox peers on first.last: auto-applied, To filled, the waiting Gmail draft queued; only address + format kept', async () => {
+    open();
+    fullName();
+    const out = ok(await find({ evidence: [peer('lee.park@linear.app', 'Lee Park'), peer('Sam.Ortiz@linear.app', 'Sam Ortiz')] }));
+    expect(out).toMatchObject({ email: 'maya.rivera@linear.app', confirmed: true, outcome: 'auto', confidence: PROVEN_P });
+    expect(out.candidates[0].check).toEqual({ domain: 'ok', risk: 'none', pattern_peers: 2, public_match: false });
+    expect(pending('ct_0001')).toEqual([]);
+    const got = ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human()));
+    expect(got.to).toMatchObject({ email: 'maya.rivera@linear.app', decision_id: null });
+    expect(connectRuns()).toEqual([expect.objectContaining({ outreach_id: 'or_0001', step: 'gmail_draft' })]);
+    const d = engine().db.prepare('SELECT question_json FROM decision WHERE id = ?').get(out.decision_id) as { question_json: string };
+    expect(JSON.parse(d.question_json).evidence).toEqual([
+      { kind: 'inbox_peer', address: 'lee.park@linear.app', pattern: 'first.last' },
+      { kind: 'inbox_peer', address: 'sam.ortiz@linear.app', pattern: 'first.last' },
+    ]);
+    // The display names inferred the format; they are not kept.
+    expect(d.question_json).not.toContain('Lee Park');
+  });
+
+  it('conflicting peers: the guess goes to Needs you, no Gmail draft', async () => {
+    open();
+    fullName();
+    const out = ok(
+      await find({
+        evidence: [
+          peer('lee.park@linear.app', 'Lee Park'),
+          peer('sam.ortiz@linear.app', 'Sam Ortiz'),
+          peer('kdunn@linear.app', 'Kai Dunn'),
+        ],
+      }),
+    );
+    expect(out).toMatchObject({ email: 'maya.rivera@linear.app', confirmed: false, outcome: 'human' });
+    expect(out.confidence).toBeLessThan(0.7);
+    expect(out.candidates[0].check.pattern_peers).toBe(2);
+    expect(out.candidates.find((c: { email: string }) => c.email === 'mrivera@linear.app').check.pattern_peers).toBe(1);
+    expect(pending('ct_0001')).toHaveLength(1);
+    expect(connectRuns()).toEqual([]);
+  });
+
+  it('an exact public mention of a candidate: auto-applied', async () => {
+    open();
+    fullName();
+    const mention = { kind: 'public_mention', address: 'mrivera@linear.app', source: 'team page', url: 'https://linear.example/team' };
+    const out = ok(await find({ evidence: [mention] }));
+    expect(out).toMatchObject({ email: 'mrivera@linear.app', confirmed: true, outcome: 'auto' });
+    expect(out.candidates[0].check).toMatchObject({ public_match: true, domain: 'ok' });
+    const d = engine().db.prepare('SELECT question_json FROM decision WHERE id = ?').get(out.decision_id) as { question_json: string };
+    expect(JSON.parse(d.question_json).evidence).toEqual([
+      { kind: 'public_mention', address: 'mrivera@linear.app', pattern: 'flast', url: 'https://linear.example/team' },
+    ]);
+  });
+
+  it('no evidence: unproven, Needs you; a domain with no MX or A record drops every candidate', async () => {
+    open();
+    expect(ok(await find())).toMatchObject({ confirmed: false, outcome: 'human' });
+    v?.cleanup();
+    open({ mx: async () => false });
+    const out = ok(await find());
+    expect(out).toMatchObject({ email: null, candidates: [], decision_id: null, reason: NO_CANDIDATE });
+    expect(out.dropped).toEqual(['maya@linear.app', 'mayar@linear.app']);
+    expect(pending('ct_0001')).toEqual([]);
+  });
+});
+
+describe('people.email_checked: the user checks by hand (#99)', () => {
+  const check = (address: string, result: 'valid' | 'invalid', ctx = human()) =>
+    engine().runOp('people.email_checked', { contact_id: 'ct_0001', address, result }, ctx);
+  const decisionRow = (id: string) =>
+    engine().db.prepare('SELECT status, human_choice, question_json, answer_json FROM decision WHERE id = ?').get(id) as Record<
+      string,
+      string
+    >;
+
+  it('human only', async () => {
+    open();
     ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    const run = engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).get() as { summary_json: string };
-    expect(JSON.parse(run.summary_json)).toMatchObject({ outreach_id: 'or_0001', step: 'gmail_draft', actor: 'schedule' });
-    // Asking again (already confirmed) queues nothing new.
+    expect(await check('maya@linear.app', 'valid', ctxAt('agent'))).toMatchObject({ status: 'error', code: 'human_only' });
+  });
+
+  it('Invalid drops the candidate and keeps the decision open; Valid confirms, fills To and queues the Gmail draft', async () => {
+    open();
     ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
-    expect(engine().db.prepare(`SELECT count(*) n FROM run WHERE op = 'connect'`).get()).toEqual({ n: 1 });
+    const id = pending('ct_0001')[0]?.id as string;
+    expect(JSON.parse(decisionRow(id).question_json as string).options).toEqual(['maya@linear.app', 'mayar@linear.app', 'other']);
+
+    const bad = ok(await check('maya@linear.app', 'invalid'));
+    expect(bad).toMatchObject({ source: 'manual_check', decision_id: id, open: true, remaining: ['mayar@linear.app'], confirmed: false });
+    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.app' });
+    const q = JSON.parse(decisionRow(id).question_json as string);
+    expect(q.options).toEqual(['mayar@linear.app', 'other']);
+    expect(q.dropped).toEqual(['maya@linear.app']);
+    expect(q.manual_checks).toEqual([expect.objectContaining({ address: 'maya@linear.app', result: 'invalid', source: 'manual_check' })]);
+    expect(JSON.parse(decisionRow(id).answer_json as string).value).toBe('mayar@linear.app');
+    expect(pending('ct_0001')).toHaveLength(1);
+
+    const good = ok(await check('mayar@linear.app', 'valid'));
+    expect(good).toMatchObject({ source: 'manual_check', decision_id: id, open: false, confirmed: true });
+    expect(decisionRow(id)).toMatchObject({ status: 'applied', human_choice: 'mayar@linear.app' });
+    expect(contact('ct_0001')).toMatchObject({ email: 'mayar@linear.app', email_confidence: 1 });
+    const runs = engine().db.prepare(`SELECT summary_json FROM run WHERE op = 'connect'`).all() as Array<{ summary_json: string }>;
+    expect(runs.map((x) => JSON.parse(x.summary_json))).toEqual([expect.objectContaining({ outreach_id: 'or_0001', step: 'gmail_draft' })]);
+    expect(ok(await engine().runOp('outreach.get', { outreach_id: 'or_0001' }, human())).to).toMatchObject({ email: 'mayar@linear.app' });
+  });
+
+  it('Invalid on the last candidate closes the decision and clears the guess', async () => {
+    open();
+    ok(await engine().runOp('people.find_email', { contact_id: 'ct_0001', role_id: ROLE }, ctxAt('agent')));
+    const id = pending('ct_0001')[0]?.id as string;
+    ok(await check('maya@linear.app', 'invalid'));
+    const last = ok(await check('mayar@linear.app', 'invalid'));
+    expect(last).toMatchObject({ open: false, remaining: [], confirmed: false });
+    expect(decisionRow(id).status).toBe('rejected');
+    expect(contact('ct_0001')).toMatchObject({ email: null });
+    expect(engine().launcher.specs).toHaveLength(0);
   });
 });

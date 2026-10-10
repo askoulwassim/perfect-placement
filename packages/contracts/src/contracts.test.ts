@@ -99,6 +99,8 @@ const CONTRACT_TABLE: Record<string, 'low' | 'medium' | 'high'> = {
   'apply.set_questions': 'low',
   // #98
   'people.set_path': 'low',
+  // #99
+  'people.email_checked': 'low',
 };
 
 /** Wave 2 read ops. */

@@ -222,19 +222,32 @@ export const EmailSource = z.enum(EMAIL_SOURCES);
 export type EmailSource = z.infer<typeof EmailSource>;
 
 /**
- * Added (#99): what an email check says about one address. `deliverable` (the provider confirmed the
- * mailbox), `risky` (disposable, role or spam-trap risk), `undeliverable` (the mailbox does not exist:
- * the candidate is dropped), `catch_all` (the domain accepts everything, so nothing is proven), `unknown`
- * (no provider, no answer, or only the domain's MX record was checked).
+ * Added (#99): the passive domain check on a candidate address (DNS only, never a mail server). `ok` (MX,
+ * or an A record as the implicit MX), `no_mx` (no mail records: the candidate is dropped), `invalid` (the
+ * address fails the syntax check: dropped), `unknown` (the DNS lookup failed or was off: kept).
  */
-export const EMAIL_VERIFY_STATUSES = ['deliverable', 'risky', 'undeliverable', 'catch_all', 'unknown'] as const;
-export const EmailVerifyStatus = z.enum(EMAIL_VERIFY_STATUSES);
-export type EmailVerifyStatus = z.infer<typeof EmailVerifyStatus>;
+export const EMAIL_DOMAIN_CHECKS = ['ok', 'no_mx', 'invalid', 'unknown'] as const;
+export const EmailDomainCheck = z.enum(EMAIL_DOMAIN_CHECKS);
+export type EmailDomainCheck = z.infer<typeof EmailDomainCheck>;
 
-/** Added (#99): the email verification provider behind the user's own key (`none`: MX check only). */
-export const EMAIL_VERIFIER_PROVIDERS = ['none', 'neverbounce', 'zerobounce', 'hunter'] as const;
-export const EmailVerifierProvider = z.enum(EMAIL_VERIFIER_PROVIDERS);
-export type EmailVerifierProvider = z.infer<typeof EmailVerifierProvider>;
+/** Added (#99): list-based risk of an address (vendored AfterShip/email-verifier lists): a label only. */
+export const EMAIL_RISKS = ['disposable', 'role', 'free', 'none'] as const;
+export const EmailRisk = z.enum(EMAIL_RISKS);
+export type EmailRisk = z.infer<typeof EmailRisk>;
+
+/**
+ * Added (#99): pattern evidence the connect skill gathers, read-only. `inbox_peer`: a real address at the
+ * company domain in the user's own mail (from / to / cc; address only); `public_mention`: an address seen
+ * on a public page.
+ */
+export const EMAIL_EVIDENCE_KINDS = ['inbox_peer', 'public_mention'] as const;
+export const EmailEvidenceKind = z.enum(EMAIL_EVIDENCE_KINDS);
+export type EmailEvidenceKind = z.infer<typeof EmailEvidenceKind>;
+
+/** Added (#99): the user's own manual check of a candidate (Needs you **Valid** / **Invalid**). */
+export const EMAIL_CHECK_RESULTS = ['valid', 'invalid'] as const;
+export const EmailCheckResult = z.enum(EMAIL_CHECK_RESULTS);
+export type EmailCheckResult = z.infer<typeof EmailCheckResult>;
 
 /**
  * Added (#78): the no-contact fallback Connect used for a role, in the order it tries them: a hiring-team

@@ -1,8 +1,5 @@
 import {
   DAY_NAMES,
-  EMAIL_VERIFIER_KEY_ENV,
-  EMAIL_VERIFIER_PROVIDERS,
-  type EmailVerifierProvider,
   nextFire,
   type PolicyConfig,
   PP_HOME_DEFAULT,
@@ -13,7 +10,6 @@ import {
 import { useEffect, useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { Btn } from '../components/Btn';
-import { ToneChips } from '../components/controls';
 import { BackendCard, HardExclusions, LOCKED_LABELS, PolicyGrid, ScheduleRow } from '../components/shell';
 import { C, eyebrow, mono } from '../components/theme';
 import { Screen } from '../layout';
@@ -52,19 +48,6 @@ export const cadence = (spec: string) => {
 export const lastResult = (r: Run | null | undefined): string =>
   !r ? 'Never' : r.status === 'ok' ? 'Done' : r.status === 'error' ? 'Failed' : cap(r.status);
 
-/** Email check providers (#99), in EMAIL_VERIFIER_PROVIDERS order. */
-const VERIFIER_LABEL: Record<EmailVerifierProvider, string> = {
-  none: 'MX only',
-  neverbounce: 'NeverBounce',
-  zerobounce: 'ZeroBounce',
-  hunter: 'Hunter',
-};
-
-/** The config.update patch for the email check: the env var name only, never a key. */
-export function verifierPatch(provider: EmailVerifierProvider, keyEnv: string): { provider: EmailVerifierProvider; keyEnv?: string } {
-  return provider === 'none' ? { provider } : { provider, keyEnv: keyEnv.trim() || EMAIL_VERIFIER_KEY_ENV[provider] };
-}
-
 /** OS job states that mean the schedule will not fire on its own (#29). */
 const NO_JOB: ReadonlySet<ScheduleJobState> = new Set(['missing', 'stale']);
 
@@ -76,13 +59,6 @@ export function Settings() {
   const status = useOp('schedules.status', {});
   const [schedules, setSchedules] = useState(config.schedules);
   const [saved, setSaved] = useState<Record<ScheduleKey, string>>(config.schedules);
-  // #99: the email check's provider and the environment variable that holds its key.
-  const [provider, setProvider] = useState<EmailVerifierProvider>(config.email_verifier?.provider ?? 'none');
-  const [keyEnv, setKeyEnv] = useState(config.email_verifier?.keyEnv ?? '');
-  useEffect(() => {
-    setProvider(config.email_verifier?.provider ?? 'none');
-    setKeyEnv(config.email_verifier?.keyEnv ?? '');
-  }, [config.email_verifier]);
   useEffect(() => {
     setSchedules(config.schedules);
     setSaved((s) => ({ ...s, ...Object.fromEntries(Object.entries(config.schedules).filter(([, v]) => v !== 'off')) }));
@@ -91,11 +67,7 @@ export function Settings() {
   const t = now();
   const save = async () => {
     const o = await act('config.update', {
-      patch: {
-        policy: { auto: thresholds.auto, second_opinion: thresholds.second_opinion },
-        schedules,
-        email_verifier: verifierPatch(provider, keyEnv),
-      },
+      patch: { policy: { auto: thresholds.auto, second_opinion: thresholds.second_opinion }, schedules },
     });
     if (o.status === 'ok') showToast('Saved');
   };
@@ -144,37 +116,6 @@ export function Settings() {
               />
             );
           })}
-        </div>
-        <div className="settings-email">
-          <div style={{ ...eyebrow(), marginBottom: 14 }}>Email check</div>
-          <ToneChips
-            tones={EMAIL_VERIFIER_PROVIDERS.map((p) => VERIFIER_LABEL[p])}
-            recommended={-1}
-            selected={EMAIL_VERIFIER_PROVIDERS.indexOf(provider)}
-            onSelect={(i) => setProvider(EMAIL_VERIFIER_PROVIDERS[i] as EmailVerifierProvider)}
-          />
-          {provider !== 'none' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={mono(11, C.muted)}>Key variable</span>
-              <input
-                name="email_verifier_key_env"
-                value={keyEnv}
-                placeholder={EMAIL_VERIFIER_KEY_ENV[provider]}
-                spellCheck={false}
-                onChange={(e) => setKeyEnv(e.target.value)}
-                style={{
-                  ...mono(13),
-                  color: C.fg,
-                  height: 32,
-                  minWidth: 260,
-                  padding: '0 10px',
-                  background: C['bg-2'],
-                  border: `1px solid ${C['line-2']}`,
-                  borderRadius: 8,
-                }}
-              />
-            </label>
-          )}
         </div>
         <div className="settings-runs">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>

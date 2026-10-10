@@ -8,13 +8,13 @@ import type {
   OpOutput,
   PolicyConfig,
   RecordFn,
+  RunOp,
   SubjectType,
 } from '@perfect-placement/contracts';
 import type { Repos } from '../db/repo.js';
 import type { GmailContactsSource, GmailDraftClient } from '../integrations/gmail/index.js';
 import type { LinkedInSource } from '../integrations/linkedin/index.js';
 import type { EmailProvider, MxResolver } from './email.js';
-import type { EmailVerifier } from './verify.js';
 
 /** Text an LLM writes for one outreach draft. Never written by a System One model. */
 export interface DraftText {
@@ -60,8 +60,8 @@ export interface PeopleDeps {
   mx?: MxResolver;
   /** Email finder service (#37, pinned): absent unless the user wires one with their own key. */
   emailProvider?: EmailProvider;
-  /** Email verification provider (#99, `config.email_verifier` + the user's key): absent = MX check only. */
-  verifier?: EmailVerifier | null;
+  /** runOp, nested in this op (#99: a manual email check resolves the decision through the decision layer). */
+  runOp?: RunOp;
   /** Id factory; defaults to `<prefix>_<ulid>`. */
   newId?: (prefix: string) => string;
 }

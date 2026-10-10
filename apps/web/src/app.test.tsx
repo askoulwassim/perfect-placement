@@ -265,21 +265,19 @@ describe('click paths', () => {
     assertButtons(container);
   });
 
-  it('Needs you: each email candidate shows its check; an undeliverable one is gone (#99)', async () => {
-    const answers: Record<string, string> = {
-      'maya.rivera@linear.example': 'catch_all',
-      'mrivera@linear.example': 'undeliverable',
-      'maya@linear.example': 'risky',
-    };
-    const emailVerifier = { name: 'hunter', verify: async (e: string) => (answers[e] ?? 'unknown') as never };
+  it('Needs you: each email candidate shows its evidence, a Check link and Valid / Invalid (#99)', async () => {
     const { container } = await boot(
       '#/needs-you',
       async (l) => {
         l.engine.db.prepare(`UPDATE company SET domain = 'linear.example' WHERE id = 'linear'`).run();
         l.engine.db.prepare(`UPDATE contact SET name = 'Maya Rivera' WHERE id = 'ct_0001'`).run();
-        return l.as('agent', 'people.find_email', { contact_id: 'ct_0001', role_id: R.linearDraft });
+        return l.as('agent', 'people.find_email', {
+          contact_id: 'ct_0001',
+          role_id: R.linearDraft,
+          evidence: [{ kind: 'inbox_peer', address: 'lee.park@linear.example', source: 'gmail', name: 'Lee Park' }],
+        });
       },
-      { services: { emailVerifier, mx: async () => true } },
+      { services: { mx: async () => true } },
     );
     const want = 'Use maya.rivera@linear.example?';
     for (let i = 0; i < 8 && nextQ(container) !== want; i++) {
@@ -288,33 +286,47 @@ describe('click paths', () => {
       fireEvent.keyDown(window, { key: 'ArrowRight' });
     }
     await settledQ(container, (q) => q === want);
-    fireEvent.click(within($(container, '.decision')).getByText('Check'));
-    await waitFor(() => expect($(container, '.decision').textContent).toContain('Catch-all · Hunter'));
-    fireEvent.keyDown(window, { key: 'c' });
-    const alts = await waitFor(() => $(container, '.decision__alts'));
-    const labels = within(alts)
-      .getAllByRole('button')
-      .map((b) => b.textContent);
-    // The undeliverable address is gone; the others carry their check.
-    expect(labels.slice(0, 2)).toEqual(['maya@linear.example · Risky · Hunter', 'm.rivera@linear.example · Unknown · Hunter']);
-    expect(labels.join(' ')).not.toContain('mrivera@linear.example');
+    const row = (address: string) => $(container, `.email-check[data-address="${address}"]`);
+    const top = await waitFor(() => row('maya.rivera@linear.example'));
+    expect(Array.from(top.querySelectorAll('.email-check__label')).map((l) => l.textContent)).toEqual(['Pattern: 1 peer']);
+
+    // Check: a plain link to the address checker (no op) that also copies the address.
+    const link = within(top).getByText('Check').closest('a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('https://email-checker.net/');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('data-op')).toBe('local');
+    link.addEventListener('click', (e) => e.preventDefault());
+    const copied: string[] = [];
+    const clip = { writeText: async (t: string) => void copied.push(t) };
+    Object.defineProperty(navigator, 'clipboard', { value: clip, configurable: true });
+    const before = writes().length;
+    fireEvent.click(link);
+    await waitFor(() => expect(copied).toEqual(['maya.rivera@linear.example']));
+    // A refused clipboard is ignored.
+    clip.writeText = async () => Promise.reject(new Error('denied'));
+    fireEvent.click(link);
+    expect(writes().length).toBe(before);
+
+    // Invalid drops a candidate and the card stays; Valid confirms the address and the card moves on.
+    fireEvent.click(within(row('maya@linear.example')).getByText('Invalid'));
+    await waitFor(() => expect(container.querySelector('.email-check[data-address="maya@linear.example"]')).toBeNull());
+    expect(nextQ(container)).toBe(want);
+    const calls = () => live?.calls.filter((c) => c.name === 'people.email_checked').map((c) => c.body);
+    expect(calls()).toEqual([{ contact_id: 'ct_0001', address: 'maya@linear.example', result: 'invalid' }]);
     assertButtons(container);
+    fireEvent.click(within(row('maya.rivera@linear.example')).getByText('Valid'));
+    await waitFor(() => expect(nextQ(container)).not.toBe(want));
+    expect(calls()?.[1]).toEqual({ contact_id: 'ct_0001', address: 'maya.rivera@linear.example', result: 'valid' });
+    const c = await live?.client.run('contacts.get', { contact_id: 'ct_0001' });
+    expect(c?.status === 'ok' && c.output.contact.email).toBe('maya.rivera@linear.example');
   });
 
-  it('Settings: Email check picks the provider and the key variable; Save sends both in one config.update (#99)', async () => {
+  it('Settings: no Email check section, no provider or key (#99)', async () => {
     const { container } = await boot('#/settings');
-    const box = await waitFor(() => $(container, '.settings-email'));
-    expect(box.querySelector('input')).toBeNull();
-    fireEvent.click(within(box).getByText('Hunter'));
-    const input = $<HTMLInputElement>(box, 'input[name="email_verifier_key_env"]');
-    expect(input.placeholder).toBe('HUNTER_API_KEY');
-    fireEvent.change(input, { target: { value: 'MY_HUNTER_KEY' } });
-    fireEvent.click(primary(container));
-    await waitFor(async () => {
-      const c = await live?.client.run('config.get', {});
-      expect(c?.status === 'ok' && c.output.email_verifier).toEqual({ provider: 'hunter', keyEnv: 'MY_HUNTER_KEY' });
-    });
-    expect(live?.calls.filter((c) => c.name === 'config.update')).toHaveLength(1);
+    await waitFor(() => expect(primary(container)?.textContent).toContain('Save'));
+    expect(container.querySelector('.settings-email')).toBeNull();
+    expect(container.textContent).not.toMatch(/Email check|Key variable|NeverBounce|ZeroBounce|Hunter/);
     assertButtons(container);
   });
 

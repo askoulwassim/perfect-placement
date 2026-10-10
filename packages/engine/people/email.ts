@@ -1,6 +1,7 @@
 import {
   type Contact,
   type EmailCandidate,
+  type EmailEvidence,
   type EmailSource,
   OTHER_OPTION,
   type PolicyOutcome,
@@ -11,14 +12,15 @@ import {
 import { z } from 'zod';
 import { getCompany, getContact, getRole, readVault, stripFrontmatter } from './queries.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
-import { verifyCandidates } from './verify.js';
+import { checkCandidates } from './verify.js';
 
 /*
  * Contact emails (#37). Known addresses first (the contact's own; hints the agent found in Gmail,
  * LinkedIn contact info or public pages; the JD and dossier). Otherwise pattern inference: learn the
- * company's address format from addresses seen at its domain, rank candidates, check the domain's MX
- * record (never SMTP), and give the top pick a probability. Mechanics only: no network here except
- * the injected MX resolver and the (pinned) provider seam.
+ * company's address format from addresses seen at its domain, rank candidates, check them passively
+ * (`verify.ts`, #99: syntax, the domain's MX or A record, risk lists, pattern evidence; never a mail
+ * server), and give the top pick a probability. Mechanics only: no network here except the injected DNS
+ * resolver and the (pinned) provider seam.
  */
 
 export const EMAIL_PATTERNS = ['first.last', 'flast', 'first', 'firstl', 'f.last', 'last'] as const;
@@ -38,6 +40,10 @@ export const PATTERN_PRIOR: Record<EmailPattern, number> = {
 export const PRIOR_WEIGHT = 0.3;
 /** No MX record: the domain probably takes no mail. */
 export const NO_MX_FACTOR = 0.3;
+/** An unproven candidate's p stays this far below `second_opinion`, so it goes to Needs you (#99). */
+export const UNPROVEN_MARGIN = 0.01;
+/** Why there is no guess when every candidate failed the check (#99). */
+export const NO_CANDIDATE = 'no candidate passed the email check';
 /** Candidates offered in Needs you (plus `other`). */
 export const MAX_OPTIONS = 4;
 
@@ -198,16 +204,23 @@ export interface LearnedFormat {
   pattern: EmailPattern | null;
 }
 
+/** A real address at the domain and the formats it fits; `weight` < 1 when only its shape says so. */
+export interface PeerFit {
+  email: string;
+  fits: EmailPattern[];
+  weight: number;
+}
+
 /**
- * Learn the address format at `domain` from addresses seen there. A named address counts for the formats
- * its name produces; an unnamed one only when its local part matches a known person at the company, else
- * by shape (`a.b` -> first.last, `a.bcd` with a one-letter first part -> f.last) at half weight.
+ * The formats each address seen at `domain` fits. A named address fits the formats its name produces; an
+ * unnamed one those of a known person at the company whose name it spells, else its shape (`a.b` ->
+ * first.last, `a.bcd` with a one-letter first part -> f.last) at half weight. Role mailboxes and
+ * addresses that fit nothing are left out.
  */
-export function learnFormat(seen: readonly Seen[], domain: string, people: readonly string[] = []): LearnedFormat {
-  const counts = Object.fromEntries(EMAIL_PATTERNS.map((p) => [p, 0])) as Record<EmailPattern, number>;
+export function peerFits(seen: readonly Seen[], domain: string, people: readonly string[] = []): PeerFit[] {
   const known = people.map(nameParts).filter((n): n is NameParts => !!n);
   const done = new Set<string>();
-  let examples = 0;
+  const out: PeerFit[] = [];
   for (const s of seen) {
     const email = s.email.toLowerCase();
     if (domainOf(email) !== domain || done.has(email)) continue;
@@ -231,12 +244,18 @@ export function learnFormat(seen: readonly Seen[], domain: string, people: reado
         weight = 0.5;
       }
     }
-    if (!fits.length) continue;
-    for (const p of fits) counts[p] += weight / fits.length;
-    examples++;
+    if (fits.length) out.push({ email, fits, weight });
   }
+  return out;
+}
+
+/** Learn the address format at `domain` from addresses seen there (`peerFits`, each split over its formats). */
+export function learnFormat(seen: readonly Seen[], domain: string, people: readonly string[] = []): LearnedFormat {
+  const counts = Object.fromEntries(EMAIL_PATTERNS.map((p) => [p, 0])) as Record<EmailPattern, number>;
+  const fits = peerFits(seen, domain, people);
+  for (const f of fits) for (const p of f.fits) counts[p] += f.weight / f.fits.length;
   const best = EMAIL_PATTERNS.reduce<EmailPattern | null>((b, p) => (counts[p] > 0 && (!b || counts[p] > counts[b]) ? p : b), null);
-  return { counts, examples, pattern: best };
+  return { counts, examples: fits.length, pattern: best };
 }
 
 /**
@@ -325,6 +344,13 @@ export function draftRecipient(
 }
 
 // ------------------------------------------------------------------ people.find_email
+
+/** What a decision keeps of one piece of evidence (#99): the address and its inferred format, plus a public page's URL. */
+function evidenceRecord(e: EmailEvidence, fits: readonly PeerFit[]) {
+  const address = e.address.toLowerCase();
+  const pattern = fits.find((f) => f.email === address)?.fits.join('|') ?? null;
+  return { kind: e.kind, address, pattern, ...(e.kind === 'public_mention' && e.url ? { url: e.url } : {}) };
+}
 
 export const PeopleFindEmailInput = peopleFindEmail.input;
 export type PeopleFindEmailInput = z.infer<typeof PeopleFindEmailInput>;
@@ -464,6 +490,14 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
     ...emailsIn(jd).map((email) => ({ email, source: 'public' as const })),
     ...emailsIn(dossier).map((email) => ({ email, source: 'public' as const })),
   ];
+  // #99: the agent's pattern evidence (the user's own mail, public pages). Kept apart from `seen` above
+  // until the known-address checks are done, so an exact mention is weighed by the check, not trusted.
+  const evidence = input.evidence ?? [];
+  const evidenceSeen: Seen[] = evidence.map((e) => ({
+    email: e.address,
+    name: e.name ?? null,
+    source: e.kind === 'inbox_peer' ? 'gmail' : 'public',
+  }));
 
   // An unnamed address at the domain that spells this person's full name is theirs.
   for (const s of seen) {
@@ -477,7 +511,8 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
   const people = company
     ? db.contact.select(`id IN (SELECT contact_id FROM contact_link WHERE company_id = ?)`, [company.id]).map((c) => c.name)
     : [];
-  const learned = learnFormat(seen, domain, people);
+  const all = [...seen, ...evidenceSeen];
+  const learned = learnFormat(all, domain, people);
   let mx: boolean | null = null;
   if (deps.mx) {
     try {
@@ -503,16 +538,27 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
       // A provider failure leaves the pattern guess.
     }
   }
-  // #99: the email check (MX above; the provider per candidate) before anyone is asked.
-  const checked = await verifyCandidates(candidates, mx, deps.verifier);
+  // #99: the passive check before anyone is asked: syntax, the domain's MX (or A) record, risk lists, and
+  // pattern evidence (peers = real addresses at the domain other than this contact's candidates; exact =
+  // addresses seen as such). Proven candidates are raised; the rest go to Needs you; no MX drops them.
+  const mine = new Set(candidates.map((c) => c.email));
+  const fits = peerFits(all, domain, people);
+  const exact = new Set(
+    [...hints.map((h) => h.email), ...evidence.map((e) => e.address), ...emailsIn(jd), ...emailsIn(dossier)].map((e) => e.toLowerCase()),
+  );
+  const checked = checkCandidates(candidates, {
+    mail: mx,
+    peers: fits.filter((f) => !mine.has(f.email)).map((f) => ({ address: f.email, fits: f.fits })),
+    exact,
+    unprovenMax: Math.max(0, thresholdsFor(deps.config, 'people.email').second_opinion - UNPROVEN_MARGIN),
+  });
   candidates = checked.candidates;
   const dropped = checked.dropped;
   const top = candidates[0];
   const extra = { domain, mx, pattern: learned.pattern, candidates, dropped };
   if (!top) {
-    // Every candidate is undeliverable: no guess to keep or ask about.
-    if (ctx.dryRun)
-      return { status: 'ok', output: result(contact, { ...extra, reason: 'every candidate is undeliverable' }), eventIds: [] };
+    // No candidate passed the check (invalid, or the domain takes no mail): no guess to keep or ask about.
+    if (ctx.dryRun) return { status: 'ok', output: result(contact, { ...extra, reason: NO_CANDIDATE }), eventIds: [] };
     const now = ctx.now().toISOString();
     for (const d of db.decision.select(`kind = 'people.email' AND status = 'pending' AND subject_type = 'contact' AND subject_id = ?`, [
       contact.id,
@@ -520,7 +566,7 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
       db.decision.update(d.id, { status: 'expired', resolved_at: now });
     const guessed = contact.email && dropped.includes(contact.email.toLowerCase());
     const next = guessed ? set(null, null, null) : contact;
-    return { status: 'ok', output: result(next, { ...extra, reason: 'every candidate is undeliverable' }), eventIds: [] };
+    return { status: 'ok', output: result(next, { ...extra, reason: NO_CANDIDATE }), eventIds: [] };
   }
   const source: EmailSource = top.pattern === 'provider' ? 'provider' : 'pattern';
   if (ctx.dryRun) {
@@ -554,6 +600,8 @@ export const findEmail: Handler<'people.find_email'> = async (raw, ctx, deps) =>
         examples: learned.examples,
         candidates: candidates.slice(0, MAX_OPTIONS),
         ...(dropped.length ? { dropped } : {}),
+        // #99: the evidence behind the check, address and inferred format only (never a subject or body).
+        ...(evidence.length ? { evidence: evidence.map((e) => evidenceRecord(e, fits)) } : {}),
       },
       answer: { id: 'email', value: top.email, p: top.p },
       backend: 'rule',

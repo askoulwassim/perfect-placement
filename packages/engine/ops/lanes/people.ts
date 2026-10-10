@@ -1,5 +1,5 @@
-import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES } from '@perfect-placement/contracts';
-import { defaultFetch } from '../../integrations/ats/http.js';
+import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES, type RunOp } from '@perfect-placement/contracts';
+import { emailChecked } from '../../people/check.js';
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { defaultMx } from '../../people/dns.js';
 import { draftRecipient, findEmail } from '../../people/email.js';
@@ -10,7 +10,6 @@ import { setPath } from '../../people/path.js';
 import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
 import type { PeopleDeps } from '../../people/types.js';
-import { createEmailVerifier } from '../../people/verify.js';
 import { notFound, OpError } from '../errors.js';
 import { defineHandler, type HandlerContext, requiresHuman } from '../runtime.js';
 
@@ -35,11 +34,7 @@ export function peopleDeps(h: HandlerContext): PeopleDeps {
     ...(h.services.outreachWriter ? { writer: h.services.outreachWriter } : {}),
     mx: h.services.mx ?? defaultMx,
     ...(h.services.emailProvider ? { emailProvider: h.services.emailProvider } : {}),
-    // #99: the verification provider from config + the user's key in the environment (never stored).
-    verifier:
-      h.services.emailVerifier !== undefined
-        ? h.services.emailVerifier
-        : createEmailVerifier(h.config.email_verifier, h.services.env ?? process.env, h.services.fetch ?? defaultFetch()),
+    runOp: h.runOp as RunOp,
   };
 }
 
@@ -96,6 +91,10 @@ export const LANE_H_HANDLERS = {
       if (o.status === 'ok' && !h.ctx.dryRun && o.output.confirmed && !was) await queueGmailSteps(h, o.output.contact.id);
       return unwrap(o);
     },
+  }),
+  // #99: the user's own check of a candidate (Needs you Valid / Invalid); valid resolves the decision.
+  'people.email_checked': defineHandler('people.email_checked', {
+    run: async (i, h) => unwrap(await emailChecked(i, h.ctx, peopleDeps(h))),
   }),
   'people.fallback': defineHandler('people.fallback', { run: async (i, h) => unwrap(await fallbackPeople(i, h.ctx, peopleDeps(h))) }),
   'people.set_path': defineHandler('people.set_path', { run: async (i, h) => unwrap(await setPath(i, h.ctx, peopleDeps(h))) }),

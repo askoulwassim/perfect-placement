@@ -25,8 +25,11 @@ import {
   ContactTier,
   Criterion,
   DecisionStatus,
+  EmailCheckResult,
+  EmailDomainCheck,
+  EmailEvidenceKind,
+  EmailRisk,
   EmailSource,
-  EmailVerifyStatus,
   Freshness,
   InboxClass,
   PolicyOutcome,
@@ -1184,33 +1187,49 @@ export const peopleClassify = defineOp({
   owner: 'H',
 });
 
-/** Added (#37): one candidate address for a contact, ranked by the company's learned format. */
 /**
- * Added (#99): one address's email check. `mx`: the domain's MX record (null: not checked or the lookup
- * failed); `provider`: the verification service that answered (null: MX only).
+ * Added (#99): the passive check on one candidate address. No mail server is ever contacted: `domain` is
+ * DNS only (MX, else an A record), `risk` comes from vendored lists, `pattern_peers` counts real addresses
+ * at the domain (the user's own mail, known contacts, public pages) whose format matches this candidate's,
+ * `public_match` = the exact address was seen (a public page or the user's own mail).
  */
-export const EmailVerification = z.object({
-  status: EmailVerifyStatus,
-  mx: z.boolean().nullable(),
-  provider: z.string().nullable(),
+export const EmailCheck = z.object({
+  domain: EmailDomainCheck,
+  risk: EmailRisk,
+  pattern_peers: z.number().int().nonnegative(),
+  public_match: z.boolean(),
 });
-export type EmailVerification = z.infer<typeof EmailVerification>;
+export type EmailCheck = z.infer<typeof EmailCheck>;
 
+/** Added (#37): one candidate address for a contact, ranked by the company's learned format. */
 export const EmailCandidate = z.object({
   email: z.string().email(),
   /** `first.last`, `flast`, `first`, `firstl`, `f.last`, `last`, or `provider`. */
   pattern: z.string(),
   p: Probability,
-  /** Added (#99): the email check for this address (deliverable raises `p`; undeliverable is dropped). */
-  verify: EmailVerification.optional(),
+  /** Added (#99): the passive check (an exact match or 2+ agreeing peers raise `p`; no MX or invalid drops it). */
+  check: EmailCheck.optional(),
 });
 export type EmailCandidate = z.infer<typeof EmailCandidate>;
+
+/** Added (#99): one piece of pattern evidence (see `people.find_email` `evidence`). */
+export const EmailEvidence = z.object({
+  kind: EmailEvidenceKind,
+  address: z.string().email(),
+  /** Where it was seen: `gmail`, or the page (e.g. "team page"). Never a subject or body. */
+  source: z.string().min(1).max(80),
+  url: z.string().url().optional(),
+  /** Whose address it is, when the header or page names them (format inference only; not stored). */
+  name: z.string().min(1).max(120).optional(),
+});
+export type EmailEvidence = z.infer<typeof EmailEvidence>;
 
 /**
  * Added (#37): find or estimate a contact's email. Known addresses first (the contact's own, then `hints`
  * the agent found in Gmail, LinkedIn contact info or public pages); else the engine learns the company's
  * address format from addresses seen at its domain (known contacts, JD, dossier, hints), checks the
  * domain's MX record (no SMTP probing) and ranks candidates. The top pick is a `people.email` decision:
+ * #99: each candidate gets a passive `check`; see `EmailCheck` and `evidence`.
  * confident -> stored as confirmed; otherwise stored as an unconfirmed guess and queued in Needs you with
  * the alternatives. `value` = a human's pick (decision action `$value`): stored with confidence 1.
  */
@@ -1234,6 +1253,13 @@ export const peopleFindEmail = defineOp({
       )
       .max(50)
       .optional(),
+    /**
+     * Added (#99): pattern evidence the agent gathered read-only. `inbox_peer`: an address at the company
+     * domain in the user's own Gmail (from / to / cc; `name` = the display name, used to infer the format
+     * and never stored); `public_mention`: an address on a public page (`url`). Only the address and its
+     * inferred format are kept (on the decision), never a subject or body.
+     */
+    evidence: z.array(EmailEvidence).max(50).optional(),
     /** The company's email domain when the company row has none (e.g. from the dossier or a team page). */
     domain: z
       .string()
@@ -1255,12 +1281,41 @@ export const peopleFindEmail = defineOp({
     /** The learned format (null: no examples, priors only). */
     pattern: z.string().nullable(),
     candidates: z.array(EmailCandidate),
-    /** Added (#99): candidates the verification provider found undeliverable (dropped from `candidates`). */
+    /** Added (#99): candidates dropped by the check (invalid syntax, no MX) or found invalid by the user. */
     dropped: z.array(z.string().email()).default([]),
     decision_id: Id.nullable(),
     outcome: PolicyOutcome.nullable(),
     /** Why there is no usable address (no domain, unconfirmed guess, ...); null when `confirmed`. */
     reason: z.string().nullable(),
+  }),
+  impact: 'low',
+  emits: [],
+  owner: 'H',
+});
+
+/**
+ * Added (#99): the user's own check of a candidate address (Needs you **Valid** / **Invalid**, after
+ * checking it by hand). Human only. `valid` confirms the address: it resolves the pending `people.email`
+ * decision with it (Gmail drafts waiting for the address are queued). `invalid` drops the candidate from
+ * the pending decision; the decision stays open while other candidates remain, else it expires and the
+ * guess is cleared. Recorded on the decision as `manual_checks[]` with `source: "manual_check"`.
+ */
+export const peopleEmailChecked = defineOp({
+  name: 'people.email_checked',
+  description: "Record the user's manual check of a candidate email address: valid confirms it, invalid drops it.",
+  input: z.object({ contact_id: Id, address: z.string().email(), result: EmailCheckResult }),
+  output: z.object({
+    contact: Contact,
+    result: EmailCheckResult,
+    source: z.literal('manual_check'),
+    /** The `people.email` decision the check applied to (null: none was pending). */
+    decision_id: Id.nullable(),
+    /** True while the decision is still pending (other candidates remain). */
+    open: z.boolean(),
+    /** Candidates still offered. */
+    remaining: z.array(z.string().email()),
+    /** True when the contact's address is confirmed (goes into a Gmail draft's To). */
+    confirmed: z.boolean(),
   }),
   impact: 'low',
   emits: [],
@@ -1812,6 +1867,7 @@ export const OPS = {
   'people.link': peopleLink,
   'people.classify': peopleClassify,
   'people.find_email': peopleFindEmail,
+  'people.email_checked': peopleEmailChecked,
   'people.fallback': peopleFallback,
   'people.set_path': peopleSetPath,
   'contacts.get': contactsGet,
