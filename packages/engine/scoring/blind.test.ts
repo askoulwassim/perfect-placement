@@ -47,7 +47,7 @@ describe('judgeCriteria', () => {
       seen.push(req);
       return {
         answers: req.questions.map((q) => ({ id: q.id, value: q.id === 'c6' ? 2 : 4, p: q.id === 'c6' ? 0.5 : 0.95 })),
-        backend: 'jev',
+        backend: 'kev',
         latencyMs: 1,
         decisionIds: req.questions.map((q) => `dc_${q.id}`),
         outcomes: req.questions.map((q) => (q.id === 'c6' ? 'human' : 'auto')),

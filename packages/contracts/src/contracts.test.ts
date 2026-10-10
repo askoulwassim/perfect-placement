@@ -258,10 +258,17 @@ describe('policy', () => {
     expect(thresholdsFor(DEFAULT_CONFIG, 'inbox.classify').auto).toBe(0.9);
   });
 
+  it('a config.json with a backend block from an older build still loads (unknown blocks are dropped)', () => {
+    const older = {
+      ...DEFAULT_CONFIG,
+      backends: { ...DEFAULT_CONFIG.backends, hosted: { baseUrl: '', keyEnv: 'HOSTED_KEY', enabled: false } },
+    };
+    expect(PolicyConfig.parse(older)).toEqual(DEFAULT_CONFIG);
+  });
+
   it('defaults: Kev only, agent fallback, claude runner, LinkedIn live via Claude in Chrome', () => {
     expect(DEFAULT_CONFIG.backends.default).toBe('kev');
     expect(DEFAULT_CONFIG.backends.fallback).toBe('agent');
-    expect(DEFAULT_CONFIG.backends.jev.enabled).toBe(false);
     expect(DEFAULT_CONFIG.backends.llm).toBeUndefined();
     expect(BACKENDS).toContain('agent');
     expect(DEFAULT_CONFIG.runner.command).toBe('claude');

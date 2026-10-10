@@ -294,9 +294,9 @@ export type Actor = z.infer<typeof Actor>;
  * Decision backends (wave1-decisions #7, #9). Order of use: rule -> kev -> agent -> human.
  * - `kev`: local System One model (default).
  * - `agent`: the calling Claude Code / Codex / Cursor session, answering over MCP.
- * - `jev`, `llm`: optional adapters kept in code, disabled by default.
+ * - `llm`: optional direct API adapter, disabled by default.
  */
-export const BACKENDS = ['rule', 'jev', 'kev', 'llm', 'agent', 'human'] as const;
+export const BACKENDS = ['rule', 'kev', 'llm', 'agent', 'human'] as const;
 export const Backend = z.enum(BACKENDS);
 export type Backend = z.infer<typeof Backend>;
 

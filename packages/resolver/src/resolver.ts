@@ -80,9 +80,9 @@ export interface AskOptions {
 
 /**
  * Second-opinion preference: never the primary, never rule/human. The attached agent session first
- * (wave1-decisions #24), then the other System One / LLM adapters when they are enabled.
+ * (wave1-decisions #24), then Kev and the LLM adapter when it is enabled.
  */
-const SECOND_ORDER: Exclude<Backend, 'human' | 'rule'>[] = ['agent', 'kev', 'llm', 'jev'];
+const SECOND_ORDER: Exclude<Backend, 'human' | 'rule'>[] = ['agent', 'kev', 'llm'];
 
 function validAnswer(q: Question, a: Answer | undefined): a is Answer {
   if (!a || a.id !== q.id || !(a.p >= 0 && a.p <= 1)) return false;

@@ -11,8 +11,8 @@ import { mockBackends, syntheticCases } from './synthetic.js';
 /*
  * pp-resolver-eval (synthetic cases only)
  *   --seed N                    synthetic case seed (default 7)
- *   --backends jev,kev,llm      which backends (default all three)
- *   --live                      real transports: Jev needs JEV_API_KEY, Kev a server at config kev.baseUrl, LLM ANTHROPIC_API_KEY
+ *   --backends kev,llm          which backends (default both)
+ *   --live                      real transports: Kev a server at config kev.baseUrl, LLM ANTHROPIC_API_KEY
  *   --out <dir>                 where report.md + metrics.json go (default eval-reports/synthetic)
  */
 
@@ -27,29 +27,27 @@ const flag = (name: string) => process.argv.includes(`--${name}`);
 async function main() {
   const out = resolve(arg('out') ?? join(REPO_ROOT, 'packages/resolver/eval-reports/synthetic'));
   const live = flag('live');
-  const wanted = (arg('backends') ?? 'jev,kev,llm').split(',').map((s) => s.trim());
+  const wanted = (arg('backends') ?? 'kev,llm').split(',').map((s) => s.trim());
   const cases = syntheticCases({ seed: Number(arg('seed') ?? 7) });
 
   let pool: Record<string, DecisionBackend>;
   const notes: string[] = [];
   if (live) {
-    // An explicit --live eval opts in to the adapters that are off by default (Jev, the Anthropic API).
+    // An explicit --live eval opts in to the adapter that is off by default (the Anthropic API).
     const b = DEFAULT_CONFIG.backends;
     const map = backendsFromConfig({
       ...DEFAULT_CONFIG,
-      backends: { ...b, jev: { ...b.jev, enabled: true }, llm: { provider: 'anthropic', enabled: true } },
+      backends: { ...b, llm: { provider: 'anthropic', enabled: true } },
     });
     pool = {};
     for (const b of wanted) {
-      const be = map[b as 'jev' | 'kev' | 'llm'];
+      const be = map[b as 'kev' | 'llm'];
       if (be) pool[b] = be;
       else notes.push(`${b}: not configured (missing key or server), skipped`);
     }
   } else {
     pool = Object.fromEntries(Object.entries(mockBackends(cases)).filter(([k]) => wanted.includes(k)));
-    notes.push(
-      'Backends are MOCKED (synthetic noise over the label). Numbers show the harness works, not how Jev, Kev or the LLM perform.',
-    );
+    notes.push('Backends are MOCKED (synthetic noise over the label). Numbers show the harness works, not how Kev or the LLM perform.');
   }
 
   const result = await runEval({ cases, backends: pool, concurrency: live ? 4 : 1 });

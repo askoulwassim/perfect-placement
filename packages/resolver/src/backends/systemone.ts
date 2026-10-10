@@ -2,17 +2,14 @@ import type { Answer, AskRequest, BackendResult, DecisionBackend, Question } fro
 import { BackendUnavailableError } from '../errors.js';
 
 /*
- * System One HTTP adapter shared by Jev (TypeSafe, hosted) and Kev (local, open weights).
- * Both serve `POST /v1/systemone` with the same body; only the base URL, key and model differ.
+ * System One HTTP adapter for Kev (local, open weights), which serves `POST /v1/systemone`.
  *
- * Wire shape, confirmed 2026-10-08 against:
- *  - TypeSafe API reference https://docs.typesafe.ai/api.md (Jev)
- *  - https://github.com/jaredpalmer/kev README (Kev)
+ * Wire shape, confirmed 2026-10-08 against the https://github.com/jaredpalmer/kev README:
  *
  * Request:  { state, model, questions: { <id>: { type: 'noul'|'choice'|'score', instructions, criteria? } } }
  *   noul criteria   optional { true: desc, false: desc }
  *   choice criteria required { <option>: desc | null }   (max 255 options)
- *   score criteria  required [ level desc, ... ]          (2..10 levels for Jev, lowest first)
+ *   score criteria  required [ level desc, ... ]          (2..10 levels, lowest first)
  * Response: { model, answers: { <id>: { type, noul?, choice?, score?, probabilities?, confidence? } }, usage, latency_ms? }
  * Errors: 401 bad key, 422 malformed, 429 rate limit, 529 overloaded (retry 429/529 with backoff).
  *
@@ -20,11 +17,9 @@ import { BackendUnavailableError } from '../errors.js';
  * System One models never write text: this adapter only sends typed questions and reads numbers back.
  */
 
-export const JEV_DEFAULT_BASE_URL = 'https://api.typesafe.ai';
-export const JEV_DEFAULT_MODEL = 'jev-latest';
 export const KEV_DEFAULT_BASE_URL = 'http://127.0.0.1:8009';
 export const KEV_DEFAULT_MODEL = 'kev-latest';
-/** Jev accepts 2..10 score levels. Kev accepts more; we use the stricter bound so both backends see the same questions. */
+/** Score questions are sent with 2..10 integer levels. */
 export const MAX_SCORE_LEVELS = 10;
 
 type WireQuestion =
@@ -68,7 +63,7 @@ function scoreLevels(q: Extract<Question, { type: 'score' }>): number[] {
 
 const humanize = (option: string): string => option.replace(/[_-]+/g, ' ');
 
-export function toWireQuestion(q: Question, backend: 'jev' | 'kev'): WireQuestion {
+export function toWireQuestion(q: Question, backend: 'kev'): WireQuestion {
   switch (q.type) {
     case 'noulli':
       return { type: 'noul', instructions: q.instructions };
@@ -84,7 +79,7 @@ export function toWireQuestion(q: Question, backend: 'jev' | 'kev'): WireQuestio
   }
 }
 
-export function toSystemOneRequest(req: AskRequest, model: string, backend: 'jev' | 'kev'): SystemOneRequest {
+export function toSystemOneRequest(req: AskRequest, model: string, backend: 'kev'): SystemOneRequest {
   return {
     state: req.state,
     model,
@@ -100,7 +95,7 @@ function argmax(probs: Record<string, number>): [string, number] | undefined {
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
-export function fromWireAnswer(q: Question, a: SystemOneWireAnswer | undefined, backend: 'jev' | 'kev'): RichAnswer {
+export function fromWireAnswer(q: Question, a: SystemOneWireAnswer | undefined, backend: 'kev'): RichAnswer {
   if (!a) throw new BackendUnavailableError(backend, `no answer for '${q.id}'`);
   switch (q.type) {
     case 'noulli': {
@@ -139,7 +134,7 @@ export function fromWireAnswer(q: Question, a: SystemOneWireAnswer | undefined, 
 }
 
 export interface SystemOneOptions {
-  name: 'jev' | 'kev';
+  name: 'kev';
   baseUrl: string;
   apiKey?: string;
   model: string;
@@ -210,10 +205,6 @@ export function createSystemOneBackend(opts: SystemOneOptions): DecisionBackend 
       }
     },
   };
-}
-
-export function createJevBackend(o: Omit<SystemOneOptions, 'name' | 'baseUrl' | 'model'> & { baseUrl?: string; model?: string }) {
-  return createSystemOneBackend({ ...o, name: 'jev', baseUrl: o.baseUrl || JEV_DEFAULT_BASE_URL, model: o.model ?? JEV_DEFAULT_MODEL });
 }
 
 export function createKevBackend(o: Omit<SystemOneOptions, 'name' | 'baseUrl' | 'model'> & { baseUrl?: string; model?: string }) {

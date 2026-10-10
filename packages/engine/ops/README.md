@@ -44,7 +44,7 @@ engine.close();
 
 ## Resolver per op call
 
-Each call gets lane I's resolver over lane A's repos: rule -> Kev (`backends.default`) -> agent -> human. The `agent` backend is present only when `ctx.actor === 'agent'`; it never calls an API and answers only with what the agent supplied (`ctx.confidence` for a single yes/no question), otherwise it yields to a human. Jev and the Anthropic API adapter are registered only when `backends.jev.enabled` / `backends.llm.enabled` (and their keys) are set. Second opinion (`auto_second`): the attached agent, else a human. The resolver never runs actions itself; callers apply auto outcomes, and `decisions.resolve` / `decisions.undo` run `action_json` / `action_json.undo` through nested `runOp` (honoring `when`).
+Each call gets lane I's resolver over lane A's repos: rule -> Kev (`backends.default`) -> agent -> human. The `agent` backend is present only when `ctx.actor === 'agent'`; it never calls an API and answers only with what the agent supplied (`ctx.confidence` for a single yes/no question), otherwise it yields to a human. The Anthropic API adapter is registered only when `backends.llm.enabled` (and `ANTHROPIC_API_KEY`) are set. Second opinion (`auto_second`): the attached agent, else a human. The resolver never runs actions itself; callers apply auto outcomes, and `decisions.resolve` / `decisions.undo` run `action_json` / `action_json.undo` through nested `runOp` (honoring `when`).
 
 ## Headless runner (`runs.start`)
 

@@ -21,11 +21,6 @@
     "kev": {
       "baseUrl": "http://127.0.0.1:8009"
     },
-    "jev": {
-      "baseUrl": "",
-      "keyEnv": "JEV_API_KEY",
-      "enabled": false
-    },
     "agent": {}
   },
   "scoring": {
