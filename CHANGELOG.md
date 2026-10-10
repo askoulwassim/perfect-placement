@@ -4,6 +4,10 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-10
+
+First public release: engine, decision layer, MCP server, CLI and web UI on a local vault, now open source under MIT.
+
 ### Added
 - MIT license, contributing guide with DCO sign-off, code of conduct, security policy, issue forms, pull request template and Dependabot.
 - `docs/`: architecture, decisions and UI design references.
@@ -20,6 +24,5 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 ### Removed
 - The internal build brief (`docs/v2/`); it remains in git history.
 
-## 0.1.0
-
-First working version: engine, decision layer, MCP server, CLI and web UI on a local vault.
+[Unreleased]: https://github.com/askoulwassim/perfect-placement/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/askoulwassim/perfect-placement/releases/tag/v0.1.0
