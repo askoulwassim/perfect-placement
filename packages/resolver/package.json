@@ -2,6 +2,7 @@
   "name": "@perfect-placement/resolver",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Decision layer: ask() over rule / Jev / Kev / LLM / human backends + the confidence x impact policy.",
   "main": "./dist/index.js",

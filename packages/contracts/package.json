@@ -2,6 +2,7 @@
   "name": "@perfect-placement/contracts",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Wave 0 contracts: statuses, events, entities, ops, resolver + policy types, design tokens. Change only via CONTRACT_CHANGES.md.",
   "main": "./dist/index.js",

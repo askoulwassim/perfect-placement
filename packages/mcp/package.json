@@ -2,6 +2,7 @@
   "name": "@perfect-placement/mcp",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "MCP server generated from the ops registry (stdio + Streamable HTTP), on the real engine.",
   "main": "./dist/index.js",
