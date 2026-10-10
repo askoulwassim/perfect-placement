@@ -825,7 +825,7 @@ export const RoleGraphNode = z.object({
   name: z.string(),
   degree: ContactDegree.optional(),
   tier: ContactTier.optional(),
-  /** On the hiring team (the link's `is_hiring_team`). */
+  /** On the team side: the hiring team (`is_hiring_team`) or, #132, the link's `team_side`. */
   team_side: z.boolean().optional(),
   recommended: z.boolean().optional(),
 });
@@ -833,12 +833,13 @@ export type RoleGraphNode = z.infer<typeof RoleGraphNode>;
 
 /**
  * Added (#131): a relationship. `knows`: me -> a 1st-degree person; `via`: mutual -> 2nd-degree target;
- * `works_at` / `hiring`: person -> company (`hiring` for the hiring team).
+ * `works_at` / `hiring` / `team`: person -> company (`hiring` for the hiring team; #132 `team` for a team-side
+ * person not on the hiring team).
  */
 export const RoleGraphEdge = z.object({
   from: z.string(),
   to: z.string(),
-  kind: z.enum(['knows', 'via', 'works_at', 'hiring']),
+  kind: z.enum(['knows', 'via', 'works_at', 'hiring', 'team']),
   degree: ContactDegree.optional(),
   recommended: z.boolean().optional(),
 });
@@ -860,7 +861,7 @@ export const rolesGet = defineOp({
   input: z.object({ role_id: Id }),
   output: RoleSummary.extend({
     application: Application.nullable(),
-    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team target with a mutual, else null. */
+    /** `paths` (#98): direct vs bridge for a 2nd-degree hiring-team (or #132 team-side) target with a mutual, else null. */
     contacts: z.array(z.object({ contact: Contact, link: ContactLink, paths: ConnectPaths.nullable().default(null) })),
     md_body: z.string().nullable(),
     /** Added (#78): the no-contact fallback Connect last used for this role (null: none). */
@@ -1248,6 +1249,14 @@ export const PeopleFindHint = z.object({
     .optional(),
   /** Listed as the hiring team (e.g. "Meet the hiring team" on the posting). people.classify still runs. */
   hiring_team: z.boolean().optional(),
+  /**
+   * Added (#132, judgment): on the team side though not the hiring team: works at the company or one of its
+   * product brands (dossier aliases), in the role's org or an adjacent function (product, design,
+   * engineering leadership on that product). Gets ranked direct / bridge paths. Only ever adds.
+   */
+  team_side: z.boolean().optional(),
+  /** Added (#132): the product brand they work under when it differs from the company name. */
+  brand: z.string().min(1).max(120).nullable().optional(),
 });
 export type PeopleFindHint = z.infer<typeof PeopleFindHint>;
 
@@ -1553,6 +1562,8 @@ export const DraftRecipient = z.object({
    * (the engine queues the Gmail step once the address is confirmed).
    */
   decision_id: Id.nullable().default(null),
+  /** Added (#132): the recipient's LinkedIn profile URL (Open profile when there is no email); null when none. */
+  linkedin_url: z.string().nullable().default(null),
 });
 export type DraftRecipient = z.infer<typeof DraftRecipient>;
 
@@ -1620,6 +1631,8 @@ export const outreachList = defineOp({
       Outreach.extend({
         recipient_name: z.string().default(''),
         about_name: z.string().nullable().default(null),
+        /** Added (#132): the recipient has no address at all (no Gmail draft until one is confirmed). */
+        no_email: z.boolean().default(false),
       }),
     ),
   }),
@@ -1659,7 +1672,8 @@ export const outreachToGmail = defineOp({
    * #99: refused (`conflict`) while the recipient's address is a guess waiting in Needs you, unless the
    * agent already made the draft (`gmail_draft_id`: recorded with no To, filled once confirmed). The To
    * used is kept on `outreach.gmail_to`. Recording the same `gmail_draft_id` again on an `in_gmail`
-   * draft with no To (the To update step) sets `gmail_to` to the confirmed address.
+   * draft with no To (the To update step) sets `gmail_to` to the confirmed address. #132: refused
+   * (`conflict`) when the recipient has no address at all: never a Gmail draft without To.
    */
   output: z.object({
     outreach: Outreach,

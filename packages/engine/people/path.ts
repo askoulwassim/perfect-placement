@@ -13,8 +13,10 @@ import { getLinkForRole, updateLink } from './queries.js';
 import { err, type Handler, type PeopleDeps } from './types.js';
 
 /*
- * Direct vs bridge for a 2nd-degree hiring-team target (#98). The connect skill supplies judgment (the
- * mutual's tie: same company, same industry, history); everything here is mechanics.
+ * Direct vs bridge for a 2nd-degree hiring-team target (#98), or a team-side one (#132: the skill judged them on
+ * the team side, e.g. design or engineering leadership on the company's product brand). The connect skill
+ * supplies judgment (the mutual's tie: same company, same industry, history; team side); everything here is
+ * mechanics.
  *
  *   direct  = a note to the target. Reachable when their email is confirmed or likely.
  *   bridge  = an intro ask to the 1st-degree mutual. Strong only when the mutual is close to the target.
@@ -49,6 +51,8 @@ export interface PathFacts {
   via: { reach: Reach; tie: BridgeTie };
   /** The user's pick (contact_link.path), or null. */
   chosen: ConnectPath | null;
+  /** #132: which side the target is on, for the direct reason ("Hiring team", "Team", "Team · <brand>"). */
+  side?: string;
 }
 
 export interface RankedPath {
@@ -76,7 +80,7 @@ export function rankPaths(f: PathFacts): { recommended: ConnectPath; chosen: Con
   const direct: RankedPath = {
     path: 'direct',
     score: REACH_POINTS[f.target],
-    reason: `Hiring team · ${REACH_LABEL[f.target]}`,
+    reason: `${f.side ?? 'Hiring team'} · ${REACH_LABEL[f.target]}`,
     blocked: false,
   };
   const bridge: RankedPath = {
@@ -101,18 +105,31 @@ export function reachOf(deps: PathDeps, c: Contact): Reach {
 
 const NO_TIE: BridgeTie = { same_company: false, same_industry: false, history: false };
 
+/** #132: a target worth a direct note: on the hiring team, or on the team side (the skill's judgment). */
+export const isTeamSide = (link: Pick<ContactLink, 'is_hiring_team' | 'team_side'>): boolean =>
+  link.is_hiring_team || link.team_side === true;
+
+/** The direct reason's side label: "Hiring team", else "Team" (with the product brand when there is one). */
+export const sideLabel = (link: Pick<ContactLink, 'is_hiring_team' | 'team_side' | 'brand'>): string =>
+  link.is_hiring_team ? 'Hiring team' : link.brand ? `Team · ${link.brand}` : 'Team';
+
 /**
- * The ranked paths for a contact link, or null when there is no choice: only a 2nd-degree hiring-team
- * target with a mutual has one (anyone else is reached the one way their tier says).
+ * The ranked paths for a contact link, or null when there is no choice: only a 2nd-degree hiring-team or
+ * team-side (#132) target with a mutual has one (anyone else is reached the one way their tier says).
  */
 export function connectPathsFor(deps: PathDeps, link: ContactLink): ConnectPaths | null {
-  if (link.degree !== '2' || !link.is_hiring_team || !link.via_contact_id) return null;
+  if (link.degree !== '2' || !isTeamSide(link) || !link.via_contact_id) return null;
   const target = deps.repos.contact.get(link.contact_id);
   const via = deps.repos.contact.get(link.via_contact_id);
   if (!target || !via) return null;
   const given = link.via_tie_json ?? NO_TIE;
   // The tie is the skill's judgment; the user's own mail with the mutual says nothing about the mutual and the target.
-  const ranked = rankPaths({ target: reachOf(deps, target), via: { reach: reachOf(deps, via), tie: given }, chosen: link.path });
+  const ranked = rankPaths({
+    target: reachOf(deps, target),
+    via: { reach: reachOf(deps, via), tie: given },
+    chosen: link.path,
+    side: sideLabel(link),
+  });
   const who: Record<ConnectPath, Contact> = { direct: target, bridge: via };
   const options: ConnectPathOption[] = ranked.options.map((o) => ({
     path: o.path,
@@ -142,7 +159,7 @@ export function draftTiersFor(deps: PathDeps, link: ContactLink): ContactTier[] 
 }
 
 /**
- * people.set_path: the user's pick of direct or bridge for a 2nd-degree hiring-team target (null: back to
+ * people.set_path: the user's pick of direct or bridge for a 2nd-degree hiring-team or team-side target (null: back to
  * the ranked default). The pick sets the default draft; it never removes a draft on the other path. A
  * blocked bridge (mutual has no email, target reachable) is refused.
  */
@@ -153,7 +170,11 @@ export const setPath: Handler<'people.set_path'> = async (raw, ctx, deps) => {
   const link = getLinkForRole(deps.repos, contact_id, role_id);
   if (!link) return err('not_found', `no contact_link for ${contact_id} on ${role_id}`);
   const paths = connectPathsFor(deps, link);
-  if (!paths) return err('invalid_input', `contact ${contact_id} has one path only (2nd-degree hiring team with a mutual has two)`);
+  if (!paths)
+    return err(
+      'invalid_input',
+      `contact ${contact_id} has one path only (a 2nd-degree hiring-team or team-side target with a mutual has two)`,
+    );
   if (path && paths.options.find((o) => o.path === path)?.blocked)
     return err('conflict', `the ${path} path is blocked: the mutual has no email and the target is reachable`);
   const next: ContactLink = { ...link, path };

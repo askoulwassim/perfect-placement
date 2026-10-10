@@ -59,6 +59,9 @@ interface Candidate {
   degree: Degree;
   via: { name: string; headline: string | null; url: string; tie: BridgeTie | null } | null;
   hiringTeam: boolean;
+  /** #132: the skill's team-side judgment (company or product brand, the role's org or an adjacent function). */
+  teamSide: boolean;
+  brand: string | null;
 }
 
 /** LinkedIn hints the engine kept and the summary it records (#82). */
@@ -195,6 +198,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
     degree: p.degree,
     via: p.via ? { ...p.via, tie: null } : null,
     hiringTeam: false,
+    teamSide: false,
+    brand: null,
   }));
   if (deps.gmailContacts && company.domain) {
     for (const g of await deps.gmailContacts.searchByDomain(company.domain)) {
@@ -207,6 +212,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
         degree: '1',
         via: null,
         hiringTeam: false,
+        teamSide: false,
+        brand: null,
       });
     }
   }
@@ -224,6 +231,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
           ? { name: h.via.name, headline: h.via.headline ?? null, url: h.via.linkedin_url, tie: h.via.tie ?? null }
           : null,
       hiringTeam: h.hiring_team === true,
+      teamSide: h.team_side === true,
+      brand: h.brand ?? null,
     });
   }
 
@@ -232,7 +241,9 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
   const seen = new Set<string>();
 
   /** Resolve or create a contact row. In dry run, nothing is written and ids are placeholders. */
-  const resolveContact = (c: Omit<Candidate, 'degree' | 'via' | 'hiringTeam'>): { contact: Contact; created: boolean } => {
+  const resolveContact = (
+    c: Omit<Candidate, 'degree' | 'via' | 'hiringTeam' | 'teamSide' | 'brand'>,
+  ): { contact: Contact; created: boolean } => {
     const existing = findContact(db, { linkedin_url: c.linkedin_url, email: c.email });
     if (existing) {
       return { contact: dryRun ? existing : fillContact(db, existing, { ...c, ...knownEmail(c.email, c.source) }), created: false };
@@ -277,10 +288,13 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
         const closer = rank[cand.degree] < rank[link.degree];
         // A hiring-team signal (LinkedIn "hiring team", #82) only ever adds; it never clears an earlier call.
         const hiring = link.is_hiring_team || cand.hiringTeam;
+        // #132: team side only ever adds too; a newer brand replaces an older one.
+        const teamSide = link.team_side || cand.teamSide;
+        const brand = cand.brand ?? link.brand;
         const viaNext = closer ? (viaId ?? link.via_contact_id) : link.via_contact_id;
         const tie = viaTie && viaId === viaNext ? viaTie : viaNext === link.via_contact_id ? link.via_tie_json : null;
         const tieChanged = JSON.stringify(tie) !== JSON.stringify(link.via_tie_json);
-        if (closer || hiring !== link.is_hiring_team || tieChanged) {
+        if (closer || hiring !== link.is_hiring_team || tieChanged || teamSide !== link.team_side || brand !== link.brand) {
           const degree = closer ? cand.degree : link.degree;
           link = {
             ...link,
@@ -289,6 +303,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
             is_hiring_team: hiring,
             tier: tierFor(degree, hiring),
             via_tie_json: tie,
+            team_side: teamSide,
+            brand,
           };
           if (!dryRun) updateLink(db, link);
         }
@@ -304,6 +320,8 @@ export const findPeople: Handler<'people.find'> = async (raw, ctx, deps) => {
           is_hiring_team: cand.hiringTeam,
           path: null,
           via_tie_json: viaTie,
+          team_side: cand.teamSide,
+          brand: cand.brand,
         };
         if (!dryRun) {
           insertLink(db, link);

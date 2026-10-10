@@ -648,6 +648,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: true,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
   {
     id: 'cl_0002',
@@ -660,6 +662,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: false,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
   {
     id: 'cl_0003',
@@ -672,6 +676,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: false,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
   {
     id: 'cl_0004',
@@ -684,6 +690,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: true,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
   {
     id: 'cl_0005',
@@ -696,6 +704,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: false,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
   {
     id: 'cl_0006',
@@ -708,6 +718,8 @@ export const contactLinks: ContactLink[] = [
     is_hiring_team: true,
     path: null,
     via_tie_json: null,
+    team_side: false,
+    brand: null,
   },
 ];
 

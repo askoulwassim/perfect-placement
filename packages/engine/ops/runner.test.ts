@@ -717,11 +717,16 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     // #37: To comes from outreach.get's `to`, never the unconfirmed guess.
     expect(p).toContain('`to.email`');
     expect(p).toContain('never use `to.guess`');
+    // #132: no address at all: create nothing (never a Gmail draft without To).
+    expect(p).toContain('skipped: "no email"');
     expect(gmailStepSection('# x\n\n## Gmail draft step\n\nA\n\n## Never\n\nB')).toBe('## Gmail draft step\n\nA');
   });
 
   it('runs.start { skill: connect, outreach_id } launches the Gmail run with role + contact from the outreach (fake launcher)', async () => {
     e = openFixtureEngine();
+    e.db
+      .prepare("UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'")
+      .run();
     const run = okOut(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'))).run;
     expect(run.summary_json).toMatchObject({ skill: 'connect', outreach_id: 'or_0001', step: 'gmail_draft' });
     expect(e.launcher.specs).toHaveLength(1);
@@ -835,6 +840,13 @@ describe('runs.start: the Gmail draft step (Gmail via agent)', () => {
     expect(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001', role_id: 'stripe_x' }, ctxAt('human'))).toMatchObject({
       code: 'invalid_input',
     });
+    // #132: a recipient with no address at all gets no Gmail draft step (never a draft without To).
+    const none = await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'));
+    expect(none).toMatchObject({ code: 'conflict' });
+    expect((none as { message: string }).message).toContain('has no email');
+    e.db
+      .prepare("UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'")
+      .run();
     okOut(await e.runOp('outreach.to_gmail', { outreach_id: 'or_0001', gmail_draft_id: 'r-1' }, ctxAt('human')));
     expect(await e.runOp('runs.start', { skill: 'connect', outreach_id: 'or_0001' }, ctxAt('human'))).toMatchObject({ code: 'conflict' });
     expect(e.launcher.specs).toHaveLength(0);

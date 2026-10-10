@@ -200,12 +200,12 @@ INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, ema
 INSERT INTO contact (id, name, headline, linkedin_url, email, source, notes, email_source, email_confidence) VALUES ('ct_0006', 'Jonah W.', 'VP Product', 'https://www.linkedin.com/in/fixture-jonah-w', NULL, 'company_site', NULL, NULL, NULL);
 
 -- contact_link (6)
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0001', 'ct_0001', 'linear', 'linear_product-lead-insights', '1', 'warm_hiring', NULL, 1, NULL, NULL);
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0002', 'ct_0002', 'linear', 'linear_product-lead-insights', '1', 'warm_other', NULL, 0, NULL, NULL);
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0003', 'ct_0003', 'linear', 'linear_product-lead-insights', '2', 'bridge', 'ct_0002', 0, NULL, NULL);
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0004', 'ct_0004', 'linear', 'linear_product-lead-insights', 'cold', 'cold_hiring', NULL, 1, NULL, NULL);
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0005', 'ct_0005', 'linear', 'linear_product-lead-insights', 'cold', 'cold_other', NULL, 0, NULL, NULL);
-INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json) VALUES ('cl_0006', 'ct_0006', 'vercel', 'vercel_principal-pm-data', 'cold', 'cold_hiring', NULL, 1, NULL, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0001', 'ct_0001', 'linear', 'linear_product-lead-insights', '1', 'warm_hiring', NULL, 1, NULL, NULL, 0, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0002', 'ct_0002', 'linear', 'linear_product-lead-insights', '1', 'warm_other', NULL, 0, NULL, NULL, 0, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0003', 'ct_0003', 'linear', 'linear_product-lead-insights', '2', 'bridge', 'ct_0002', 0, NULL, NULL, 0, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0004', 'ct_0004', 'linear', 'linear_product-lead-insights', 'cold', 'cold_hiring', NULL, 1, NULL, NULL, 0, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0005', 'ct_0005', 'linear', 'linear_product-lead-insights', 'cold', 'cold_other', NULL, 0, NULL, NULL, 0, NULL);
+INSERT INTO contact_link (id, contact_id, company_id, role_id, degree, tier, via_contact_id, is_hiring_team, path, via_tie_json, team_side, brand) VALUES ('cl_0006', 'ct_0006', 'vercel', 'vercel_principal-pm-data', 'cold', 'cold_hiring', NULL, 1, NULL, NULL, 0, NULL);
 
 -- outreach (3)
 INSERT INTO outreach (id, contact_id, role_id, tier, gmail_draft_id, status, md_path, about_contact_id, gmail_to) VALUES ('or_0001', 'ct_0001', 'linear_product-lead-insights', 'warm_hiring', NULL, 'drafted', 'outreach/ct_0001-linear_product-lead-insights.md', NULL, NULL);

@@ -236,6 +236,7 @@ function readOp(
             ...o,
             recipient_name: fx.contacts.find((c) => c.id === o.contact_id)?.name ?? '',
             about_name: o.about_contact_id ? (fx.contacts.find((c) => c.id === o.about_contact_id)?.name ?? null) : null,
+            no_email: !fx.contacts.find((c) => c.id === o.contact_id)?.email,
           })),
       });
     case 'outreach.get': {
@@ -261,6 +262,8 @@ function readOp(
         email_confidence: contact.email_confidence,
         guess: contact.email,
         reason: sure ? null : contact.email ? 'unconfirmed guess' : 'no email found',
+        decision_id: null,
+        linkedin_url: contact.linkedin_url,
       };
       const about = outreach.about_contact_id ? (fx.contacts.find((c) => c.id === outreach.about_contact_id) ?? null) : null;
       return ok({ outreach, contact, subject: null, ...text, signoff, body, variants: OUTREACH_TONES.map(() => text), to, about });

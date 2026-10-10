@@ -22,12 +22,16 @@ const migration = (prefix: string) =>
  * The fixture seed for a db before 009 (#98): contact links without `path` / `via_tie_json`; outreach
  * without `about_contact_id`, the bridge intro filed under its target as it was before.
  */
-/** The fixture seed for a db before 011: applications without `fill_assist_json` (#106). */
-const seedBefore011 = () =>
+/** The fixture seed for a db before 012: contact links without `team_side` / `brand` (#132). */
+const seedBefore012 = () =>
   readFileSync(FIXTURE_SEED_SQL, 'utf8').replace(
-    /^(INSERT INTO application \([^)]*?), fill_assist_json\) VALUES (.*), (?:NULL|'[^']*')\);$/gm,
+    /^(INSERT INTO contact_link \([^)]*?), team_side, brand\) VALUES (.*), [01], (?:NULL|'[^']*')\);$/gm,
     '$1) VALUES $2);',
   );
+
+/** The fixture seed for a db before 011: applications without `fill_assist_json` (#106). */
+const seedBefore011 = () =>
+  seedBefore012().replace(/^(INSERT INTO application \([^)]*?), fill_assist_json\) VALUES (.*), (?:NULL|'[^']*')\);$/gm, '$1) VALUES $2);');
 
 /** The fixture seed for a db before 010: outreach without `gmail_to` (#99). */
 const seedBefore010 = () =>
@@ -392,5 +396,20 @@ describe('migration 011 (fill assist, #106)', () => {
     expect(db10.prepare('SELECT * FROM application ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, fill_assist_json: null })));
     expect(db10.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 11 });
     db10.close();
+  });
+});
+
+describe('migration 012 (team side, #132)', () => {
+  it('adds team_side (0) and brand (null) to contact_link on every existing link', () => {
+    const db11 = new Database(':memory:');
+    for (const v of ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']) db11.exec(migration(v));
+    db11.exec(seedBefore012());
+    const before = db11.prepare('SELECT * FROM contact_link ORDER BY id').all() as Record<string, unknown>[];
+    expect(before.length).toBeGreaterThan(0);
+    db11.exec(migration('012'));
+    expect(db11.prepare('SELECT * FROM contact_link ORDER BY id').all()).toEqual(before.map((r) => ({ ...r, team_side: 0, brand: null })));
+    expect(db11.prepare('SELECT max(version) v FROM schema_migrations').get()).toEqual({ v: 12 });
+    expect(() => db11.prepare(`UPDATE contact_link SET team_side = 2`).run()).toThrow();
+    db11.close();
   });
 });

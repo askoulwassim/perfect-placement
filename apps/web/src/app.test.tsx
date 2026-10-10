@@ -44,6 +44,12 @@ const $ = <T extends Element = HTMLElement>(root: ParentNode, sel: string): T =>
   return el;
 };
 
+/** #132: a known work address for Maya (or_0001's recipient): a Gmail draft needs one. */
+const mayaEmail = async (l: Live) =>
+  l.engine.db
+    .prepare(`UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'`)
+    .run();
+
 const VALID_OPS = new Set<string>([...OP_NAMES, 'nav', 'local']);
 
 /** Every button names exactly one registry op (or nav/local view state) and none is an external Send/Submit. */
@@ -100,7 +106,8 @@ describe('screens', () => {
     [`#/role/${R.airtableOnDeck}`, 'Research'],
     [`#/role/${R.notionInbox}`, 'Score'],
     [`#/people/${R.linearDraft}`, 'Draft for Maya'],
-    ['#/outreach/or_0001', 'Create Gmail draft'],
+    // #132: Maya has no email in the fixtures: no Gmail draft without To.
+    ['#/outreach/or_0001', 'No email'],
     ['#/you', 'Review 2 diff'],
     ['#/you/setup', 'Next'],
     ['#/settings', 'Save'],
@@ -125,7 +132,7 @@ describe('screens', () => {
 
 describe('click paths', () => {
   it('Now -> Review -> through every decision -> Clear', async () => {
-    const { container } = await boot('#/now');
+    const { container } = await boot('#/now', mayaEmail);
     await waitFor(() => expect(primary(container).textContent).toBe('Review 7'));
     fireEvent.click(primary(container));
     const seen: string[] = [];
@@ -481,7 +488,7 @@ describe('click paths', () => {
   });
 
   it('Role -> Connect -> People -> warm hiring -> Create Gmail draft -> Role with Connect done', async () => {
-    const { container } = await boot(`#/role/${R.linearDraft}`);
+    const { container } = await boot(`#/role/${R.linearDraft}`, mayaEmail);
     await waitFor(() => expect(primary(container).textContent).toBe('Connect'));
     fireEvent.click(primary(container));
     await waitFor(() => expect(window.location.hash).toBe(`#/people/${R.linearDraft}`));
@@ -525,6 +532,44 @@ describe('click paths', () => {
     expect(connect?.getAttribute('data-state')).toBe('done');
     const o = await live?.client.run('outreach.get', { outreach_id: 'or_0001' });
     expect(o?.status === 'ok' && o.output.outreach).toMatchObject({ status: 'in_gmail', gmail_draft_id: 'r-agent-1' });
+  });
+
+  it('No email (#132): People and Outreach show No email; no Gmail draft; Copy note and Open profile for LinkedIn', async () => {
+    const { container } = await boot(`#/people/${R.linearDraft}`);
+    // Maya (ct_0001) has no address at all: her row and her draft say No email.
+    const row = await waitFor(() => $(container, '.people-list [data-contact="ct_0001"]'));
+    expect(row.querySelector('.no-email')?.textContent).toBe('No email');
+    const item = await waitFor(() => $(container, '.outreach-list [data-outreach="or_0001"]'));
+    expect(item.querySelector('.no-email')?.textContent).toBe('No email');
+
+    await go('#/outreach/or_0001');
+    await waitFor(() => expect(primary(container).textContent).toBe('No email'));
+    expect(primary(container).disabled).toBe(true);
+    expect(primary(container).getAttribute('data-op')).toBe('runs.start');
+    expect($(container, '.outreach__to .no-email').textContent).toBe('No email');
+    // Copy note: local clipboard only. Open profile: a plain new-tab link. Nothing is sent or messaged.
+    const copyBtn = within(container).getByText('Copy note');
+    expect(copyBtn.getAttribute('data-op')).toBe('local');
+    const copied: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t: string) => void copied.push(t) }, configurable: true });
+    const before = writes().length;
+    fireEvent.click(copyBtn);
+    await waitFor(() => expect(copied).toHaveLength(1));
+    expect(copied[0]).toMatch(/^Hi Maya,\n\n/);
+    expect(writes().length).toBe(before);
+    const profile = within(container).getByText('Open profile ↗').closest('a') as HTMLAnchorElement;
+    expect(profile.getAttribute('href')).toBe('https://www.linkedin.com/in/fixture-maya-r');
+    expect(profile.getAttribute('target')).toBe('_blank');
+    expect(profile.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(live?.calls.some((c) => c.name === 'runs.start' || c.name === 'outreach.to_gmail')).toBe(false);
+    assertButtons(container);
+  });
+
+  it('An address on file: no No email, no LinkedIn fallback, Create Gmail draft (#132)', async () => {
+    const { container } = await boot('#/outreach/or_0001', mayaEmail);
+    await waitFor(() => expect(primary(container).textContent).toBe('Create Gmail draft'));
+    expect(container.querySelector('.linkedin-fallback')).toBeNull();
+    expect(container.querySelector('.no-email')).toBeNull();
   });
 
   it('People (#82): "LinkedIn not read" with the reason until the agent reads LinkedIn, then "LinkedIn: N people"', async () => {

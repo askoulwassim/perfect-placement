@@ -329,6 +329,7 @@ export function PersonRow({
   onOpen,
   mobile,
   email,
+  noEmail,
 }: {
   id: string;
   ini: string;
@@ -341,6 +342,8 @@ export function PersonRow({
   email?: { address: string; tag: string; sure: boolean } | null;
   onOpen?: () => void;
   mobile?: boolean;
+  /** #132: no address at all: shows No email (a draft to them stays in the vault, no Gmail draft). */
+  noEmail?: boolean;
 }) {
   return (
     <Btn
@@ -368,6 +371,7 @@ export function PersonRow({
         <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{name}</span>
         <span style={{ display: 'block', fontSize: 12, color: C.muted, ...ellipsis }}>{role}</span>
         {email && <EmailLine {...email} />}
+        {!email && noEmail && <NoEmail />}
       </span>
       <DraftStatusChip status={status} size={mobile ? 10 : 10.5} pad={mobile ? '0' : '3px 9px'} />
     </Btn>
@@ -383,6 +387,62 @@ export function EmailLine({ address, tag, sure, size = 11 }: { address: string; 
       <span style={{ ...ellipsis, minWidth: 0 }}>{address}</span>
       <span style={{ flex: 'none', color: sure ? C.emerald : C.gold }}>{tag}</span>
     </span>
+  );
+}
+
+/** #132: the recipient has no address at all. */
+export function NoEmail({ size = 11 }: { size?: number }) {
+  return (
+    <span className="no-email" style={{ display: 'block', marginTop: 3, ...mono(size, C.gold) }}>
+      No email
+    </span>
+  );
+}
+
+// ------------------------------------------------------------ LinkedIn fallback (#132)
+
+/** Copy to the clipboard; a refused or missing clipboard is ignored. */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard?.writeText(text);
+  } catch {
+    // No clipboard permission: the user copies the note by hand.
+  }
+}
+
+const fallbackPill = (mobile?: boolean) => ({
+  border: `1px solid ${C['line-2']}`,
+  background: 'transparent',
+  color: C.fg,
+  borderRadius: 999,
+  padding: mobile ? '0 14px' : '6px 14px',
+  height: mobile ? 36 : undefined,
+  fontSize: 13,
+  textDecoration: 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+});
+
+/**
+ * #132: a draft whose recipient has no email but a LinkedIn profile. **Copy note** copies the note locally;
+ * **Open profile** opens their profile in a new tab. pp never sends or messages on LinkedIn: the user does.
+ */
+export function LinkedInFallback({ note, profile, mobile }: { note: string; profile: string; mobile?: boolean }) {
+  return (
+    <div className="linkedin-fallback" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+      <Btn
+        op="local"
+        className="copy-note"
+        onClick={() => void copyText(note)}
+        style={fallbackPill(mobile)}
+        hover={{ borderColor: C['emerald-2'] }}
+      >
+        Copy note
+      </Btn>
+      <a className="open-profile" href={profile} target="_blank" rel="noopener noreferrer" data-op="nav" style={fallbackPill(mobile)}>
+        Open profile ↗
+      </a>
+    </div>
   );
 }
 
@@ -537,7 +597,7 @@ export function DraftList({
   onOpen,
   mobile,
 }: {
-  items: ReadonlyArray<{ id: string; recipient: string; about: string | null; status: OutreachStatus }>;
+  items: ReadonlyArray<{ id: string; recipient: string; about: string | null; status: OutreachStatus; noEmail?: boolean }>;
   onOpen?: (id: string) => void;
   mobile?: boolean;
 }) {
@@ -574,6 +634,7 @@ export function DraftList({
                 {`About ${o.about}`}
               </span>
             )}
+            {o.noEmail && <NoEmail />}
           </span>
           <DraftStatusChip status={o.status} size={10.5} pad={mobile ? '0' : '3px 9px'} />
         </Btn>

@@ -93,6 +93,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
         recipient: o.recipient_name,
         about: o.about_name,
         status: o.status,
+        noEmail: o.no_email,
       }))}
       onOpen={(id) => go({ screen: 'outreach-draft', outreachId: id })}
     />
@@ -116,6 +117,7 @@ export function PeopleScreen({ roleId }: { roleId: string }) {
       status={draftOf(p.contact.id)?.status ?? 'none'}
       best={best?.target.contact.id === p.contact.id}
       email={emailTag(p.contact)}
+      noEmail={!p.contact.email}
       onOpen={() => open(p.contact.id)}
     />
   ));

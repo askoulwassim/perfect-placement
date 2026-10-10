@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAct, useApp, useOp } from '../client/context';
 import { DraftStatusChip, ToneChips } from '../components/controls';
-import { ContactAvatar, EmailLine, OutreachBlock, TIER_VIS, TONES } from '../components/people';
+import { ContactAvatar, EmailLine, LinkedInFallback, OutreachBlock, TIER_VIS, TONES } from '../components/people';
 import { C, display, eyebrow, mono } from '../components/theme';
 import { Screen, useLayout } from '../layout';
 import { EMAIL_SOURCE_LABEL, initials } from '../lib/people';
@@ -42,6 +42,8 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const to = res.data.to;
   const toAddr = to?.email ?? to?.guess ?? null;
   const toTag = !to?.email_source ? 'No email' : EMAIL_SOURCE_LABEL[to.email_source];
+  // #132: no address at all: no Gmail draft (never one without To); LinkedIn: Copy note + Open profile.
+  const noEmail = !!to && !to.email && !to.guess;
   const pct = to?.email_confidence != null && to.email_confidence < 1 ? ` ${Math.round(to.email_confidence * 100)}%` : '';
   const recipient = (
     <div className="outreach__to" data-to={to?.email ?? ''} style={{ display: 'flex', gap: 10, alignItems: 'baseline', minWidth: 0 }}>
@@ -54,10 +56,13 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
           size={12}
         />
       ) : (
-        <span style={mono(12, C.gold)}>No email</span>
+        <span className="no-email" style={mono(12, C.gold)}>
+          No email
+        </span>
       )}
     </div>
   );
+  const fallback = noEmail && to?.linkedin_url ? <LinkedInFallback mobile={mobile} note={res.data.body} profile={to.linkedin_url} /> : null;
 
   // The engine has no Gmail client: the button starts a headless connect run scoped to this draft; the
   // agent creates the Gmail draft with its own Gmail tool and records it (outreach.to_gmail). Never sends.
@@ -67,9 +72,9 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
   const run = gmailRun?.status ?? null;
   const primary = {
     // #99: a guessed address waiting in Needs you: the Gmail draft is queued once it is confirmed.
-    label: inFlight ? activeLabel(inFlight) : to?.decision_id ? 'Email pending' : 'Create Gmail draft',
+    label: inFlight ? activeLabel(inFlight) : noEmail ? 'No email' : to?.decision_id ? 'Email pending' : 'Create Gmail draft',
     op: 'runs.start' as const,
-    disabled: outreach.status !== 'drafted' || !!inFlight || !!to?.decision_id,
+    disabled: outreach.status !== 'drafted' || !!inFlight || !!to?.decision_id || noEmail,
     onClick: async () => {
       const o = await act('runs.start', { skill: 'connect', outreach_id: outreach.id });
       if (o.status !== 'ok') return;
@@ -95,6 +100,7 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
           </div>
         </div>
         {recipient}
+        {fallback}
         <ToneChips mobile tones={TONES} recommended={tier.tone} selected={t} onSelect={setTone} />
         <div style={{ background: C.panel, border: `1px solid ${C['line-2']}`, borderRadius: 12, padding: '4px 18px' }}>
           {blocks.map(([k, x]) => (
@@ -141,7 +147,10 @@ export function OutreachScreen({ outreachId }: { outreachId: string }) {
             </span>
             <DraftStatusChip status={outreach.status} size={11} pad="4px 10px" />
           </div>
-          <div style={{ paddingTop: 14, borderTop: `1px solid ${C.line}` }}>{recipient}</div>
+          <div style={{ paddingTop: 14, borderTop: `1px solid ${C.line}` }}>
+            {recipient}
+            {fallback}
+          </div>
           <div style={{ ...mono(12, C.emerald), paddingTop: 14, borderTop: `1px solid ${C.line}` }}>{path.join('  →  ')}</div>
         </div>
         <div style={{ minWidth: 0 }}>

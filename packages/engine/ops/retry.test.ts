@@ -231,8 +231,13 @@ describe('run queue: connector retry (#122)', () => {
   });
 
   describe('connect Gmail draft step', () => {
-    const clearPending = () =>
+    const clearPending = () => {
       e.db.prepare("UPDATE decision SET status = 'rejected' WHERE kind = 'outreach.to_gmail' AND subject_id = 'or_0001'").run();
+      // #132: the recipient needs an address for a Gmail draft step at all.
+      e.db
+        .prepare("UPDATE contact SET email = 'maya@linear.example', email_source = 'gmail', email_confidence = 1 WHERE id = 'ct_0001'")
+        .run();
+    };
     const draftId = () =>
       (e.db.prepare("SELECT gmail_draft_id FROM outreach WHERE id = 'or_0001'").get() as { gmail_draft_id: string | null }).gmail_draft_id;
 
@@ -272,7 +277,7 @@ describe('run queue: connector retry (#122)', () => {
     it('a draft waiting to be recorded in Needs you is not retried either', async () => {
       const x = setup();
       // The fixture's pending outreach.to_gmail decision on or_0001 stands for a draft made but not yet recorded.
-      e.db.prepare("UPDATE decision SET status = 'rejected' WHERE kind = 'outreach.to_gmail' AND subject_id = 'or_0001'").run();
+      clearPending();
       const first = await x.start({ skill: 'connect', outreach_id: 'or_0001' });
       e.db.prepare("UPDATE decision SET status = 'pending' WHERE kind = 'outreach.to_gmail' AND subject_id = 'or_0001'").run();
       const done = okOut(await x.finish(first.id, unavailable)).run as Run;

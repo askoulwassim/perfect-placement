@@ -212,6 +212,9 @@ export const draftOutreach: Handler<'outreach.draft'> = async (raw, ctx, deps) =
  * Gmail step is queued once it is confirmed. A draft the agent already made is still recorded (no To),
  * so the confirmation can fill its To. The To used is kept on `gmail_to`. Recording the same draft id
  * again on an `in_gmail` draft with no To (the To update step) stores the now confirmed To.
+ * #132: a recipient with no address at all (no email, no guess) gets no Gmail draft (`conflict`), neither
+ * created nor recorded: the draft stays in the vault (LinkedIn: Copy note, Open profile) until an address
+ * is found and confirmed, which queues the Gmail step as above.
  */
 export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, ctx, deps) => {
   const parsed = outreachToGmail.input.safeParse(raw);
@@ -245,6 +248,12 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
     return err('invalid_input', `draft breaks writing rules: ${issues.map((i) => `${i.field} ${i.rule}`).join(', ')}`, issues);
 
   const given = parsed.data.gmail_draft_id;
+  // #132: never a Gmail draft without To for a recipient with no address at all.
+  if (hasNoAddress(recipient))
+    return err(
+      'conflict',
+      `${recipient.name} has no email: the draft stays in the vault (no Gmail draft without To); find or confirm an address first`,
+    );
   const to = draftRecipient(deps, recipient);
   // #99: never create a Gmail draft while its address is a guess waiting in Needs you.
   if (to.decision_id && !given)
@@ -274,6 +283,9 @@ export const outreachToGmailHandler: Handler<'outreach.to_gmail'> = async (raw, 
   advanceConnectToFill(db, o.role_id);
   return { status: 'ok', output: { outreach: next, gmail_draft_id: draftId, ...toOut }, eventIds: [] };
 };
+
+/** #132: no candidate address at all (no email and no guess on file): no Gmail draft is created or recorded. */
+export const hasNoAddress = (c: Pick<Contact, 'email'>): boolean => !c.email;
 
 /** The person an outreach is addressed to (the recipient row; an old bridge row: the link's mutual). */
 export function gmailRecipient(deps: PeopleDeps, o: Outreach): Contact | undefined {

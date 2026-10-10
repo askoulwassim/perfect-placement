@@ -61,7 +61,8 @@ export function buildRoleGraph(input: GraphInput): RoleGraph {
       name: p.contact.name,
       degree: p.link.degree,
       tier: p.link.tier,
-      team_side: p.link.is_hiring_team,
+      // #132: the hiring team, or a person the skill judged on the team side (e.g. the product brand's design lead).
+      team_side: p.link.is_hiring_team || p.link.team_side === true,
     };
     byId.set(node.id, node);
     linked.set(node.id, p);
@@ -110,7 +111,7 @@ export function buildRoleGraph(input: GraphInput): RoleGraph {
   for (const n of nodes) {
     if (n.kind !== 'person') continue;
     const p = linked.get(n.id);
-    if (p) edge({ from: n.id, to: coId, kind: p.link.is_hiring_team ? 'hiring' : 'works_at' });
+    if (p) edge({ from: n.id, to: coId, kind: p.link.is_hiring_team ? 'hiring' : p.link.team_side ? 'team' : 'works_at' });
     else if (mutualAtCompany.has(n.id)) edge({ from: n.id, to: coId, kind: 'works_at' });
   }
 

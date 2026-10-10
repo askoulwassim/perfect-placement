@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { type RenderDoc, type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, vaultPath } from '@perfect-placement/contracts';
 import { draftRecipient } from '../../people/email.js';
-import { gmailRecipient } from '../../people/outreach.js';
+import { gmailRecipient, hasNoAddress } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
@@ -59,6 +59,9 @@ export const runsStart = defineHandler('runs.start', {
       if (o.status === 'drafted') {
         // #122: a draft already in Gmail is never created twice (a retried step, a second click).
         if (o.gmail_draft_id) throw new OpError('conflict', `outreach ${o.id} already has Gmail draft ${o.gmail_draft_id}`);
+        // #132: a recipient with no address at all never gets a Gmail draft (it would have no To).
+        if (recipient && hasNoAddress(recipient))
+          throw new OpError('conflict', `${recipient.name} has no email: no Gmail draft without To; the draft stays in the vault`);
         if (to?.decision_id)
           throw new OpError(
             'conflict',

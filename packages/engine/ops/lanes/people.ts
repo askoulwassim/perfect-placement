@@ -1,11 +1,18 @@
-import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES, type RunOp } from '@perfect-placement/contracts';
+import { type ContactTier, type OpContext, type OpOutcome, OUTREACH_TONES, type Outreach, type RunOp } from '@perfect-placement/contracts';
 import { emailChecked } from '../../people/check.js';
 import { classifyContact, linkContact } from '../../people/classify.js';
 import { defaultMx } from '../../people/dns.js';
 import { draftRecipient, findEmail } from '../../people/email.js';
 import { fallbackPeople } from '../../people/fallback.js';
 import { findPeople } from '../../people/find.js';
-import { draftOutreach, gmailRecipient, outreachToGmailHandler, readOutreachSections, resolveDraft } from '../../people/outreach.js';
+import {
+  draftOutreach,
+  gmailRecipient,
+  hasNoAddress,
+  outreachToGmailHandler,
+  readOutreachSections,
+  resolveDraft,
+} from '../../people/outreach.js';
 import { setPath } from '../../people/path.js';
 import { composeBody } from '../../people/style.js';
 import { TIER_TEMPLATES } from '../../people/templates.js';
@@ -151,6 +158,8 @@ export const LANE_H_HANDLERS = {
         guess: r.guess,
         reason: r.reason,
         decision_id: r.decision_id,
+        // #132: Open profile on the Outreach screen when there is no email.
+        linkedin_url: rc.linkedin_url,
       };
       // #98: the target a bridge intro is about (the outreach itself is filed under its recipient).
       const about = outreach.about_contact_id ? (h.repos.contact.get(outreach.about_contact_id) ?? null) : null;
@@ -161,10 +170,16 @@ export const LANE_H_HANDLERS = {
     run(i, h) {
       // #98: one draft per recipient; each names its recipient and, for a bridge intro, the target.
       const name = (id: string | null) => (id ? (h.repos.contact.get(id)?.name ?? null) : null);
+      const deps = peopleDeps(h);
+      // #132: a recipient with no address at all: the People screen shows No email (no Gmail draft).
+      const noEmail = (o: Outreach) => {
+        const r = gmailRecipient(deps, o);
+        return r ? hasNoAddress(r) : false;
+      };
       return {
         items: h.repos.outreach
           .select('role_id = ? ORDER BY id', [i.role_id])
-          .map((o) => ({ ...o, recipient_name: name(o.contact_id) ?? '', about_name: name(o.about_contact_id) })),
+          .map((o) => ({ ...o, recipient_name: name(o.contact_id) ?? '', about_name: name(o.about_contact_id), no_email: noEmail(o) })),
       };
     },
   }),
