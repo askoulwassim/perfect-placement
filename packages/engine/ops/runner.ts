@@ -12,6 +12,7 @@ import {
   VOICE_LEARN_MAX_POSTS,
   VOICE_LEARN_SAMPLES_MAX,
 } from '@perfect-placement/contracts';
+import { codexBrowserArgs, codexConnectorPrompt } from './codex-connectors.js';
 
 /*
  * Headless agent runner for `runs.start` (wave1-decisions #9). UI buttons and schedules start a run;
@@ -241,7 +242,9 @@ export const BUILTIN_WRITE_TOOLS = ['Bash', 'Write', 'Edit', 'NotebookEdit'] as 
  * The single per-skill tool allowlist for headless runs (#20). Every run gets the pp MCP tools; web
  * tools only where the SKILL.md needs them; Gmail connector tools only for `inbox` (search + read,
  * #80) and `connect` (search + read + create_draft, #37, #79). Nothing else (no Bash, no Write/Edit,
- * no file reads): every read and write goes through ops. Chrome read tools only for `connect` (LinkedIn,
+ * no file reads): every read and write goes through ops. The names here are the Claude binding;
+ * codex-connectors.ts binds browser actions to Chrome DevTools and Gmail to connected capabilities.
+ * Chrome read tools only for `connect` (LinkedIn,
  * #82) and `fill` (the portal's questions, #81). Each SKILL.md declares the same list in its `## Tools` section (runner.test.ts checks they match).
  */
 export const SKILL_TOOLS: Readonly<
@@ -568,7 +571,7 @@ export function buildRunnerSpec(opts: {
   /**
    * The Gmail draft step (`runs.start` with `outreach_id`). Claude: no `--strict-mcp-config` (the claude.ai
    * Gmail connector must load), only its create_draft tool allowed next to pp, every other Gmail write denied, no Chrome.
-   * Codex and Cursor use whatever Gmail MCP server the user configured for them.
+   * Codex uses connected Gmail app/MCP capabilities; Cursor uses the configured Gmail MCP server.
    */
   gmailDraft?: boolean;
   /**
@@ -586,8 +589,8 @@ export function buildRunnerSpec(opts: {
   /**
    * `fill` with assist (#123): the absolute `<PP_HOME>/files/<role_id>` folder holding the rendered PDFs. Claude gets
    * `--add-dir <it>` (that folder only, never PP_HOME or files/) so Claude in Chrome's file_upload can read the PDFs.
-   * Ignored for every other run. Codex and Cursor have no Claude in Chrome (no file_upload, no fill assist), so no
-   * equivalent is passed: Codex's `--add-dir` grants write access (sandbox) and Cursor documents none.
+   * Ignored for every other run. Codex passes this folder as the browser connector's --workspace,
+   * never as a Codex --add-dir writable root. Cursor documents no equivalent.
    */
   filesDir?: string;
 }): RunnerSpec {
@@ -682,6 +685,13 @@ export function buildRunnerSpec(opts: {
     case 'codex': {
       const toml = (v: unknown) => JSON.stringify(v);
       const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
+      const browser = usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo;
+      const assist = opts.skill === 'fill' && opts.assist === true;
+      const gmail = opts.gmailTo
+        ? [GMAIL_GET_DRAFT_TOOL, GMAIL_UPDATE_TOOL]
+        : opts.gmailDraft
+          ? [GMAIL_DRAFT_TOOL]
+          : SKILL_TOOLS[opts.skill].gmail;
       return {
         runId,
         command: 'codex',
@@ -705,8 +715,9 @@ export function buildRunnerSpec(opts: {
           // Web search per skill (SKILL_TOOLS): live retrieval for web skills, the tool removed otherwise.
           '-c',
           `web_search=${toml(SKILL_TOOLS[opts.skill].web.length ? 'live' : 'disabled')}`,
+          ...(browser ? codexBrowserArgs(assist, opts.filesDir) : []),
           ...extra,
-          codexWebPrompt(prompt, opts.skill),
+          codexWebPrompt(codexConnectorPrompt(prompt, { runId, browser, assist, gmail, web: SKILL_TOOLS[opts.skill].web }), opts.skill),
         ],
         cwd: home,
         env,

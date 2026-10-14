@@ -52,7 +52,20 @@ Supported: Apple Silicon (MLX), and Linux with an NVIDIA GPU (the Kev README's P
 
 ## Documents and Open and fill
 
-On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, or Codex and Chrome DevTools MCP, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+
+### Chrome setup for Codex
+
+With Codex selected as the runner, pp starts its Chrome DevTools MCP connector for browser work. To let it connect to your existing Chrome session:
+
+1. Open Chrome 144 or newer and keep it running.
+2. Open `chrome://inspect/#remote-debugging` in Chrome.
+3. Check **Allow remote debugging for this browser instance**.
+4. Start **Open and fill** in pp. When Chrome asks to allow the connection, click **Allow**. Enabling the checkbox alone does not approve that connection.
+
+The run opens its own portal tab and leaves it open for your review. Review the remaining fields before submitting: custom dropdowns that do not retain selections, questions without saved answers, and demographic questions you chose to answer yourself are reported as skipped. pp does not click buttons, press keys, run page scripts, or submit the form.
+
+If a run reports `setup required` for the browser, complete the steps above and retry it; missing setup is not retried automatically. Gmail is a separate connection: selecting Codex or enabling Chrome debugging does not connect Gmail. See the [runner connector details](../packages/engine/ops/README.md) and [Chrome DevTools MCP setup](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md).
 
 ## Email check
 
