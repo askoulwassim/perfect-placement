@@ -350,7 +350,7 @@ describe('runner command lines', () => {
     expect(off).toContain(`Tools: the pp MCP tools and ${[...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(', ')}, nothing else.`);
   });
 
-  it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
+  it('codex: exec outside a git repo, pp tools pre-approved, no approval prompts', () => {
     const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt: 'P', runId: 'rn_1', skill: 'tailor', home: '/h', mcp });
     expect(s.args[0]).toBe('exec');
     expect(s.args).toEqual(
@@ -360,11 +360,32 @@ describe('runner command lines', () => {
         'mcp_servers.pp.args=["/x/mcp/dist/bin.js"]',
         'mcp_servers.pp.env.PP_HOME="/tmp/pp-home"',
         'mcp_servers.pp.env.PP_RUN_ID="rn_1"',
+        'mcp_servers.pp.default_tools_approval_mode="approve"',
         'approval_policy="never"',
         'web_search="live"',
       ]),
     );
     expect(s.args.at(-1)).toContain('\n\nP');
+  });
+
+  it('codex scopes its approval default to pp and permits a stricter runner override', () => {
+    const override = 'mcp_servers.pp.default_tools_approval_mode="prompt"';
+    const s = buildRunnerSpec({
+      runner: { command: 'codex', args: ['-c', override] },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'score',
+      home: '/h',
+      mcp,
+    });
+    expect(s.args.filter((arg) => arg.includes('approval_mode='))).toEqual([
+      'mcp_servers.pp.default_tools_approval_mode="approve"',
+      override,
+    ]);
+    // Do not replace the user's per-tool overrides with a broad tools table.
+    expect(s.args.some((arg) => arg.startsWith('mcp_servers.pp.tools'))).toBe(false);
+    expect(s.args).toContain('approval_policy="never"');
+    expect(s.files).toEqual([]);
   });
 
   it('codex maps the score skill web fetch to page retrieval without granting search queries', () => {

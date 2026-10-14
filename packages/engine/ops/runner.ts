@@ -694,7 +694,12 @@ export function buildRunnerSpec(opts: {
           '-c',
           `mcp_servers.${MCP_SERVER_NAME}.args=${toml(mcp.args)}`,
           ...envPairs,
-          // Headless: nobody can approve a prompt; MCP tool calls are otherwise cancelled.
+          // Match the pp MCP grant in skillAllowedTools. `never` alone rejects writes that
+          // need approval. This default is scoped to pp; explicit per-tool overrides still win,
+          // and runOp still applies PP's policy grid and human-only restrictions.
+          '-c',
+          `mcp_servers.${MCP_SERVER_NAME}.default_tools_approval_mode="approve"`,
+          // Headless: nobody can approve tools outside the run's grants.
           '-c',
           'approval_policy="never"',
           // Web search per skill (SKILL_TOOLS): live retrieval for web skills, the tool removed otherwise.
