@@ -350,7 +350,7 @@ describe('runner command lines', () => {
     expect(off).toContain(`Tools: the pp MCP tools and ${[...GMAIL_READ_TOOLS, GMAIL_DRAFT_TOOL].join(', ')}, nothing else.`);
   });
 
-  it('codex: exec outside a git repo, MCP server via -c overrides, no approvals', () => {
+  it('codex: exec outside a git repo, pp tools pre-approved, no approval prompts', () => {
     const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt: 'P', runId: 'rn_1', skill: 'tailor', home: '/h', mcp });
     expect(s.args[0]).toBe('exec');
     expect(s.args).toEqual(
@@ -360,11 +360,61 @@ describe('runner command lines', () => {
         'mcp_servers.pp.args=["/x/mcp/dist/bin.js"]',
         'mcp_servers.pp.env.PP_HOME="/tmp/pp-home"',
         'mcp_servers.pp.env.PP_RUN_ID="rn_1"',
+        'mcp_servers.pp.default_tools_approval_mode="approve"',
         'approval_policy="never"',
         'web_search="live"',
       ]),
     );
-    expect(s.args.at(-1)).toBe('P');
+    expect(s.args.at(-1)).toContain('\n\nP');
+  });
+
+  it('codex scopes its approval default to pp and permits a stricter runner override', () => {
+    const override = 'mcp_servers.pp.default_tools_approval_mode="prompt"';
+    const s = buildRunnerSpec({
+      runner: { command: 'codex', args: ['-c', override] },
+      prompt: 'P',
+      runId: 'rn_1',
+      skill: 'score',
+      home: '/h',
+      mcp,
+    });
+    expect(s.args.filter((arg) => arg.includes('approval_mode='))).toEqual([
+      'mcp_servers.pp.default_tools_approval_mode="approve"',
+      override,
+    ]);
+    // Do not replace the user's per-tool overrides with a broad tools table.
+    expect(s.args.some((arg) => arg.startsWith('mcp_servers.pp.tools'))).toBe(false);
+    expect(s.args).toContain('approval_policy="never"');
+    expect(s.files).toEqual([]);
+  });
+
+  it('codex maps the score skill web fetch to page retrieval without granting search queries', () => {
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'score' });
+    const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp });
+    const delivered = s.args.at(-1);
+    expect(delivered).toContain('Tools: the pp MCP tools and web.run open, nothing else.');
+    expect(delivered).toContain('`web.run open`: capture the full JD');
+    expect(delivered).toContain('Its open action fetches a URL');
+    expect(delivered).toContain('do not run web search queries');
+    expect(delivered).toContain('If the built-in web tool is actually unavailable or a call is denied');
+    expect(delivered).toContain('do not work around it');
+    expect(delivered).toContain('never edit files or the database directly');
+    expect(delivered).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
+    expect(s.args).toContain('web_search="live"');
+    expect(buildRunnerSpec({ runner: { command: 'claude' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp }).args[1]).toBe(prompt);
+  });
+
+  it('codex maps scout search and fetch in the skill and companion plan, but keeps ops-only skills unchanged', () => {
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'scout' });
+    const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'scout', home: '/h', mcp });
+    expect(s.args.at(-1)).toContain('Tools: the pp MCP tools and web.run search, web.run open, nothing else.');
+    expect(s.args.at(-1)).toContain('Web search queries and page retrieval are allowed');
+    expect(s.args.at(-1)).toContain('# Scout plan');
+    expect(s.args.at(-1)).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
+    const learn = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_2', skill: 'learn' });
+    const opsOnly = buildRunnerSpec({ runner: { command: 'codex' }, prompt: learn, runId: 'rn_2', skill: 'learn', home: '/h', mcp });
+    expect(opsOnly.args.at(-1)).toBe(learn);
+    expect(opsOnly.args).toContain('web_search="disabled"');
   });
 
   it('cursor-agent: print mode, MCP config in a temp project dir, approvals off', () => {
