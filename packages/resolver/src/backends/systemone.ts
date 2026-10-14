@@ -1,4 +1,11 @@
-import type { Answer, AskRequest, BackendResult, DecisionBackend, Question } from '@perfect-placement/contracts';
+import {
+  type Answer,
+  type AskRequest,
+  type BackendResult,
+  type DecisionBackend,
+  type Question,
+  trimTrailingSlashes,
+} from '@perfect-placement/contracts';
 import { BackendUnavailableError } from '../errors.js';
 
 /*
@@ -154,7 +161,7 @@ export function createSystemOneBackend(opts: SystemOneOptions): DecisionBackend 
   const retries = opts.retries ?? 2;
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const clock = opts.clock ?? Date.now;
-  const base = opts.baseUrl.replace(/\/+$/, '');
+  const base = trimTrailingSlashes(opts.baseUrl);
   const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
   if (opts.apiKey) headers.authorization = `Bearer ${opts.apiKey}`;
 

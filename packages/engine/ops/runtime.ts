@@ -141,7 +141,8 @@ const err = (code: Extract<OpOutcome<unknown>, { status: 'error' }>['code'], mes
 
 function toOutcomeError(e: unknown): OpOutcome<never> {
   if (e instanceof OpError) return err(e.code, e.message, e.issues);
-  return err('internal', e instanceof Error ? e.message : String(e));
+  // A thrown non-Error is not echoed back: it can carry a stack or anything else (#152).
+  return err('internal', e instanceof Error ? e.message : 'unexpected error');
 }
 
 function defaultSubject(input: unknown): { type: SubjectType; id: string } {

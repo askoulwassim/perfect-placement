@@ -49,7 +49,8 @@ export function formatMoneyRange(min: number | null | undefined, max: number | n
  * number that is already in the thousands ("300,000k") is the mistake #73 fixed: it is ignored.
  */
 export function parseMoney(text: string): number | null {
-  const m = /^\s*[$€£]?\s*([0-9][0-9,]*(?:\.[0-9]+)?|\.[0-9]+)\s*([kKmM])?\s*(?:[A-Za-z]{3})?\s*$/.exec(text);
+  // Trimmed first, so no two adjacent `\s*` can split the same run of spaces (#152).
+  const m = /^[$€£]?\s*([0-9][0-9,]*(?:\.[0-9]+)?|\.[0-9]+)(?:\s*([kKmM]))?(?:\s*[A-Za-z]{3})?$/.exec(text.trim());
   if (!m) return null;
   const n = Number((m[1] ?? '').replace(/,/g, ''));
   if (!Number.isFinite(n)) return null;

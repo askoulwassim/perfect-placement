@@ -15,6 +15,9 @@ export interface AtsHint {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DIGITS = /^\d{4,}$/;
 
+/** `host` is `domain` or a subdomain of it. A bare `endsWith` would also take `evilgreenhouse.io` (#152). */
+export const onDomain = (host: string, domain: string): boolean => host === domain || host.endsWith(`.${domain}`);
+
 /**
  * Detect the ATS and posting id from a role URL. Pure. Returns null when the URL is not a
  * recognisable ATS posting (custom career pages, LinkedIn, aggregators): those go to the page fallback.
@@ -33,7 +36,7 @@ export function detectAts(url: string | null | undefined, hint?: AtsHint): AtsRe
 
   // Greenhouse: boards.greenhouse.io/{board}/jobs/{id}, job-boards(.eu).greenhouse.io/{board}/jobs/{id},
   // boards.greenhouse.io/embed/job_app?for={board}&token={id}
-  if (host.endsWith('greenhouse.io')) {
+  if (onDomain(host, 'greenhouse.io')) {
     const region = host.includes('.eu.') ? 'eu' : 'us';
     if (parts[0] === 'embed') {
       const board = u.searchParams.get('for');

@@ -5,6 +5,7 @@ import {
   type OpName,
   type OpOutcome,
   parseAskChatFrames,
+  trimTrailingSlashes,
 } from '@perfect-placement/contracts';
 import type { In, OpClient, Out } from './types';
 
@@ -25,7 +26,7 @@ const isOutcome = (v: unknown): v is OpOutcome<unknown> => {
  * not an outcome (network down, HTML 404, bad JSON) becomes `backend_unavailable`. `ask` streams Ask turns (#39).
  */
 export function createHttpClient(base: string = DEFAULT_API_BASE, fetchImpl: typeof fetch = (...a) => fetch(...a)): OpClient {
-  const root = base.replace(/\/+$/, '');
+  const root = trimTrailingSlashes(base);
   return {
     async run<N extends OpName>(name: N, input: In<N>): Promise<OpOutcome<Out<N>>> {
       const down = (message: string): OpOutcome<Out<N>> => ({ status: 'error', code: 'backend_unavailable', message });

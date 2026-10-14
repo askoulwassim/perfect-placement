@@ -91,6 +91,19 @@ describe('runOp', () => {
     expect(() => readFileSync(join(e.home, 'roles/zz.md'))).toThrow();
   });
 
+  it('does not echo a thrown non-Error back to the caller (#152)', async () => {
+    e.register(
+      'roles.add',
+      defineHandler('roles.add', {
+        run() {
+          throw { stack: 'at secret (/home/someone/pp.ts:1:1)' };
+        },
+      }),
+    );
+    const o = await e.runOp('roles.add', { candidates: [{ company_name: 'Acme', title: 'PM', source: 'link' }] }, ctxAt());
+    expect(o).toEqual({ status: 'error', code: 'internal', message: 'unexpected error' });
+  });
+
   it('refuses events outside the op emits list and outputs that break the contract', async () => {
     e.register(
       'roles.get',

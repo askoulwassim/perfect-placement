@@ -183,6 +183,14 @@ describe('apply.fill_done', () => {
     for (const q of ['Why do you want to apply?', 'Have you applied before?', 'Confirm email']) expect(isSubmitLike(q), q).toBe(false);
   });
 
+  it('isSubmitLike trims labels and stays linear on long runs of spaces (#152)', () => {
+    for (const label of ['  Submit  ', 'Apply now !', 'Send application »', '\tReview and submit\n'])
+      expect(isSubmitLike(label), label).toBe(true);
+    const started = performance.now();
+    expect(isSubmitLike(`send${' '.repeat(100_000)}x`)).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('is for a draft-ready role only', async () => {
     expect(await e.runOp('apply.fill_done', { role_id: FIXTURE_ROLE_IDS.rampIv }, ctxAt())).toMatchObject({ code: 'conflict' });
   });

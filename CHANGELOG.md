@@ -4,6 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Security
+- Closed the nine CodeQL alerts (#152): ATS hosts match by domain, so `evilgreenhouse.io` is not Greenhouse; `parseMoney`, the submit-label guard and base-url slash trimming run in linear time (`parseMoney` was cubic on long runs of spaces); the resolver eval's agreement matrix cannot be steered onto `Object.prototype` by a backend name; an op that throws a non-Error returns `unexpected error` instead of echoing the thrown value.
+
 ## [0.1.0] - 2026-10-10
 
 First public release: engine, decision layer, MCP server, CLI and web UI on a local vault, now open source under MIT.
