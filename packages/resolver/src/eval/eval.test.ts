@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calibrationBins, expectedCalibrationError, runEval } from './harness.js';
+import { agreementMatrix, calibrationBins, type EvalRun, expectedCalibrationError, runEval } from './harness.js';
 import { renderReport } from './report.js';
 import { mockBackends, syntheticCases } from './synthetic.js';
 
@@ -13,6 +13,18 @@ describe('calibration math', () => {
     expect(expectedCalibrationError(pairs)).toBeCloseTo(0.05, 5);
     expect(calibrationBins(pairs).map((b) => b.n)).toEqual([10, 10]);
     expect(expectedCalibrationError([])).toBeNull();
+  });
+});
+
+describe('agreementMatrix (#152)', () => {
+  it('keys by backend name without touching Object.prototype', () => {
+    const cases = syntheticCases({ roles: 1, emails: 0 }).slice(0, 2);
+    const runs: EvalRun[] = cases.flatMap((c) => ['__proto__', 'kev'].map((backend) => ({ backend, caseId: c.id, value: c.expected })));
+    const m = agreementMatrix(cases, runs, ['__proto__', 'kev']);
+    expect(Object.keys(m)).toEqual(['__proto__', 'kev']);
+    expect(Object.hasOwn(m, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(m.kev, '__proto__')?.value).toEqual({ n: 2, rate: 1 });
+    expect(Object.getPrototypeOf(m)).toBe(Object.prototype);
   });
 });
 

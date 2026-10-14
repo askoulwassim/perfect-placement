@@ -30,6 +30,12 @@ describe('detectAts', () => {
     expect(detectAts(null)).toBeNull();
   });
 
+  it('takes greenhouse.io and its subdomains only, not a host that merely ends in it (#152)', () => {
+    expect(detectAts('https://evilgreenhouse.io/acme/jobs/7000012')).toBeNull();
+    expect(detectAts('https://boards.greenhouse.io.example.com/acme/jobs/7000012')).toBeNull();
+    expect(detectAts('https://greenhouse.io/acme/jobs/7000012')).toMatchObject({ type: 'greenhouse', board: 'acme' });
+  });
+
   it('uses the company hint for gh_jid / ashby_jid on company sites', () => {
     const url = 'https://stripe.com/jobs/listing/staff-pm/7000099?gh_jid=7000099';
     expect(detectAts(url)).toBeNull();

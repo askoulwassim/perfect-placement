@@ -1,4 +1,5 @@
-import type { AtsType } from '@perfect-placement/contracts';
+import { type AtsType, trimTrailingSlashes } from '@perfect-placement/contracts';
+import { onDomain } from '../integrations/ats/detect.js';
 
 /*
  * Dedupe mechanics ported from v1 scout.py: url, ATS job id, company + title.
@@ -16,10 +17,10 @@ export function normalizeUrl(raw: string | null | undefined): string | null {
     const keep = [...u.searchParams.entries()].filter(([k]) => !TRACKING_PARAMS.test(k)).sort(([a], [b]) => a.localeCompare(b));
     const qs = keep.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
     const host = u.hostname.toLowerCase().replace(/^www\./, '');
-    const path = u.pathname.replace(/\/+$/, '').toLowerCase();
+    const path = trimTrailingSlashes(u.pathname).toLowerCase();
     return `${host}${path}${qs ? `?${qs}` : ''}`;
   } catch {
-    return raw.trim().replace(/\/+$/, '').toLowerCase();
+    return trimTrailingSlashes(raw.trim()).toLowerCase();
   }
 }
 
@@ -42,7 +43,7 @@ export function atsFromUrl(raw: string | null | undefined): AtsInfo {
   const host = u.hostname.toLowerCase();
   const seg = u.pathname.split('/').filter(Boolean);
   const ghJid = u.searchParams.get('gh_jid');
-  if (host.endsWith('greenhouse.io')) {
+  if (onDomain(host, 'greenhouse.io')) {
     const jobs = seg.indexOf('jobs');
     const board = seg[0] && seg[0] !== 'embed' ? seg[0] : u.searchParams.get('for');
     const id = jobs >= 0 ? seg[jobs + 1] : (ghJid ?? u.searchParams.get('token'));
@@ -53,7 +54,7 @@ export function atsFromUrl(raw: string | null | undefined): AtsInfo {
     return { type: 'lever', board: seg[0] ?? null, jobId: seg[1] && /^[0-9a-f-]{36}$/i.test(seg[1]) ? seg[1].toLowerCase() : null };
   if (host === 'jobs.ashbyhq.com')
     return { type: 'ashby', board: seg[0] ?? null, jobId: seg[1] && /^[0-9a-f-]{36}$/i.test(seg[1]) ? seg[1].toLowerCase() : null };
-  if (host.endsWith('myworkdayjobs.com')) {
+  if (onDomain(host, 'myworkdayjobs.com')) {
     const last = seg[seg.length - 1] ?? '';
     const m = /_([A-Za-z]*-?\d+(?:-\d+)?)$/.exec(last);
     return { type: 'workday', board: host.split('.')[0] ?? null, jobId: m?.[1] ?? null };

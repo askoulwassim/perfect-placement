@@ -1175,8 +1175,9 @@ export const applyRenderDocuments = defineOp({
  * `apply.fill_done` refuses a report that says it filled one of these.
  */
 export const SUBMIT_LIKE =
-  /^\s*(?:review and submit|submit|apply|send|finish|complete)(?:\s+(?:now|application|my application|for this (?:job|role|position)))?\s*[.!>»→]*\s*$/i;
-export const isSubmitLike = (label: string): boolean => SUBMIT_LIKE.test(label);
+  /^(?:review and submit|submit|apply|send|finish|complete)(?:\s+(?:now|application|my application|for this (?:job|role|position)))?\s*[.!>»→]*$/i;
+/** Trims before testing: `SUBMIT_LIKE` has no leading or trailing `\s*`, which backtrack quadratically on long runs of spaces (#152). */
+export const isSubmitLike = (label: string): boolean => SUBMIT_LIKE.test(label.trim());
 
 /**
  * Added (#106): a fill assist run reports what it did in the portal (uploaded the rendered PDFs, filled the

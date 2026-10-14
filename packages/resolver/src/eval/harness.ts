@@ -129,23 +129,20 @@ export function agreementMatrix(cases: EvalCase[], runs: EvalRun[], backends: st
   const q = new Map(cases.map((c) => [c.id, c.question]));
   const key = (r: EvalRun) => `${r.backend}\u0000${r.caseId}`;
   const idx = new Map(runs.filter((r) => r.value !== undefined).map((r) => [key(r), r]));
-  const out: EvalResult['agreement'] = {};
-  for (const a of backends) {
-    out[a] = {};
-    for (const b of backends) {
-      let n = 0;
-      let same = 0;
-      for (const c of cases) {
-        const ra = idx.get(`${a}\u0000${c.id}`);
-        const rb = idx.get(`${b}\u0000${c.id}`);
-        if (!ra || !rb) continue;
-        n++;
-        if (sameValue(q.get(c.id), ra.value as Answer['value'], rb.value as Answer['value'])) same++;
-      }
-      (out[a] as Record<string, { n: number; rate: number | null }>)[b] = { n, rate: n ? same / n : null };
+  const cell = (a: string, b: string) => {
+    let n = 0;
+    let same = 0;
+    for (const c of cases) {
+      const ra = idx.get(`${a}\u0000${c.id}`);
+      const rb = idx.get(`${b}\u0000${c.id}`);
+      if (!ra || !rb) continue;
+      n++;
+      if (sameValue(q.get(c.id), ra.value as Answer['value'], rb.value as Answer['value'])) same++;
     }
-  }
-  return out;
+    return { n, rate: n ? same / n : null };
+  };
+  // Built with Object.fromEntries, which defines own keys: a backend named `__proto__` cannot reach the prototype (#152).
+  return Object.fromEntries(backends.map((a) => [a, Object.fromEntries(backends.map((b) => [b, cell(a, b)]))]));
 }
 
 export interface RunEvalOptions {

@@ -4,6 +4,7 @@
  * - `cleanDictation`: a dictated interview answer without the fillers ("um", "uh", "you know",
  *   repeated words). Meaning kept: it only removes, never rewrites. The raw text is kept for provenance.
  * - `numberWordsToDigits`: "ten years" -> "10 years", so stated facts compare as numbers.
+ * - `trimTrailingSlashes`: a base url or path without its trailing `/`s, in linear time (#152).
  */
 
 const FILLERS = `(?:u+h+m*|u+m+|e+r+m+|h+m+|m+h*m+|a+h+)`;
@@ -69,4 +70,11 @@ export function numberWordsToDigits(text: string): string {
     if (single) return String(UNITS[single.toLowerCase()]);
     return String((TENS[(tens ?? '').toLowerCase()] ?? 0) + (unit ? (UNITS[unit.toLowerCase()] ?? 0) : 0));
   });
+}
+
+/** `s` without trailing `/`s. A loop, not `/\/+$/`, which backtracks quadratically on long runs of `/` (#152). */
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
 }

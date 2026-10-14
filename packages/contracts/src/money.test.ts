@@ -37,4 +37,15 @@ describe('parseMoney (#73)', () => {
     expect(parseMoney('open to discuss')).toBeNull();
     expect(parseMoney('')).toBeNull();
   });
+
+  it('padding and spacing still parse; a long run of spaces stays linear (#152)', () => {
+    expect(parseMoney('  $ 212,500  ')).toBe(212500);
+    expect(parseMoney('212.5 k')).toBe(212500);
+    expect(parseMoney('300k USD ')).toBe(300000);
+    expect(parseMoney('300 k  USD')).toBe(300000);
+    expect(parseMoney('300 k x')).toBeNull();
+    const started = performance.now();
+    expect(parseMoney(`0${' '.repeat(100_000)}x`)).toBeNull();
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
 });

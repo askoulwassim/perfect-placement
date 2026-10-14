@@ -23,6 +23,17 @@ describe('dedupe mechanics', () => {
     expect(atsFromUrl('not a url').type).toBe('unknown');
   });
 
+  it('matches ATS hosts by domain, not by suffix (#152)', () => {
+    expect(atsFromUrl('https://evilgreenhouse.io/acme/jobs/4012345').type).toBe('unknown');
+    expect(atsFromUrl('https://acme.notmyworkdayjobs.com/en-US/careers/job/Remote/Staff-PM_R12345').type).toBe('unknown');
+    expect(atsFromUrl('https://greenhouse.io/acme/jobs/4012345')).toMatchObject({ type: 'greenhouse', jobId: '4012345' });
+  });
+
+  it('trims trailing slashes, including from text that is not a url', () => {
+    expect(normalizeUrl('https://example.com/jobs/1///')).toBe('example.com/jobs/1');
+    expect(normalizeUrl('Acme careers///')).toBe('acme careers');
+  });
+
   it('fuzzy titles: abbreviations and noise collapse, different scopes stay apart', () => {
     expect([...titleTokens('Sr. PM, AI Platform (Remote)')].sort()).toEqual(['ai', 'manager', 'platform', 'product', 'senior']);
     expect(titleSimilarity('Principal PM, AI Platform', 'Principal Product Manager - AI Platform')).toBe(1);
