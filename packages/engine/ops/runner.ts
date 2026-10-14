@@ -542,6 +542,21 @@ export function deniedToolsError(skill: Skill, tools: readonly string[]): string
   return `tool denied: ${tools.join(', ')} (headless ${skill} run, nobody can approve a prompt). Fix: ${fixes.join(' ')}`;
 }
 
+/** Translate the shared skills' Claude web tool names to Codex's built-in web actions. */
+function codexWebPrompt(prompt: string, skill: Skill): string {
+  const web = SKILL_TOOLS[skill].web;
+  if (!web.length) return prompt;
+  return [
+    'Codex web tools: use the built-in web tool (web.run) for the web actions below. Its open action fetches a URL; click and find read linked pages and page content. These are actions of one tool, not separate tools to discover.',
+    web.includes('WebSearch')
+      ? 'Web search queries and page retrieval are allowed for this skill.'
+      : 'Only page retrieval is allowed for this skill; do not run web search queries.',
+    'If the built-in web tool is actually unavailable or a call is denied, follow the missing-tool rule. Do not use shell commands, file tools or another connector as a fallback.',
+    '',
+    prompt.replace(/\bWebSearch\b/g, 'web.run search').replace(/\bWebFetch\b/g, 'web.run open'),
+  ].join('\n');
+}
+
 /** Command line per runner (flags verified against each CLI's docs, 2026-10). */
 export function buildRunnerSpec(opts: {
   runner: RunnerConfig;
@@ -686,7 +701,7 @@ export function buildRunnerSpec(opts: {
           '-c',
           `web_search=${toml(SKILL_TOOLS[opts.skill].web.length ? 'live' : 'disabled')}`,
           ...extra,
-          prompt,
+          codexWebPrompt(prompt, opts.skill),
         ],
         cwd: home,
         env,

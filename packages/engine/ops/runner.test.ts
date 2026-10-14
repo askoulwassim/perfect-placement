@@ -364,7 +364,36 @@ describe('runner command lines', () => {
         'web_search="live"',
       ]),
     );
-    expect(s.args.at(-1)).toBe('P');
+    expect(s.args.at(-1)).toContain('\n\nP');
+  });
+
+  it('codex maps the score skill web fetch to page retrieval without granting search queries', () => {
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'score' });
+    const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp });
+    const delivered = s.args.at(-1);
+    expect(delivered).toContain('Tools: the pp MCP tools and web.run open, nothing else.');
+    expect(delivered).toContain('`web.run open`: capture the full JD');
+    expect(delivered).toContain('Its open action fetches a URL');
+    expect(delivered).toContain('do not run web search queries');
+    expect(delivered).toContain('If the built-in web tool is actually unavailable or a call is denied');
+    expect(delivered).toContain('do not work around it');
+    expect(delivered).toContain('never edit files or the database directly');
+    expect(delivered).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
+    expect(s.args).toContain('web_search="live"');
+    expect(buildRunnerSpec({ runner: { command: 'claude' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp }).args[1]).toBe(prompt);
+  });
+
+  it('codex maps scout search and fetch in the skill and companion plan, but keeps ops-only skills unchanged', () => {
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'scout' });
+    const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'scout', home: '/h', mcp });
+    expect(s.args.at(-1)).toContain('Tools: the pp MCP tools and web.run search, web.run open, nothing else.');
+    expect(s.args.at(-1)).toContain('Web search queries and page retrieval are allowed');
+    expect(s.args.at(-1)).toContain('# Scout plan');
+    expect(s.args.at(-1)).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
+    const learn = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_2', skill: 'learn' });
+    const opsOnly = buildRunnerSpec({ runner: { command: 'codex' }, prompt: learn, runId: 'rn_2', skill: 'learn', home: '/h', mcp });
+    expect(opsOnly.args.at(-1)).toBe(learn);
+    expect(opsOnly.args).toContain('web_search="disabled"');
   });
 
   it('cursor-agent: print mode, MCP config in a temp project dir, approvals off', () => {
