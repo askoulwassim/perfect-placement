@@ -128,11 +128,11 @@ describe('Codex browser locations in scheduled jobs', () => {
         match[2]?.replace(/&#13;/g, '\r').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&'),
       ]),
     );
-    expect(runners.codexBrowserEnvironment(env)).toEqual(locations());
+    expect(runners.browserEnvironment(env)).toEqual(locations());
     expect(content).not.toContain('do-not-copy');
     expect(content).not.toContain('/must-not-override-system-deps-home');
     expect(content).not.toContain('shell-scratch');
-    expect(runners.codexBrowserRuntime({ env }).dir).toBe(runners.codexBrowserRuntime({ userHome: d.home, env: d.env }).dir);
+    expect(runners.browserRuntime({ env }).dir).toBe(runners.browserRuntime({ userHome: d.home, env: d.env }).dir);
   });
 
   it('quotes systemd location assignments without line injection or percent expansion', async () => {
@@ -150,12 +150,12 @@ describe('Codex browser locations in scheduled jobs', () => {
         return [assignment.slice(0, equals), assignment.slice(equals + 1)];
       }),
     );
-    expect(runners.codexBrowserEnvironment(env)).toEqual({ ...locations(), XDG_CONFIG_HOME: d.env.XDG_CONFIG_HOME });
+    expect(runners.browserEnvironment(env)).toEqual({ ...locations(), XDG_CONFIG_HOME: d.env.XDG_CONFIG_HOME });
     expect(lines).toHaveLength(9); // PATH, PP_HOME, PP_NODE, and the six browser locations.
     expect(service).toContain('%%n');
     expect(service).not.toContain('\nEnvironment=BAD');
     expect(service).not.toContain('do-not-copy');
-    expect(runners.codexBrowserRuntime({ env }).dir).toBe(runners.codexBrowserRuntime({ userHome: d.home, env: d.env }).dir);
+    expect(runners.browserRuntime({ env }).dir).toBe(runners.browserRuntime({ userHome: d.home, env: d.env }).dir);
   });
 
   it('roundtrips cron values through a real shell without evaluating their contents', async () => {
@@ -178,8 +178,8 @@ describe('Codex browser locations in scheduled jobs', () => {
     const result = spawnSync('/bin/sh', ['-c', command], { env: { PATH: '/usr/bin:/bin' }, stdio: 'ignore' });
     expect(result.status).toBe(0);
     const env = JSON.parse(readFileSync(output, 'utf8')) as Record<string, string>;
-    expect(runners.codexBrowserEnvironment(env)).toEqual(locations());
-    expect(runners.codexBrowserRuntime({ env }).dir).toBe(runners.codexBrowserRuntime({ userHome: d.home, env: d.env }).dir);
+    expect(runners.browserEnvironment(env)).toEqual(locations());
+    expect(runners.browserRuntime({ env }).dir).toBe(runners.browserRuntime({ userHome: d.home, env: d.env }).dir);
   });
 
   it('reports unsupported cron line breaks instead of generating additional commands', async () => {

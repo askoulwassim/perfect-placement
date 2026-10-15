@@ -42,7 +42,7 @@ const nativeResult: CallToolResult = {
   structuredContent: { uid: '7_3' },
   _meta: { native: true },
 };
-const READ = [...runners.CODEX_BROWSER_READ_TOOLS];
+const READ = [...runners.BROWSER_READ_TOOLS];
 const PORTAL = 'https://jobs.portal.test/apply';
 const USER_PAGE = 1;
 
@@ -378,7 +378,7 @@ describe('restricted browser MCP boundary', () => {
 
 describe('local browser startup', () => {
   async function runtimeFixture() {
-    const runtime = runners.codexBrowserRuntime({ userHome: home, env: {} });
+    const runtime = runners.browserRuntime({ userHome: home, env: {} });
     await mkdir(dirname(runtime.bin), { recursive: true });
     await copyFile(runtime.manifestPath, join(runtime.dir, 'package.json'));
     await copyFile(runtime.lockfilePath, join(runtime.dir, 'pnpm-lock.yaml'));
@@ -415,13 +415,13 @@ describe('local browser startup', () => {
 
   it('reports missing, incomplete, wrong-version and mismatched runtimes without installing', async () => {
     const runtime = await runtimeFixture();
-    expect(() => browserServerParameters(join(home, 'different'), policy(), runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(join(home, 'different'), policy(), runtime)).toThrow('pp setup');
     await writeFile(join(runtime.dir, 'node_modules/chrome-devtools-mcp/package.json'), JSON.stringify({ version: '0.0.0' }));
-    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup');
     await rm(join(runtime.dir, 'installed.json'));
-    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup');
     await rm(runtime.dir, { recursive: true, force: true });
-    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup');
   });
 
   it('reaps an actual synthetic stdio child when the adapter closes', async () => {

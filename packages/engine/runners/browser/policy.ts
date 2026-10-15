@@ -1,11 +1,17 @@
 import { join } from 'node:path';
 import type { Skill } from '@perfect-placement/contracts';
-import type { Capability } from './grants.js';
+import type { Capability } from '../grants.js';
 
 /*
  * One browser policy per run (#161): the PP browser adapter (`pp_browser`, packages/mcp/src/browser.ts) enforces
  * it, and the runner's MCP config and prompt are derived from the same object. The engine builds it at dispatch.
  */
+
+/** The PP browser adapter's MCP server name in a run's config (#157). */
+export const BROWSER_SERVER = 'pp_browser';
+/** The adapter's read tools, and the fill assist's two (in grant order). */
+export const BROWSER_READ_TOOLS = ['list_pages', 'new_page', 'close_page', 'navigate_page', 'take_snapshot'] as const;
+export const BROWSER_FILL_TOOLS = ['fill_form', 'upload_file'] as const;
 
 export interface BrowserRunPolicy {
   /** The adapter tools the run may call (Chrome DevTools MCP names), in grant order. */

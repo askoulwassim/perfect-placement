@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { ctxAt, okOut, openFixtureEngine } from '../../testing/index.js';
+import { BROWSER_READ_TOOLS } from '../browser/policy.js';
 import * as runners from '../index.js';
-import { CODEX_BROWSER_READ_TOOLS } from './connectors.js';
 
 describe('Codex fill assist dispatch', () => {
   it.each(['rendered', 'failed'] as const)(
@@ -56,7 +56,7 @@ describe('Codex fill assist dispatch', () => {
 
         if (outcome === 'rendered') {
           expect(okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human'))).log_md).toContain('apply.render_documents');
-          expect(granted).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form', 'upload_file']);
+          expect(granted).toEqual([...BROWSER_READ_TOOLS, 'fill_form', 'upload_file']);
           expect(policy.uploads).toEqual([join(dir, 'resume.pdf'), join(dir, 'cover_letter.pdf')]);
           expect(prompt).toContain('Uploads: rendered before launch');
           expect(prompt).toContain('Do not render them again');
@@ -66,7 +66,7 @@ describe('Codex fill assist dispatch', () => {
             expect(prompt).toContain(`${doc}: ${path}`);
           }
         } else {
-          expect(granted).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+          expect(granted).toEqual([...BROWSER_READ_TOOLS, 'fill_form']);
           expect(policy.uploads).toEqual([]);
           expect(existsSync(dir)).toBe(false);
           expect(prompt).not.toContain('upload_file');

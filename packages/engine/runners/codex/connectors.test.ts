@@ -1,9 +1,9 @@
 import { DEFAULT_CONFIG, SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { browserEnvironment } from '../browser/env.js';
+import { BROWSER_FILL_TOOLS, BROWSER_READ_TOOLS } from '../browser/policy.js';
+import { browserRuntime } from '../browser/runtime.js';
 import { buildRunnerSpec, DEFAULT_SKILLS_DIR, gmailDraftPrompt, gmailToPrompt, skillPrompt, uploadsLine } from '../index.js';
-import { codexBrowserEnvironment } from './browser-env.js';
-import { codexBrowserRuntime } from './browser-runtime.js';
-import { CODEX_BROWSER_FILL_TOOLS, CODEX_BROWSER_READ_TOOLS } from './connectors.js';
 
 const mcp = { command: '/opt/node/bin/node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home' } };
 const context = { runId: 'rn_1', roleId: 'r_1', contactId: 'ct_1', outreachId: 'out_1' };
@@ -101,12 +101,12 @@ describe('Codex connector bindings', () => {
     const filteredChildEnv = { HOME: '/tmp/pp-default-user', PATH: '/usr/bin', ...forwarded };
     const setting = s.args.find((arg) => arg.startsWith('mcp_servers.pp_browser.args=')) as string;
     const args = JSON.parse(setting.slice(setting.indexOf('=') + 1)) as string[];
-    expect(codexBrowserRuntime({ env: filteredChildEnv }).dir).toBe(args[args.indexOf('--runtime-dir') + 1]);
-    expect(codexBrowserEnvironment(filteredChildEnv)).toEqual(locations);
+    expect(browserRuntime({ env: filteredChildEnv }).dir).toBe(args[args.indexOf('--runtime-dir') + 1]);
+    expect(browserEnvironment(filteredChildEnv)).toEqual(locations);
   });
 
   it('forwards only nonempty browser locations and adds no browser config to other runs', () => {
-    expect(codexBrowserEnvironment({ HOME: '/tmp/user', XDG_CACHE_HOME: '', TOKEN: 'secret' })).toEqual({ HOME: '/tmp/user' });
+    expect(browserEnvironment({ HOME: '/tmp/user', XDG_CACHE_HOME: '', TOKEN: 'secret' })).toEqual({ HOME: '/tmp/user' });
     vi.stubEnv('XDG_CACHE_HOME', '/tmp/pp-browser-cache');
     for (const runner of ['claude', 'cursor-agent', 'codex'] as const) {
       const s = buildRunnerSpec({ runner: { command: runner }, skill: 'score', prompt: 'P', runId: 'rn_1', home: '/tmp/pp-home', mcp });
@@ -117,12 +117,12 @@ describe('Codex connector bindings', () => {
 
   it('exposes only browser reads, with filling and uploads only for fill assist', () => {
     for (const skill of SKILLS) {
-      const expected = ['fill', 'connect', 'voice'].includes(skill) ? [...CODEX_BROWSER_READ_TOOLS] : undefined;
+      const expected = ['fill', 'connect', 'voice'].includes(skill) ? [...BROWSER_READ_TOOLS] : undefined;
       expect(browserTools(spec(skill).args)).toEqual(expected);
     }
     const assist = spec('fill', { assist: true, filesDir });
-    expect(browserTools(assist.args)).toEqual([...CODEX_BROWSER_READ_TOOLS, ...CODEX_BROWSER_FILL_TOOLS]);
-    expect(browserTools(spec('connect', { assist: true }).args)).toEqual([...CODEX_BROWSER_READ_TOOLS]);
+    expect(browserTools(assist.args)).toEqual([...BROWSER_READ_TOOLS, ...BROWSER_FILL_TOOLS]);
+    expect(browserTools(spec('connect', { assist: true }).args)).toEqual([...BROWSER_READ_TOOLS]);
     expect(browserTools(spec('connect', { linkedin: false }).args)).toBeUndefined();
     expect(browserTools(spec('voice', { linkedin: false }).args)).toBeUndefined();
     expect(assist.args).toContain('mcp_servers.pp_browser.default_tools_approval_mode="approve"');
@@ -213,7 +213,7 @@ describe('Codex connector bindings', () => {
         uploads,
       }),
     });
-    expect(browserTools(failed.args)).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+    expect(browserTools(failed.args)).toEqual([...BROWSER_READ_TOOLS, 'fill_form']);
     const prompt = failed.args.at(-1) as string;
     expect(prompt).toContain(uploadsLine(uploads));
     expect(prompt).toContain('fill_form takes elements:');
@@ -226,7 +226,7 @@ describe('Codex connector bindings', () => {
 
   it('keeps filling usable when no upload metadata was given, and Claude still renders in the session', () => {
     const prompt = spec('fill', { assist: true }).args.at(-1) as string;
-    expect(browserTools(spec('fill', { assist: true }).args)).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+    expect(browserTools(spec('fill', { assist: true }).args)).toEqual([...BROWSER_READ_TOOLS, 'fill_form']);
     expectNoUploadInstructions(prompt);
     expect(prompt).toContain('fill saved answer fields with fill_form');
     expect(prompt).toContain('uploaded: []');

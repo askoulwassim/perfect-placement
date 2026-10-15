@@ -5,7 +5,7 @@
 import type { db, runners } from '@perfect-placement/engine';
 import type { SetupStep } from '../commands/setup.js';
 import type { Io } from '../io.js';
-import { codexBrowserDoctor, setupCodexBrowser } from './codex-browser.js';
+import { browserDoctor, setupBrowser } from './browser.js';
 import type { SystemDeps } from './deps.js';
 
 export interface RunnerMachine {
@@ -17,7 +17,7 @@ export interface RunnerMachine {
 
 export const RUNNER_MACHINE: Readonly<Record<runners.RunnerCommand, RunnerMachine>> = {
   claude: {},
-  codex: { setup: setupCodexBrowser, doctor: codexBrowserDoctor },
+  codex: { setup: setupBrowser, doctor: browserDoctor },
   'cursor-agent': {},
 };
 

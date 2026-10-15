@@ -1,8 +1,7 @@
-import { ADAPTER_TOOL } from '../browser-policy.js';
+import { ADAPTER_TOOL, BROWSER_SERVER } from '../browser/policy.js';
 import { type Capability, GMAIL_STEP_CAPS, skillCapabilities } from '../grants.js';
 import { type PromptText, renderText } from '../text.js';
 import type { GrantRequest, PreambleContext } from '../types.js';
-import { CODEX_BROWSER_SERVER } from './connectors.js';
 
 /*
  * Codex's names and text for every capability and placeholder (#159). Web is the built-in web tool's actions; the
@@ -24,7 +23,7 @@ export const CODEX_TOOL: Readonly<Record<Capability, string>> = {
   ...ADAPTER_TOOL,
 };
 
-const fullName = (c: Capability): string => (c.startsWith('browser.') ? `mcp__${CODEX_BROWSER_SERVER}__${CODEX_TOOL[c]}` : CODEX_TOOL[c]);
+const fullName = (c: Capability): string => (c.startsWith('browser.') ? `mcp__${BROWSER_SERVER}__${CODEX_TOOL[c]}` : CODEX_TOOL[c]);
 
 export const CODEX_TEXT: PromptText = {
   ...(Object.fromEntries(
@@ -111,7 +110,7 @@ export function codexPreamble(p: PreambleContext): string[] {
             : []),
           ...(browser.length
             ? [
-                `Browser: Chrome DevTools MCP, server ${CODEX_BROWSER_SERVER}. Allowed tools: ${browser.join(', ')}.`,
+                `Browser: Chrome DevTools MCP, server ${BROWSER_SERVER}. Allowed tools: ${browser.join(', ')}.`,
                 'If browser tools are missing, report the setup remedy: run pp setup --runner codex. Chrome must be running with remote debugging enabled at chrome://inspect/#remote-debugging, and the user must allow the connection request. Never install packages or change browser settings from the run.',
                 'First list pages. Existing pages belong to the user: never navigate, fill or close them. Create one run-owned page at the required URL with new_page; reuse that pageId for this run. Read with take_snapshot and locate elements and links in its returned text. Navigate only by URL with navigate_page. Never write a snapshot to a file.',
                 'The PP browser adapter enforces this: every page call needs the pageId of a page this run opened, list_pages shows only those pages, and only this run\'s allowed sites open (the posting\'s, the portal\'s and the company\'s sites and applicant-tracking and sign-in sites for fill; LinkedIn for connect and voice). A refused site is not retried: finish with status "error" and error "site not allowed: <host>", naming the URL in the note.',

@@ -188,7 +188,7 @@ export async function createBrowserAdapter(
   /** Every page the browser has open now, with its current URL. */
   const nativePages = async (callSignal?: AbortSignal): Promise<NativePage[]> => {
     const pages = pagesOf(await call('list_pages', {}, callSignal));
-    if (!pages) denied('The browser did not report its pages; run pp setup --runner codex');
+    if (!pages) denied('The browser did not report its pages; run pp setup');
     return pages;
   };
   /** A page this run opened, still on one of its sites (a redirect may have left them). */
@@ -257,19 +257,19 @@ export async function createBrowserAdapter(
 export function browserServerParameters(
   runtimeDir: string,
   policy: BrowserRunPolicy,
-  runtime = runners.codexBrowserRuntime(),
+  runtime = runners.browserRuntime(),
 ): StdioServerParameters {
   if (!isAbsolute(runtimeDir) || resolve(runtimeDir) !== resolve(runtime.dir))
-    throw new Error(`Unexpected Codex browser runtime. ${runners.CODEX_BROWSER_SETUP}`);
-  const readiness = runners.codexBrowserReadiness(runtime);
+    throw new Error(`Unexpected browser runtime. ${runners.BROWSER_SETUP}`);
+  const readiness = runners.browserReadiness(runtime);
   if (!readiness.ok) throw new Error(readiness.detail);
-  if (!runners.codexBrowserNodeCompatible(process.version))
+  if (!runners.browserNodeCompatible(process.version))
     throw new Error(
-      'Codex browser support needs Node 22.12 or newer. Upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then run pp setup --runner codex',
+      'Browser support needs Node 22.12 or newer. Upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then run pp setup',
     );
   const command = runners.stableNodePath();
-  if (!isAbsolute(command)) throw new Error('The Codex browser requires an absolute Node executable');
-  const env = { ...getDefaultEnvironment(), ...runners.codexBrowserEnvironment(process.env) };
+  if (!isAbsolute(command)) throw new Error('The browser requires an absolute Node executable');
+  const env = { ...getDefaultEnvironment(), ...runners.browserEnvironment(process.env) };
   return {
     command,
     args: [

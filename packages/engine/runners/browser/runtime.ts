@@ -5,10 +5,10 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const CODEX_BROWSER_ENTRY = 'node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js';
-export const CODEX_BROWSER_SETUP = 'Run pp setup --runner codex';
+export const BROWSER_ENTRY = 'node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js';
+export const BROWSER_SETUP = 'Run pp setup';
 
-export interface CodexBrowserRuntime {
+export interface BrowserRuntime {
   manifestDir: string;
   manifestPath: string;
   lockfilePath: string;
@@ -29,7 +29,7 @@ function repoRoot(): string {
   }
 }
 
-export function codexBrowserFingerprint(
+export function browserFingerprint(
   manifest: string,
   lockfile: string,
   patches: ReadonlyArray<{ path: string; contents: Uint8Array }> = [],
@@ -41,10 +41,10 @@ export function codexBrowserFingerprint(
 
 const readPatches = (dir: string, paths: string[]) => paths.map((path) => ({ path, contents: readFileSync(join(dir, path)) }));
 
-export function codexBrowserRuntime(opts: { repoRoot?: string; userHome?: string; env?: NodeJS.ProcessEnv } = {}): CodexBrowserRuntime {
+export function browserRuntime(opts: { repoRoot?: string; userHome?: string; env?: NodeJS.ProcessEnv } = {}): BrowserRuntime {
   const env = opts.env ?? process.env;
   const userHome = opts.userHome ?? env.HOME ?? homedir();
-  const manifestDir = join(opts.repoRoot ?? repoRoot(), 'runtimes', 'codex-browser');
+  const manifestDir = join(opts.repoRoot ?? repoRoot(), 'runtimes', 'browser');
   const manifestPath = join(manifestDir, 'package.json');
   const lockfilePath = join(manifestDir, 'pnpm-lock.yaml');
   const manifestText = readFileSync(manifestPath, 'utf8');
@@ -65,8 +65,8 @@ export function codexBrowserRuntime(opts: { repoRoot?: string; userHome?: string
       throw new Error('Browser runtime patch paths must stay within the manifest directory');
   }
   const cache = env.XDG_CACHE_HOME && isAbsolute(env.XDG_CACHE_HOME) ? env.XDG_CACHE_HOME : join(userHome, '.cache');
-  const cacheRoot = join(cache, 'perfect-placement', 'codex-browser');
-  const fingerprint = codexBrowserFingerprint(manifestText, lockfileText, readPatches(manifestDir, patchPaths));
+  const cacheRoot = join(cache, 'perfect-placement', 'browser');
+  const fingerprint = browserFingerprint(manifestText, lockfileText, readPatches(manifestDir, patchPaths));
   const dir = join(cacheRoot, fingerprint);
   return {
     manifestDir,
@@ -78,23 +78,23 @@ export function codexBrowserRuntime(opts: { repoRoot?: string; userHome?: string
     fingerprint,
     cacheRoot,
     dir,
-    bin: join(dir, CODEX_BROWSER_ENTRY),
+    bin: join(dir, BROWSER_ENTRY),
   };
 }
 
 /** The pinned browser package's engines declaration, additionally constrained by PP's Node >=22. */
-export function codexBrowserNodeCompatible(version: string): boolean {
+export function browserNodeCompatible(version: string): boolean {
   const match = /^v?(\d+)\.(\d+)\./.exec(version.trim());
   if (!match) return false;
   const major = Number(match[1]);
   return major > 22 || (major === 22 && Number(match[2]) >= 12);
 }
 
-export function codexBrowserReadiness(runtime: CodexBrowserRuntime): { ok: boolean; detail: string } {
+export function browserReadiness(runtime: BrowserRuntime): { ok: boolean; detail: string } {
   try {
     const marker = JSON.parse(readFileSync(join(runtime.dir, 'installed.json'), 'utf8')) as { fingerprint?: string };
     if (marker.fingerprint !== runtime.fingerprint) throw new Error('installation is incomplete');
-    const fingerprint = codexBrowserFingerprint(
+    const fingerprint = browserFingerprint(
       readFileSync(join(runtime.dir, 'package.json'), 'utf8'),
       readFileSync(join(runtime.dir, 'pnpm-lock.yaml'), 'utf8'),
       readPatches(runtime.dir, runtime.patchPaths),
@@ -109,6 +109,6 @@ export function codexBrowserReadiness(runtime: CodexBrowserRuntime): { ok: boole
       throw new Error('browser executable is outside its runtime');
     return { ok: true, detail: `chrome-devtools-mcp ${runtime.packageVersion}` };
   } catch {
-    return { ok: false, detail: `Codex browser runtime is missing or incomplete. ${CODEX_BROWSER_SETUP}` };
+    return { ok: false, detail: `The browser runtime is missing or incomplete. ${BROWSER_SETUP}` };
   }
 }
