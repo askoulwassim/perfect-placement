@@ -4,7 +4,7 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 import { fakeBackend, fakeLauncher, noNetwork } from '@perfect-placement/engine/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from '../cli.js';
@@ -61,7 +61,7 @@ describe('pp setup', () => {
     };
     d.run = async (cmd, args, opts) => {
       d.runs.push({ cmd, args, cwd: opts?.cwd });
-      const bin = join(opts?.cwd as string, ops.CODEX_BROWSER_ENTRY);
+      const bin = join(opts?.cwd as string, runners.CODEX_BROWSER_ENTRY);
       mkdirSync(dirname(bin), { recursive: true });
       writeFileSync(bin, '// synthetic runtime');
       writeFileSync(join(opts?.cwd as string, 'node_modules/chrome-devtools-mcp/package.json'), '{"version":"1.10.1"}');

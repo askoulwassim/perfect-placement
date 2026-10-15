@@ -39,7 +39,7 @@ import {
   tabsLine,
   uploadsLine,
   usesChrome,
-} from './runner.js';
+} from './index.js';
 
 /* runs.start launches the configured headless runner (fake launcher: nothing spawns in tests or CI). */
 

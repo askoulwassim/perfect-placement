@@ -15,8 +15,11 @@ import {
   type RunnerConfig,
 } from '@perfect-placement/contracts';
 import type { AskThreadStore } from '../db/ask-threads.js';
+import { isObj, type Obj } from '../runners/json.js';
+import { MCP_SERVER_NAME } from '../runners/mcp-server.js';
+import { RUNNERS } from '../runners/registry.js';
+import type { AskSink, AskSpec, McpServerSpec } from '../runners/types.js';
 import { newId } from './ids.js';
-import { MCP_SERVER_NAME, type McpServerSpec, type RunnerFile, type WebTool } from './runner.js';
 
 /*
  * Ask (Cmd+K) as a real agent session (#39). `pp up` serves `POST /api/ask`: each message runs one
@@ -33,12 +36,6 @@ import { MCP_SERVER_NAME, type McpServerSpec, type RunnerFile, type WebTool } fr
  */
 
 type RunnerCommand = (typeof RUNNER_COMMANDS)[number];
-
-/** Web tools an Ask session may use (Claude Code names). */
-export const ASK_WEB_TOOLS: readonly WebTool[] = ['WebSearch', 'WebFetch'];
-
-/** Claude Code tool names an Ask session pre-approves: the pp MCP tools and web search / fetch. */
-export const askAllowedTools = (): string[] => [`mcp__${MCP_SERVER_NAME}`, ...ASK_WEB_TOOLS];
 
 /**
  * The cards an Ask reply may use: the genui library's signatures (apps/web/genui/src/library.tsx,
@@ -118,14 +115,7 @@ export function replayPrompt(system: string, turns: readonly AskTurn[], message:
   ].join('\n');
 }
 
-export interface AskSpec {
-  command: RunnerCommand;
-  args: string[];
-  /** `null` = a fresh temp dir (Cursor reads its MCP config and permissions from the working directory). */
-  cwd: string | null;
-  env: Record<string, string>;
-  files: RunnerFile[];
-}
+export type { AskSpec } from '../runners/types.js';
 
 /** One Ask turn's command line per runner (flags checked against `claude --help` 2.1.x, Codex and Cursor docs). */
 export function buildAskSpec(opts: {
@@ -145,92 +135,16 @@ export function buildAskSpec(opts: {
   const extra = runner.args ?? [];
   const env = { ...mcp.env, PP_ASK: '1' };
   const server = { command: mcp.command, args: mcp.args, env };
-  switch (runner.command) {
-    case 'claude':
-      return {
-        command: 'claude',
-        args: [
-          '-p',
-          opts.message,
-          '--append-system-prompt',
-          system,
-          '--mcp-config',
-          JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } }),
-          '--strict-mcp-config',
-          // Built-ins narrowed to web search and fetch (no Bash, Read, Write or Edit), then pre-approved
-          // with the pp tools; dontAsk + no prompts deny anything else.
-          '--tools',
-          ASK_WEB_TOOLS.join(','),
-          '--allowedTools',
-          askAllowedTools().join(','),
-          '--permission-mode',
-          'dontAsk',
-          '--permission-prompts',
-          'none',
-          '--output-format',
-          'stream-json',
-          '--verbose',
-          '--include-partial-messages',
-          ...(opts.sessionId ? ['--resume', opts.sessionId] : []),
-          ...extra,
-        ],
-        // Sessions are stored per working directory: always the vault, so --resume finds them.
-        cwd: home,
-        env,
-        files: [],
-      };
-    case 'codex': {
-      const toml = (v: unknown) => JSON.stringify(v);
-      return {
-        command: 'codex',
-        args: [
-          'exec',
-          '--json',
-          '--skip-git-repo-check',
-          '-c',
-          `mcp_servers.${MCP_SERVER_NAME}.command=${toml(mcp.command)}`,
-          '-c',
-          `mcp_servers.${MCP_SERVER_NAME}.args=${toml(mcp.args)}`,
-          ...Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]),
-          '-c',
-          'approval_policy="never"',
-          // No file writes and no network from shell commands; MCP tools and web search still work.
-          '-c',
-          'sandbox_mode="read-only"',
-          '-c',
-          'web_search="live"',
-          ...extra,
-          replayPrompt(system, opts.turns ?? [], opts.message),
-        ],
-        cwd: home,
-        env,
-        files: [],
-      };
-    }
-    case 'cursor-agent':
-      return {
-        command: 'cursor-agent',
-        args: [
-          '-p',
-          replayPrompt(system, opts.turns ?? [], opts.message),
-          '--output-format',
-          'stream-json',
-          '--trust',
-          '--approve-mcps',
-          '--force',
-          ...extra,
-        ],
-        cwd: null,
-        env,
-        files: [
-          { path: '.cursor/mcp.json', content: `${JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: server } }, null, 2)}\n` },
-          {
-            path: '.cursor/cli.json',
-            content: `${JSON.stringify({ permissions: { allow: [`Mcp(${MCP_SERVER_NAME}:*)`, 'WebFetch(*)'], deny: ['Shell(*)', 'Write(**)'] } }, null, 2)}\n`,
-          },
-        ],
-      };
-  }
+  return RUNNERS[runner.command].ask({
+    message: opts.message,
+    system,
+    replay: replayPrompt(system, opts.turns ?? [], opts.message),
+    ...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
+    home,
+    extra,
+    env,
+    server,
+  });
 }
 
 // ------------------------------------------------------------------ stream parsing
@@ -242,10 +156,6 @@ export function opOfTool(name: string): string | null {
   const bare = name.replace(new RegExp(`^mcp__${MCP_SERVER_NAME}__`), '').replace(new RegExp(`^${MCP_SERVER_NAME}[-:.]`), '');
   return TOOL_OPS.get(bare) ?? (OP_NAMES as readonly string[]).find((op) => op === bare) ?? null;
 }
-
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /** A `runs.start` output (`{ run: { id, op } }`) anywhere in a tool result (objects, arrays, JSON text). */
 export function findRun(v: unknown, depth = 0): { run_id: string; skill: string } | null {
@@ -292,12 +202,39 @@ export class AskStreamParser {
   private failure: string | null = null;
   private finished = false;
   private sawText = false;
-  /** Claude: text deltas seen since the last full assistant message (so its text is not repeated). */
-  private partial = false;
   private readonly tools = new Map<string, string>();
   private readonly started = new Set<string>();
+  private readonly parse: ReturnType<(typeof RUNNERS)[RunnerCommand]['askParser']>;
+  private readonly sink: AskSink;
 
-  constructor(private readonly runner: RunnerCommand) {}
+  constructor(private readonly runner: RunnerCommand) {
+    this.parse = RUNNERS[runner].askParser();
+    const parser = this;
+    this.sink = {
+      get sessionId() {
+        return parser.sessionId;
+      },
+      set sessionId(id) {
+        parser.sessionId = id;
+      },
+      get reply() {
+        return parser.reply;
+      },
+      get toolCount() {
+        return parser.started.size;
+      },
+      text: (delta) => this.text(delta),
+      tool: (id, name) => this.tool(id, name),
+      result: (id, ok, content) => this.result(id, ok, content),
+      finish: (failure) => {
+        this.finished = true;
+        if (failure !== undefined) this.failure = failure;
+      },
+      fail: (message) => {
+        this.failure = message;
+      },
+    };
+  }
 
   push(line: string): AskChatEvent[] {
     const s = line.trim();
@@ -309,14 +246,7 @@ export class AskStreamParser {
       return [];
     }
     if (!isObj(j)) return [];
-    switch (this.runner) {
-      case 'claude':
-        return this.claude(j);
-      case 'codex':
-        return this.codex(j);
-      case 'cursor-agent':
-        return this.cursor(j);
-    }
+    return this.parse(j as Obj, this.sink);
   }
 
   /** The turn's last event, from the exit code and stderr. */
@@ -351,116 +281,6 @@ export class AskStreamParser {
       if (run) out.push({ type: 'run', ...run });
     }
     return out;
-  }
-
-  private claude(j: Obj): AskChatEvent[] {
-    const sid = str(j.session_id);
-    if (sid) this.sessionId = sid;
-    switch (j.type) {
-      case 'stream_event': {
-        const ev = isObj(j.event) ? j.event : {};
-        const delta = isObj(ev.delta) ? ev.delta : {};
-        if (ev.type === 'content_block_delta' && delta.type === 'text_delta') {
-          this.partial = true;
-          return this.text(str(delta.text) ?? '');
-        }
-        return [];
-      }
-      case 'assistant': {
-        const content = isObj(j.message) && Array.isArray(j.message.content) ? (j.message.content as unknown[]) : [];
-        const out: AskChatEvent[] = [];
-        for (const b of content) {
-          if (!isObj(b)) continue;
-          if (b.type === 'text' && !this.partial) out.push(...this.text(str(b.text) ?? ''));
-          if (b.type === 'tool_use') out.push(...this.tool(str(b.id) ?? `t${this.started.size}`, str(b.name) ?? 'tool'));
-        }
-        this.partial = false;
-        return out;
-      }
-      case 'user': {
-        const content = isObj(j.message) && Array.isArray(j.message.content) ? (j.message.content as unknown[]) : [];
-        return content.flatMap((b) =>
-          isObj(b) && b.type === 'tool_result' ? this.result(str(b.tool_use_id) ?? '', b.is_error !== true, b.content) : [],
-        );
-      }
-      case 'result':
-        this.finished = true;
-        if (j.is_error === true || (typeof j.subtype === 'string' && j.subtype !== 'success'))
-          this.failure = str(j.result) ?? (Array.isArray(j.errors) ? j.errors.map(String).join('; ') : str(j.subtype)) ?? '';
-        return [];
-      default:
-        return [];
-    }
-  }
-
-  private codex(j: Obj): AskChatEvent[] {
-    switch (j.type) {
-      case 'thread.started':
-        this.sessionId = str(j.thread_id) ?? this.sessionId;
-        return [];
-      case 'item.started':
-      case 'item.completed': {
-        const item = isObj(j.item) ? j.item : {};
-        const id = str(item.id) ?? '';
-        if (item.type === 'agent_message' && j.type === 'item.completed') {
-          const text = str(item.text) ?? '';
-          return this.text(this.reply ? `\n${text}` : text);
-        }
-        if (item.type === 'mcp_tool_call') {
-          const name = item.server === MCP_SERVER_NAME ? `${MCP_SERVER_NAME}-${str(item.tool) ?? ''}` : (str(item.tool) ?? 'tool');
-          const start = this.tool(id, name);
-          if (j.type === 'item.started') return start;
-          const res = isObj(item.result) ? item.result : {};
-          return [...start, ...this.result(id, item.status !== 'failed' && !item.error && res.is_error !== true, item.result)];
-        }
-        if (item.type === 'web_search' && j.type === 'item.completed')
-          return [...this.tool(id, 'web_search'), { type: 'tool_result', id, ok: true }];
-        return [];
-      }
-      case 'turn.completed':
-        this.finished = true;
-        return [];
-      case 'turn.failed':
-        this.finished = true;
-        this.failure = (isObj(j.error) ? str(j.error.message) : undefined) ?? 'turn failed';
-        return [];
-      case 'error':
-        this.failure = str(j.message) ?? 'error';
-        return [];
-      default:
-        return [];
-    }
-  }
-
-  private cursor(j: Obj): AskChatEvent[] {
-    const sid = str(j.session_id);
-    if (sid) this.sessionId = sid;
-    switch (j.type) {
-      case 'assistant': {
-        const content = isObj(j.message) && Array.isArray(j.message.content) ? (j.message.content as unknown[]) : [];
-        return content.flatMap((b) => (isObj(b) && b.type === 'text' ? this.text(str(b.text) ?? '') : []));
-      }
-      case 'tool_call': {
-        const id = str(j.call_id) ?? '';
-        const call = isObj(j.tool_call) ? j.tool_call : {};
-        const [kind, body] = Object.entries(call)[0] ?? ['tool', {}];
-        const args = isObj(body) && isObj(body.args) ? body.args : {};
-        const name = str(args.toolName) ?? str(args.name) ?? kind;
-        if (j.subtype === 'started') return this.tool(id, name);
-        if (j.subtype === 'completed') {
-          const result = isObj(body) ? body.result : undefined;
-          const failed = isObj(result) && ('error' in result || 'failure' in result);
-          return [...this.tool(id, name), ...this.result(id, !failed, result)];
-        }
-        return [];
-      }
-      case 'result':
-        this.finished = true;
-        if (j.is_error === true || (typeof j.subtype === 'string' && j.subtype !== 'success')) this.failure = str(j.result) ?? '';
-        return [];
-      default:
-        return [];
-    }
   }
 }
 

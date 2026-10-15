@@ -1,6 +1,7 @@
 import type { Run } from '@perfect-placement/contracts';
 import { FIXTURE_NOW } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CONNECTOR_SKILLS, DEFAULT_SKILLS_DIR, gmailDraftPrompt, gmailToPrompt, skillPrompt } from '../runners/index.js';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
 import {
   backoffMs,
@@ -12,7 +13,6 @@ import {
   type Timer,
   withRetry,
 } from './retry.js';
-import { CONNECTOR_SKILLS, DEFAULT_SKILLS_DIR, gmailDraftPrompt, gmailToPrompt, skillPrompt } from './runner.js';
 
 /*
  * #122: the transient-retry helper, and the run queue re-queuing a run that ended `connector_unavailable` once after

@@ -73,7 +73,7 @@ The agent is instructed to work in a new portal tab and leave it open for your r
 
 PP's browser adapter permits uploads only of the role's rendered `resume.pdf` and `cover_letter.pdf`. It rejects other file paths, including links escaping that directory, and snapshots cannot be saved to files. An upload aimed at another element fails without clicking it; buttons that open file choosers are unsupported. If document rendering fails, form filling remains available but uploads are withheld and reported as skipped.
 
-If a run reports `setup required` for the browser, complete the steps above and retry it; missing setup is not retried automatically. Gmail is a separate connection: selecting Codex or enabling Chrome debugging does not connect Gmail. See the [runner connector details](../packages/engine/ops/README.md) and [Chrome DevTools MCP setup](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md).
+If a run reports `setup required` for the browser, complete the steps above and retry it; missing setup is not retried automatically. Gmail is a separate connection: selecting Codex or enabling Chrome debugging does not connect Gmail. See the [runner connector details](../packages/engine/runners/README.md) and [Chrome DevTools MCP setup](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md).
 
 ## Email check
 

@@ -1,10 +1,12 @@
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { processIo } from '../io.js';
 import { browserRuntimeFor, codexBrowserDoctor, installCodexBrowser } from './codex-browser.js';
 import { type FakeDeps, fakeDeps } from './fake-deps.test-helpers.js';
+import { RUNNER_MACHINE, runnerDoctorChecks, runnerSetupSteps } from './runners.js';
 
 let root: string;
 let d: FakeDeps;
@@ -25,7 +27,7 @@ function fakeInstall() {
     for (const path of runtime.patchPaths) {
       expect(readFileSync(join(opts?.cwd as string, path))).toEqual(readFileSync(join(runtime.manifestDir, path)));
     }
-    const bin = join(opts?.cwd as string, ops.CODEX_BROWSER_ENTRY);
+    const bin = join(opts?.cwd as string, runners.CODEX_BROWSER_ENTRY);
     mkdirSync(dirname(bin), { recursive: true });
     writeFileSync(bin, '// synthetic browser');
     writeFileSync(join(opts?.cwd as string, 'node_modules/chrome-devtools-mcp/package.json'), '{"version":"1.10.1"}');
@@ -37,7 +39,7 @@ describe('optional Codex browser installation', () => {
   it('installs a frozen standalone runtime once through Corepack and publishes it only when complete', async () => {
     fakeInstall();
     const runtime = browserRuntimeFor(d);
-    expect(codexBrowserDoctor('codex', d).ok).toBe(false);
+    expect(codexBrowserDoctor(d).ok).toBe(false);
     await installCodexBrowser(d);
     expect(d.runs).toEqual([
       {
@@ -46,11 +48,11 @@ describe('optional Codex browser installation', () => {
         cwd: expect.stringContaining('.install-'),
       },
     ]);
-    expect(ops.codexBrowserReadiness(runtime).ok).toBe(true);
+    expect(runners.codexBrowserReadiness(runtime).ok).toBe(true);
     expect(readdirSync(runtime.cacheRoot)).toEqual([runtime.fingerprint]);
     await installCodexBrowser(d);
     expect(d.runs).toHaveLength(1);
-    expect(codexBrowserDoctor('codex', d).ok).toBe(true);
+    expect(codexBrowserDoctor(d).ok).toBe(true);
   });
 
   it('cleans failed staging, rejects incomplete installs, and can repair an incomplete published runtime', async () => {
@@ -65,7 +67,7 @@ describe('optional Codex browser installation', () => {
     mkdirSync(runtime.dir);
     fakeInstall();
     await installCodexBrowser(d);
-    expect(ops.codexBrowserReadiness(runtime).ok).toBe(true);
+    expect(runners.codexBrowserReadiness(runtime).ok).toBe(true);
     expect(readdirSync(runtime.cacheRoot)).toEqual([runtime.fingerprint]);
   });
 
@@ -103,18 +105,21 @@ describe('optional Codex browser installation', () => {
       copyFileSync(join(previous.manifestDir, path), join(manifestDir, path));
     }
     writeFileSync(join(manifestDir, previous.patchPaths[0] as string), 'changed patch');
-    const changed = ops.codexBrowserRuntime({ repoRoot, userHome: d.home, env: d.env });
+    const changed = runners.codexBrowserRuntime({ repoRoot, userHome: d.home, env: d.env });
     expect(changed.dir).not.toBe(previous.dir);
     d.run = async () => 1;
     await expect(installCodexBrowser(d, changed)).rejects.toThrow('exit 1');
-    expect(ops.codexBrowserReadiness(previous).ok).toBe(true);
+    expect(runners.codexBrowserReadiness(previous).ok).toBe(true);
     expect(readFileSync(previous.bin)).toEqual(previousBin);
     expect(readdirSync(previous.cacheRoot)).toEqual([previous.fingerprint]);
   });
 
-  it('doctor never looks up runtime state or captures commands for other runners', () => {
-    expect(codexBrowserDoctor('claude', d).ok).toBe(true);
-    expect(codexBrowserDoctor('cursor-agent', d).ok).toBe(true);
+  it('only Codex has a setup step and doctor check; other runners never look up runtime state', async () => {
+    expect(runnerDoctorChecks('claude', d)).toEqual([]);
+    expect(runnerDoctorChecks('cursor-agent', d)).toEqual([]);
+    expect(await runnerSetupSteps('claude', processIo, d, true)).toEqual([]);
+    expect(await runnerSetupSteps('cursor-agent', processIo, d, true)).toEqual([]);
+    expect(RUNNER_MACHINE.codex.doctor).toBe(codexBrowserDoctor);
     expect(d.captures).toEqual([]);
     expect(existsSync(join(root, '.cache'))).toBe(false);
   });

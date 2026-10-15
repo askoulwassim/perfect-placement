@@ -1,8 +1,5 @@
 import { DEFAULT_CONFIG, SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { codexBrowserEnvironment } from './codex-browser-env.js';
-import { codexBrowserRuntime } from './codex-browser-runtime.js';
-import { CODEX_BROWSER_FILL_TOOLS, CODEX_BROWSER_READ_TOOLS } from './codex-connectors.js';
 import {
   type AssistUploads,
   buildRunnerSpec,
@@ -11,7 +8,10 @@ import {
   gmailToPrompt,
   skillPrompt,
   uploadsLine,
-} from './runner.js';
+} from '../index.js';
+import { codexBrowserEnvironment } from './browser-env.js';
+import { codexBrowserRuntime } from './browser-runtime.js';
+import { CODEX_BROWSER_FILL_TOOLS, CODEX_BROWSER_READ_TOOLS } from './connectors.js';
 
 const mcp = { command: '/opt/node/bin/node', args: ['/x/mcp/dist/bin.js'], env: { PP_HOME: '/tmp/pp-home' } };
 const context = { runId: 'rn_1', roleId: 'r_1', contactId: 'ct_1', outreachId: 'out_1' };

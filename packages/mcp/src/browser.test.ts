@@ -15,7 +15,7 @@ import {
   McpError,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type BrowserAdapter, type BrowserOptions, browserServerParameters, createBrowserAdapter } from './browser.js';
 
@@ -87,7 +87,7 @@ afterEach(async () => {
 describe('restricted browser MCP boundary', () => {
   it('exposes only reads without assist, even with a files directory', async () => {
     const { client, calls } = await connect({ filesDir });
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(ops.CODEX_BROWSER_READ_TOOLS);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(runners.CODEX_BROWSER_READ_TOOLS);
     for (const name of ['fill_form', 'upload_file', 'click', 'press_key', 'evaluate_script', 'take_screenshot', 'submit']) {
       await expect(client.callTool({ name, arguments: {} })).rejects.toThrow('not allowed');
     }
@@ -96,11 +96,11 @@ describe('restricted browser MCP boundary', () => {
 
   it('enables filling without documents, and uploads only with assist plus documents', async () => {
     const fill = await connect({ assist: true });
-    expect((await fill.client.listTools()).tools.map((t) => t.name)).toEqual([...ops.CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+    expect((await fill.client.listTools()).tools.map((t) => t.name)).toEqual([...runners.CODEX_BROWSER_READ_TOOLS, 'fill_form']);
     await expect(fill.client.callTool({ name: 'upload_file', arguments: {} })).rejects.toThrow('not allowed');
     const upload = await connect({ assist: true, filesDir });
     expect((await upload.client.listTools()).tools.map((t) => t.name)).toEqual([
-      ...ops.CODEX_BROWSER_READ_TOOLS,
+      ...runners.CODEX_BROWSER_READ_TOOLS,
       'fill_form',
       'upload_file',
     ]);
@@ -277,7 +277,7 @@ describe('restricted browser MCP boundary', () => {
 
 describe('local browser startup', () => {
   async function runtimeFixture() {
-    const runtime = ops.codexBrowserRuntime({ userHome: home, env: {} });
+    const runtime = runners.codexBrowserRuntime({ userHome: home, env: {} });
     await mkdir(dirname(runtime.bin), { recursive: true });
     await copyFile(runtime.manifestPath, join(runtime.dir, 'package.json'));
     await copyFile(runtime.lockfilePath, join(runtime.dir, 'pnpm-lock.yaml'));

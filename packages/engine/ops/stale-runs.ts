@@ -1,7 +1,7 @@
 import type { OpContext, Run, RunOp } from '@perfect-placement/contracts';
+import { killRunner, runnerAlive } from '../runners/launcher.js';
 import { scheduleOf } from './queue.js';
 import { stallLimitMs } from './retry.js';
-import { killRunner, runnerAlive } from './runner.js';
 
 /** `summary_json.error` of a run whose runner died without `runs.finish` while nothing was watching it. */
 export const INTERRUPTED = 'interrupted';

@@ -13,7 +13,7 @@ import {
   McpError,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 
 export interface BrowserOptions {
   assist?: boolean;
@@ -103,7 +103,7 @@ export async function createBrowserAdapter(
 ): Promise<BrowserAdapter> {
   if (options.filesDir && !isAbsolute(options.filesDir)) denied('The rendered files directory must be absolute');
   const filesDir = options.assist ? options.filesDir : undefined;
-  const allowed = new Set(ops.codexBrowserTools(options.assist === true, Boolean(filesDir)));
+  const allowed = new Set(runners.codexBrowserTools(options.assist === true, Boolean(filesDir)));
   const upstream = new Client({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: {} });
   const server = new Server({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: { tools: { listChanged: false } } });
   let closing: Promise<void> | undefined;
@@ -160,19 +160,19 @@ export async function createBrowserAdapter(
 export function browserServerParameters(
   runtimeDir: string,
   options: BrowserOptions = {},
-  runtime = ops.codexBrowserRuntime(),
+  runtime = runners.codexBrowserRuntime(),
 ): StdioServerParameters {
   if (!isAbsolute(runtimeDir) || resolve(runtimeDir) !== resolve(runtime.dir))
-    throw new Error(`Unexpected Codex browser runtime. ${ops.CODEX_BROWSER_SETUP}`);
-  const readiness = ops.codexBrowserReadiness(runtime);
+    throw new Error(`Unexpected Codex browser runtime. ${runners.CODEX_BROWSER_SETUP}`);
+  const readiness = runners.codexBrowserReadiness(runtime);
   if (!readiness.ok) throw new Error(readiness.detail);
-  if (!ops.codexBrowserNodeCompatible(process.version))
+  if (!runners.codexBrowserNodeCompatible(process.version))
     throw new Error(
       'Codex browser support needs Node 22.12 or newer. Upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then run pp setup --runner codex',
     );
-  const command = ops.stableNodePath();
+  const command = runners.stableNodePath();
   if (!isAbsolute(command)) throw new Error('The Codex browser requires an absolute Node executable');
-  const env = { ...getDefaultEnvironment(), ...ops.codexBrowserEnvironment(process.env) };
+  const env = { ...getDefaultEnvironment(), ...runners.codexBrowserEnvironment(process.env) };
   return {
     command,
     args: [

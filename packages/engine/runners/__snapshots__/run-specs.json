@@ -1,0 +1,1668 @@
+{
+  "claude onboard default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:72c313af6615f280 len:10538>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__pp",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude scout default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:3d41932e5857f8a1 len:13282>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebSearch,WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebSearch,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--model",
+      "synthetic"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude score default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:2753dc442d12638b len:5980>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude freshness default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:4d3f9c2fb295a6b9 len:4806>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebSearch,WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebSearch,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude research default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:6cb9e1b7276d59dd len:3611>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebSearch,WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebSearch,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude tailor default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:7419f2ba3c871d8c len:4636>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude connect default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:a71bae562efaeb4a len:24289>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__get_message,mcp__claude_ai_Gmail__create_draft,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__file_upload,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude fill default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:d01b56451241fa28 len:14247>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__file_upload,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude inbox default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:12c803347bb8f0e1 len:5953>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__get_message",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude learn default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:ac9654d6e0daa8fe len:4120>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__pp",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude voice default": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:c900f208ab637563 len:7989>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__get_message,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__file_upload,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude connect linkedin-off": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:ac73138382efc63c len:23535>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__get_message,mcp__claude_ai_Gmail__create_draft",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__file_upload,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude voice linkedin-off": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:b942d8de532df8aa len:7203>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__search_threads,mcp__claude_ai_Gmail__get_thread,mcp__claude_ai_Gmail__get_message",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude fill questions": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:60e9b8e22d94d90c len:14057>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__file_upload,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude fill assist-rendered": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:9211cd67f66ac5a7 len:15450>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__file_upload",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--add-dir",
+      "/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude fill assist-render-failed": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:ecc78c604f8a0aa2 len:15466>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__file_upload",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude fill assist-unrendered": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:0f18497e52346659 len:15202>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--tools",
+      "WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebFetch,mcp__claude-in-chrome__tabs_context_mcp,mcp__claude-in-chrome__tabs_create_mcp,mcp__claude-in-chrome__tabs_close_mcp,mcp__claude-in-chrome__navigate,mcp__claude-in-chrome__get_page_text,mcp__claude-in-chrome__read_page,mcp__claude-in-chrome__find,mcp__claude-in-chrome__form_input,mcp__claude-in-chrome__file_upload",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label,mcp__claude-in-chrome__computer,mcp__claude-in-chrome__javascript_tool,mcp__claude-in-chrome__browser_batch,mcp__claude-in-chrome__upload_image,mcp__claude-in-chrome__shortcuts_execute,mcp__claude-in-chrome__gif_creator,Bash,Write,Edit,NotebookEdit",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json",
+      "--chrome"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude connect gmail-draft": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:c23729aec9aecaba len:5004>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__create_draft",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__update_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "claude connect gmail-to": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "<sha256:282aba784641d7e8 len:2560>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
+      "--allowedTools",
+      "mcp__pp,mcp__claude_ai_Gmail__get_draft,mcp__claude_ai_Gmail__update_draft",
+      "--disallowedTools",
+      "mcp__claude_ai_Gmail__send_message,mcp__claude_ai_Gmail__reply,mcp__claude_ai_Gmail__forward,mcp__claude_ai_Gmail__create_draft,mcp__claude_ai_Gmail__delete_draft,mcp__claude_ai_Gmail__trash_message,mcp__claude_ai_Gmail__trash_thread,mcp__claude_ai_Gmail__untrash_message,mcp__claude_ai_Gmail__untrash_thread,mcp__claude_ai_Gmail__mark_message_spam,mcp__claude_ai_Gmail__mark_thread_spam,mcp__claude_ai_Gmail__unmark_message_spam,mcp__claude_ai_Gmail__unmark_thread_spam,mcp__claude_ai_Gmail__label_message,mcp__claude_ai_Gmail__label_thread,mcp__claude_ai_Gmail__unlabel_message,mcp__claude_ai_Gmail__unlabel_thread,mcp__claude_ai_Gmail__update_message_labels,mcp__claude_ai_Gmail__apply_sensitive_message_label,mcp__claude_ai_Gmail__apply_sensitive_thread_label,mcp__claude_ai_Gmail__create_label,mcp__claude_ai_Gmail__update_label,mcp__claude_ai_Gmail__delete_label",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "json"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex onboard default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:72c313af6615f280 len:10538>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex scout default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "--model",
+      "synthetic",
+      "<sha256:e10ca16f31b0c01a len:13766>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex score default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "<sha256:f291e8d51b7c1b7b len:6466>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex freshness default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "<sha256:40e07f036da21392 len:5290>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex research default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "<sha256:2665f7a8f3ee7e34 len:4095>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex tailor default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "<sha256:ebb9e2794d88b967 len:5122>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex connect default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:ca2b69e58e2a0243 len:23936>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex fill default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:163c30000a16dcf4 len:13609>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex inbox default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:c234a5a02b0c16da len:6048>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex learn default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:ac9654d6e0daa8fe len:4120>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex voice default": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:86a73eacb3dbc3d4 len:8428>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex connect linkedin-off": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:3790608454dcff60 len:22166>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex voice linkedin-off": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:cf93758be649dcad len:6626>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex fill questions": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:1367b2f38ecfe733 len:13420>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex fill assist-rendered": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\",\"--files-dir\",\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\",\"fill_form\",\"upload_file\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:ee46e0e334e55af1 len:16013>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex fill assist-render-failed": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\",\"fill_form\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:1106050efd263a1b len:14964>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex fill assist-unrendered": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"live\"",
+      "-c",
+      "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\"]",
+      "-c",
+      "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
+      "-c",
+      "mcp_servers.pp_browser.env.XDG_CACHE_HOME=\"/tmp/pp-snapshot-cache\"",
+      "-c",
+      "mcp_servers.pp_browser.enabled=true",
+      "-c",
+      "mcp_servers.pp_browser.enabled_tools=[\"list_pages\",\"new_page\",\"close_page\",\"navigate_page\",\"take_snapshot\",\"fill_form\"]",
+      "-c",
+      "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "mcp_servers.pp_browser.startup_timeout_sec=60",
+      "<sha256:b8def325208efefc len:14980>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex connect gmail-draft": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:3aa0cc2a8c274748 len:5600>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "codex connect gmail-to": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_RUN_ID=\"rn_snapshot\"",
+      "-c",
+      "mcp_servers.pp.default_tools_approval_mode=\"approve\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "web_search=\"disabled\"",
+      "<sha256:9afca196055afc4f len:3444>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": []
+  },
+  "cursor-agent onboard default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:72c313af6615f280 len:10538>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent scout default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:3d41932e5857f8a1 len:13282>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force",
+      "--model",
+      "synthetic"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent score default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:2753dc442d12638b len:5980>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent freshness default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:4d3f9c2fb295a6b9 len:4806>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent research default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:6cb9e1b7276d59dd len:3611>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent tailor default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:7419f2ba3c871d8c len:4636>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent connect default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:a71bae562efaeb4a len:24289>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent fill default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:d01b56451241fa28 len:14247>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent inbox default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:12c803347bb8f0e1 len:5953>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent learn default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:ac9654d6e0daa8fe len:4120>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent voice default": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:c900f208ab637563 len:7989>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent connect linkedin-off": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:ac73138382efc63c len:23535>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent voice linkedin-off": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:b942d8de532df8aa len:7203>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent fill questions": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:60e9b8e22d94d90c len:14057>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent fill assist-rendered": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:9211cd67f66ac5a7 len:15450>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent fill assist-render-failed": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:ecc78c604f8a0aa2 len:15466>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent fill assist-unrendered": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:0f18497e52346659 len:15202>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent connect gmail-draft": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:c23729aec9aecaba len:5004>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent connect gmail-to": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:282aba784641d7e8 len:2560>",
+      "--output-format",
+      "text",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_RUN_ID": "rn_snapshot"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  }
+}

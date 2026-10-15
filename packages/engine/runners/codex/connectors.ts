@@ -1,4 +1,4 @@
-import { codexBrowserEnvironment } from './codex-browser-env.js';
+import { codexBrowserEnvironment } from './browser-env.js';
 
 /** Codex's browser adapter. Only these tools are exposed to a headless PP run. */
 export const CODEX_BROWSER_SERVER = 'pp_browser';

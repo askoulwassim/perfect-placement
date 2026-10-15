@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runnerAlive, runnerDir } from '../runners/launcher.js';
 import { ctxAt, type FixtureEngine, okOut, openFixtureEngine } from '../testing/index.js';
-import { runnerAlive, runnerDir } from './runner.js';
 import { INTERRUPTED, interruptStaleRuns } from './stale-runs.js';
 
 let e: FixtureEngine;

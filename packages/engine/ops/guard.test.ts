@@ -41,7 +41,8 @@ const SQL_ALLOWED = ['packages/engine/db/', 'packages/engine/ops/runtime.ts', 'p
 const FS_ALLOWED = [
   'packages/engine/db/vault.ts',
   'packages/engine/ops/vault.ts',
-  'packages/engine/ops/runner.ts',
+  // The spawn launcher: runner logs, pid files and Cursor's .cursor/ config in the OS temp dir. Never the vault.
+  'packages/engine/runners/launcher.ts',
   // Ask turns (#39): Cursor's .cursor/ config in a temp dir, as the runner does. Never the vault.
   'packages/engine/ops/ask.ts',
   // Report CLIs: write reports to --out outside the repo, never the vault.

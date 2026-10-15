@@ -6,8 +6,8 @@ import type { LinkedInSource } from '../integrations/linkedin/index.js';
 import type { EmailProvider, MxResolver } from '../people/email.js';
 import type { OutreachWriter } from '../people/types.js';
 import type { ProfileLlm } from '../profile/deps.js';
+import type { RunnerLauncher } from '../runners/types.js';
 import type { Timer } from './retry.js';
-import type { RunnerLauncher } from './runner.js';
 
 /*
  * Everything outside the db + vault an op may touch, injected once per engine. Production
