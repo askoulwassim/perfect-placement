@@ -20,7 +20,7 @@ import type { OpContext, OpName, RunOp } from '@perfect-placement/contracts';
 import { buildTools, CONFIDENCE_ARG, DEFAULT_TOOL_NAME_STYLE, outcomeToToolResult, type ToolNameStyle, toolNameMap } from './tools.js';
 
 export const SERVER_NAME = 'perfect-placement';
-export const SERVER_VERSION = '0.1.0';
+export const SERVER_VERSION = '0.2.0';
 
 export interface PpMcpServerOptions {
   /** The single ops entry point: `openEngine().runOp` (tests may inject a fake). */
