@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
 import { ctxAt, okOut, openFixtureEngine } from '../../testing/index.js';
+import * as runners from '../index.js';
 import { CODEX_BROWSER_READ_TOOLS } from './connectors.js';
 
 describe('Codex fill assist dispatch', () => {
@@ -31,6 +32,22 @@ describe('Codex fill assist dispatch', () => {
         };
         const browserArgs = setting('mcp_servers.pp_browser.args=');
         const granted = setting('mcp_servers.pp_browser.enabled_tools=');
+        const policy = JSON.parse(browserArgs[browserArgs.indexOf('--policy') + 1] as string) as {
+          tools: string[];
+          uploads: string[];
+          sites: string[];
+        };
+        // #161: one policy for the adapter and Codex's enabled tools; the role's own sites plus ATS and sign-in.
+        expect(policy.tools).toEqual(granted);
+        const role = e.db
+          .prepare('SELECT r.url, c.domain FROM role r JOIN company c ON c.id = r.company_id WHERE r.id = ?')
+          .get(role_id) as {
+          url: string | null;
+          domain: string | null;
+        };
+        expect(policy.sites).toEqual(expect.arrayContaining(['greenhouse.io', 'accounts.google.com']));
+        if (role.url) expect(policy.sites).toContain(runners.siteOf(role.url));
+        if (role.domain) expect(policy.sites).toContain(runners.siteOf(`https://${role.domain}`));
         const prompt = args.at(-1) as string;
         expect(prompt).toContain('fill_form takes elements:');
         expect(prompt).toContain('Leave the filled, run-owned portal page open');
@@ -40,7 +57,7 @@ describe('Codex fill assist dispatch', () => {
         if (outcome === 'rendered') {
           expect(okOut(await e.runOp('runs.get', { run_id: run.id }, ctxAt('human'))).log_md).toContain('apply.render_documents');
           expect(granted).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form', 'upload_file']);
-          expect(browserArgs[browserArgs.indexOf('--files-dir') + 1]).toBe(dir);
+          expect(policy.uploads).toEqual([join(dir, 'resume.pdf'), join(dir, 'cover_letter.pdf')]);
           expect(prompt).toContain('Uploads: rendered before launch');
           expect(prompt).toContain('Do not render them again');
           for (const doc of ['resume', 'cover_letter']) {
@@ -50,7 +67,7 @@ describe('Codex fill assist dispatch', () => {
           }
         } else {
           expect(granted).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
-          expect(browserArgs).not.toContain('--files-dir');
+          expect(policy.uploads).toEqual([]);
           expect(existsSync(dir)).toBe(false);
           expect(prompt).not.toContain('upload_file');
           expect(prompt).not.toContain('Uploads: call apply.render_documents');

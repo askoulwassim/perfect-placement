@@ -1,12 +1,17 @@
-/** A restricted MCP boundary between a Codex run and the optional local Chrome runtime. */
+/**
+ * A restricted MCP boundary between a headless run and the optional local Chrome runtime. It enforces the run's
+ * browser policy (#161) whatever the runner's own config allows: its tools, its rendered-PDF uploads, its sites,
+ * and only the pages it opened.
+ */
 import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { getDefaultEnvironment, StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   CallToolRequestSchema,
+  type CallToolResult,
   CallToolResultSchema,
   ErrorCode,
   ListToolsRequestSchema,
@@ -15,11 +20,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { runners } from '@perfect-placement/engine';
 
-export interface BrowserOptions {
-  assist?: boolean;
-  /** Only the two rendered PDFs in this directory can be uploaded. */
-  filesDir?: string;
-}
+export type BrowserRunPolicy = runners.BrowserRunPolicy;
 
 export interface BrowserAdapter {
   server: Server;
@@ -27,7 +28,8 @@ export interface BrowserAdapter {
   close(): Promise<void>;
 }
 
-const PDF_NAMES = ['resume.pdf', 'cover_letter.pdf'] as const;
+/** Tools that act on one page (`pageId`); without one, the native server would act on the selected page. */
+const PAGE_TOOLS = new Set(['navigate_page', 'take_snapshot', 'fill_form', 'upload_file']);
 
 function denied(message: string): never {
   throw new McpError(ErrorCode.InvalidParams, message);
@@ -48,11 +50,13 @@ function restrictedSchema(tool: Tool): Tool {
   };
 }
 
-/** Validate every path before forwarding a single upload; client roots cannot extend this list. */
-async function uploadPaths(value: unknown, filesDir: string): Promise<string[]> {
+/** Validate every path before forwarding a single upload; client roots cannot extend the policy's list. */
+async function uploadPaths(value: unknown, uploads: readonly string[]): Promise<string[]> {
   if (!Array.isArray(value) || !value.length) denied('upload_file requires rendered PDF paths');
-  const root = await realpath(filesDir);
-  const allowed = new Set(PDF_NAMES.map((name) => join(root, name)));
+  // Resolve each allowed file's folder, not the file: a symlink planted at resume.pdf must not allow its target.
+  const allowed = new Set(
+    await Promise.all(uploads.map(async (file) => join(await realpath(dirname(file)).catch(() => dirname(file)), basename(file)))),
+  );
   return Promise.all(
     value.map(async (file: unknown) => {
       if (typeof file !== 'string' || !isAbsolute(file)) denied('Only absolute rendered PDF paths can be uploaded');
@@ -64,16 +68,17 @@ async function uploadPaths(value: unknown, filesDir: string): Promise<string[]> 
   );
 }
 
-function webUrl(value: unknown): void {
+/** A web URL on one of the run's sites, or about:blank. */
+function siteUrl(value: unknown, sites: readonly string[]): void {
   if (typeof value !== 'string') denied('Browser navigation requires an HTTP or HTTPS URL');
-  if (value === 'about:blank') return;
-  let url: URL;
+  let protocol = '';
   try {
-    url = new URL(value);
+    protocol = new URL(value).protocol;
   } catch {
-    denied('Browser navigation requires an HTTP or HTTPS URL');
+    // reported below
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') denied('Browser navigation requires an HTTP or HTTPS URL');
+  if (value !== 'about:blank' && protocol !== 'http:' && protocol !== 'https:') denied('Browser navigation requires an HTTP or HTTPS URL');
+  if (!runners.siteAllowed(value, sites)) denied(`site not allowed: ${new URL(value).hostname} is not one of this run's sites`);
 }
 
 /**
@@ -92,20 +97,78 @@ function fillValues(elements: unknown): void {
   }
 }
 
+interface NativePage {
+  id: number;
+  url: string;
+}
+
+/** The pages a native result lists (`--experimentalStructuredContent`), or null when it lists none. */
+function pagesOf(result: CallToolResult): NativePage[] | null {
+  const pages = (result.structuredContent as { pages?: unknown } | undefined)?.pages;
+  if (!Array.isArray(pages)) return null;
+  return pages.filter(
+    (p): p is NativePage => typeof p === 'object' && p !== null && typeof p.id === 'number' && typeof (p as NativePage).url === 'string',
+  );
+}
+
 /**
- * The upstream transport is injectable so protocol and path checks run on synthetic servers.
+ * Show the run only its own pages: drop other pages from the structured list and from the text's `## Pages`
+ * block (`<id>: <title or url>` lines), and say how many belong to the user.
+ */
+function ownPagesOnly(result: CallToolResult, owned: ReadonlySet<number>): CallToolResult {
+  const pages = (result.structuredContent as { pages?: unknown } | undefined)?.pages;
+  if (!Array.isArray(pages)) return result;
+  const hidden = pages.filter((p) => !owned.has((p as NativePage).id)).length;
+  const content = result.content.map((item) => {
+    if (item.type !== 'text') return item;
+    const out: string[] = [];
+    let inPages = false;
+    for (const line of item.text.split('\n')) {
+      if (line === '## Pages') {
+        inPages = true;
+        out.push(line);
+        continue;
+      }
+      const page = inPages ? /^(\d+): /.exec(line) : null;
+      if (page) {
+        if (owned.has(Number(page[1]))) out.push(line);
+        continue;
+      }
+      if (inPages && hidden)
+        out.push(
+          `(${hidden} other ${hidden === 1 ? 'page belongs' : 'pages belong'} to the user and ${hidden === 1 ? 'is' : 'are'} not shown)`,
+        );
+      inPages = false;
+      out.push(line);
+    }
+    if (inPages && hidden)
+      out.push(
+        `(${hidden} other ${hidden === 1 ? 'page belongs' : 'pages belong'} to the user and ${hidden === 1 ? 'is' : 'are'} not shown)`,
+      );
+    return { ...item, text: out.join('\n') };
+  });
+  return {
+    ...result,
+    content,
+    structuredContent: { ...result.structuredContent, pages: pages.filter((p) => owned.has((p as NativePage).id)) },
+  };
+}
+
+/**
+ * The upstream transport is injectable so protocol, path, site and page checks run on synthetic servers.
  * The native client advertises no roots and never relays downstream roots or notifications.
  */
 export async function createBrowserAdapter(
   upstreamTransport: Transport,
-  options: BrowserOptions = {},
+  policy: BrowserRunPolicy,
   signal?: AbortSignal,
 ): Promise<BrowserAdapter> {
-  if (options.filesDir && !isAbsolute(options.filesDir)) denied('The rendered files directory must be absolute');
-  const filesDir = options.assist ? options.filesDir : undefined;
-  const allowed = new Set(runners.codexBrowserTools(options.assist === true, Boolean(filesDir)));
+  if (policy.uploads.some((file) => !isAbsolute(file))) denied('The rendered files must be absolute paths');
+  const allowed = new Set(policy.tools);
   const upstream = new Client({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: {} });
   const server = new Server({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: { tools: { listChanged: false } } });
+  /** Pages this run opened with new_page; the only ones it may see or act on. */
+  const owned = new Set<number>();
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
@@ -117,6 +180,27 @@ export async function createBrowserAdapter(
   const abort = () => void close();
   server.onclose = () => void close();
   upstream.onclose = () => void close();
+
+  const call = async (name: string, args: Record<string, unknown>, callSignal?: AbortSignal) =>
+    (await upstream.request({ method: 'tools/call', params: { name, arguments: args } }, CallToolResultSchema, {
+      signal: callSignal,
+    })) as CallToolResult;
+  /** Every page the browser has open now, with its current URL. */
+  const nativePages = async (callSignal?: AbortSignal): Promise<NativePage[]> => {
+    const pages = pagesOf(await call('list_pages', {}, callSignal));
+    if (!pages) denied('The browser did not report its pages; run pp setup --runner codex');
+    return pages;
+  };
+  /** A page this run opened, still on one of its sites (a redirect may have left them). */
+  const ownedPage = async (pageId: unknown, callSignal?: AbortSignal, checkSite = true): Promise<void> => {
+    if (typeof pageId !== 'number' || !owned.has(pageId))
+      denied('Use the pageId of a page this run opened with new_page; other pages belong to the user');
+    if (!checkSite) return;
+    const page = (await nativePages(callSignal)).find((p) => p.id === pageId);
+    if (!page) denied(`Page ${pageId} is no longer open`);
+    if (!runners.siteAllowed(page.url, policy.sites))
+      denied(`site not allowed: page ${pageId} is now on ${new URL(page.url).hostname}, outside this run's sites`);
+  };
 
   try {
     signal?.throwIfAborted();
@@ -138,16 +222,29 @@ export async function createBrowserAdapter(
       // Check calls too: a caller can ignore the filtered JSON schema.
       if (name === 'take_snapshot' && Object.hasOwn(args, 'filePath')) denied('Snapshots must be returned inline');
       if (name === 'navigate_page' && Object.hasOwn(args, 'initScript')) denied('Navigation scripts are not allowed');
-      if (name === 'new_page' || (name === 'navigate_page' && Object.hasOwn(args, 'url'))) webUrl(args.url);
+      if (name === 'new_page' || (name === 'navigate_page' && Object.hasOwn(args, 'url'))) siteUrl(args.url, policy.sites);
+      if (name === 'close_page') await ownedPage(args.pageId, extra.signal, false);
+      // Navigating away from an off-site page is fine; reading or filling one is not.
+      if (PAGE_TOOLS.has(name)) await ownedPage(args.pageId, extra.signal, name !== 'navigate_page');
       if (name === 'fill_form') fillValues(args.elements);
       if (name === 'upload_file') {
-        if (!filesDir) denied('Uploads require a fill assist with rendered documents');
-        args.filePaths = await uploadPaths(args.filePaths, filesDir);
+        if (!policy.uploads.length) denied('Uploads require a fill assist with rendered documents');
+        args.filePaths = await uploadPaths(args.filePaths, policy.uploads);
       }
-      // Preserve native content, structured output and tool/protocol errors, including pageId/uid.
-      return upstream.request({ method: 'tools/call', params: { ...request.params, arguments: args } }, CallToolResultSchema, {
-        signal: extra.signal,
-      });
+      const before = name === 'new_page' ? new Set((await nativePages(extra.signal)).map((p) => p.id)) : null;
+      // Preserve native content and tool/protocol errors, including pageId/uid; only other pages are hidden.
+      const result = (await upstream.request(
+        { method: 'tools/call', params: { ...request.params, arguments: args } },
+        CallToolResultSchema,
+        {
+          signal: extra.signal,
+        },
+      )) as CallToolResult;
+      if (before && !result.isError) {
+        for (const page of pagesOf(result) ?? (await nativePages(extra.signal))) if (!before.has(page.id)) owned.add(page.id);
+      }
+      if (name === 'close_page' && !result.isError) owned.delete(args.pageId as number);
+      return ownPagesOnly(result, owned);
     });
     return { server, close };
   } catch (error) {
@@ -159,7 +256,7 @@ export async function createBrowserAdapter(
 /** Build a local-only launch specification. Installation belongs to pp setup, never a run. */
 export function browserServerParameters(
   runtimeDir: string,
-  options: BrowserOptions = {},
+  policy: BrowserRunPolicy,
   runtime = runners.codexBrowserRuntime(),
 ): StdioServerParameters {
   if (!isAbsolute(runtimeDir) || resolve(runtimeDir) !== resolve(runtime.dir))
@@ -181,7 +278,9 @@ export function browserServerParameters(
       '--no-usage-statistics',
       '--no-performance-crux',
       '--no-javascript-evaluation',
-      ...(options.assist && options.filesDir ? [`--workspace=${options.filesDir}`] : []),
+      // Page IDs and URLs as data, for the adapter's page and site checks (#161).
+      '--experimentalStructuredContent',
+      ...(policy.uploads.length ? [`--workspace=${dirname(policy.uploads[0] as string)}`] : []),
     ],
     cwd: runtime.dir,
     env,
@@ -189,6 +288,6 @@ export function browserServerParameters(
   };
 }
 
-export async function startBrowserAdapter(runtimeDir: string, options: BrowserOptions = {}, signal?: AbortSignal): Promise<BrowserAdapter> {
-  return createBrowserAdapter(new StdioClientTransport(browserServerParameters(runtimeDir, options)), options, signal);
+export async function startBrowserAdapter(runtimeDir: string, policy: BrowserRunPolicy, signal?: AbortSignal): Promise<BrowserAdapter> {
+  return createBrowserAdapter(new StdioClientTransport(browserServerParameters(runtimeDir, policy)), policy, signal);
 }

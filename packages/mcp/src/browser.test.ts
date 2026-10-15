@@ -17,7 +17,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { runners } from '@perfect-placement/engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type BrowserAdapter, type BrowserOptions, browserServerParameters, createBrowserAdapter } from './browser.js';
+import { type BrowserAdapter, type BrowserRunPolicy, browserServerParameters, createBrowserAdapter } from './browser.js';
 
 const tool = (name: string, extra: Record<string, object> = {}): Tool => ({
   name,
@@ -39,26 +39,62 @@ const nativeTools = [
 ];
 const nativeResult: CallToolResult = {
   content: [{ type: 'text', text: 'Synthetic native result' }],
-  structuredContent: { pageId: 7, uid: '7_3' },
+  structuredContent: { uid: '7_3' },
   _meta: { native: true },
 };
+const READ = [...runners.CODEX_BROWSER_READ_TOOLS];
+const PORTAL = 'https://jobs.portal.test/apply';
+const USER_PAGE = 1;
 
 let home: string;
 let filesDir: string;
 const cleanups: Array<() => Promise<void>> = [];
 
-async function connect(options: BrowserOptions = {}, behavior: { result?: CallToolResult; error?: McpError } = {}) {
+const policy = (over: Partial<BrowserRunPolicy> = {}): BrowserRunPolicy => ({ tools: READ, uploads: [], sites: ['portal.test'], ...over });
+const fillPolicy = (uploads = true): BrowserRunPolicy =>
+  policy({
+    tools: [...READ, 'fill_form', ...(uploads ? ['upload_file'] : [])],
+    uploads: uploads ? [join(filesDir, 'resume.pdf'), join(filesDir, 'cover_letter.pdf')] : [],
+  });
+
+/**
+ * A synthetic Chrome DevTools MCP with page state: the user already has a page open (id 1, their webmail). Page
+ * lists come as `## Pages` text and, as with `--experimentalStructuredContent`, as structured `pages`.
+ */
+async function connect(p: BrowserRunPolicy = policy(), behavior: { result?: CallToolResult; error?: McpError } = {}) {
   const native = new Server({ name: 'synthetic-native', version: '1' }, { capabilities: { tools: {} } });
   const calls: Array<{ name: string; arguments?: Record<string, unknown> }> = [];
+  const pages = new Map<number, string>([[USER_PAGE, 'https://mail.webmail.test/inbox']]);
+  let next = 2;
+  const pageList = (): CallToolResult => ({
+    content: [{ type: 'text', text: ['## Pages', ...[...pages].map(([id, url]) => `${id}: ${url}`)].join('\n') }],
+    structuredContent: { pages: [...pages].map(([id, url]) => ({ id, url, title: '', selected: false })) },
+  });
   native.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: nativeTools }));
   native.setRequestHandler(CallToolRequestSchema, async (request) => {
     calls.push(request.params);
     if (behavior.error) throw behavior.error;
-    return behavior.result ?? nativeResult;
+    if (behavior.result) return behavior.result;
+    const args = request.params.arguments ?? {};
+    switch (request.params.name) {
+      case 'list_pages':
+        return pageList();
+      case 'new_page':
+        pages.set(next++, String(args.url));
+        return pageList();
+      case 'navigate_page':
+        if (typeof args.url === 'string') pages.set(args.pageId as number, args.url);
+        return pageList();
+      case 'close_page':
+        pages.delete(args.pageId as number);
+        return pageList();
+      default:
+        return nativeResult;
+    }
   });
   const [upClient, upServer] = InMemoryTransport.createLinkedPair();
   await native.connect(upServer);
-  const adapter = await createBrowserAdapter(upClient, options);
+  const adapter = await createBrowserAdapter(upClient, p);
   cleanups.push(adapter.close);
   const client = new Client({ name: 'synthetic-codex', version: '1' }, { capabilities: { roots: { listChanged: true } } });
   const roots = vi.fn(async () => ({ roots: [{ uri: 'file:///', name: 'broad-client-root' }] }));
@@ -67,7 +103,15 @@ async function connect(options: BrowserOptions = {}, behavior: { result?: CallTo
   await adapter.server.connect(downServer);
   await client.connect(downClient);
   cleanups.push(() => client.close());
-  return { native, adapter, client, calls, roots };
+  /** Open a run-owned page and return its id. */
+  const open = async (url = PORTAL): Promise<number> => {
+    const result = (await client.callTool({ name: 'new_page', arguments: { url } })) as CallToolResult;
+    const ids = ((result.structuredContent as { pages: Array<{ id: number }> }).pages ?? []).map((pg) => pg.id);
+    return Math.max(...ids);
+  };
+  /** A page redirected by the site, not by the run. */
+  const redirect = (id: number, url: string) => pages.set(id, url);
+  return { native, adapter, client, calls, roots, open, redirect, pages };
 }
 
 beforeEach(async () => {
@@ -85,60 +129,58 @@ afterEach(async () => {
 });
 
 describe('restricted browser MCP boundary', () => {
-  it('exposes only reads without assist, even with a files directory', async () => {
-    const { client, calls } = await connect({ filesDir });
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(runners.CODEX_BROWSER_READ_TOOLS);
+  it("exposes only the policy's tools", async () => {
+    const { client, calls } = await connect();
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(READ);
     for (const name of ['fill_form', 'upload_file', 'click', 'press_key', 'evaluate_script', 'take_screenshot', 'submit']) {
       await expect(client.callTool({ name, arguments: {} })).rejects.toThrow('not allowed');
     }
     expect(calls).toHaveLength(0);
   });
 
-  it('enables filling without documents, and uploads only with assist plus documents', async () => {
-    const fill = await connect({ assist: true });
-    expect((await fill.client.listTools()).tools.map((t) => t.name)).toEqual([...runners.CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+  it('enables filling without documents, and uploads only with rendered documents in the policy', async () => {
+    const fill = await connect(fillPolicy(false));
+    expect((await fill.client.listTools()).tools.map((t) => t.name)).toEqual([...READ, 'fill_form']);
     await expect(fill.client.callTool({ name: 'upload_file', arguments: {} })).rejects.toThrow('not allowed');
-    const upload = await connect({ assist: true, filesDir });
-    expect((await upload.client.listTools()).tools.map((t) => t.name)).toEqual([
-      ...runners.CODEX_BROWSER_READ_TOOLS,
-      'fill_form',
-      'upload_file',
-    ]);
+    const upload = await connect(fillPolicy());
+    expect((await upload.client.listTools()).tools.map((t) => t.name)).toEqual([...READ, 'fill_form', 'upload_file']);
   });
 
-  it('retains native schemas, metadata, results, page IDs and element UIDs', async () => {
-    const { client, calls } = await connect({ assist: true, filesDir });
+  it('retains native schemas, metadata, results and element UIDs on a page the run opened', async () => {
+    const { client, calls, open } = await connect(fillPolicy());
     const tools = (await client.listTools()).tools;
     expect(tools.find((t) => t.name === 'upload_file')).toEqual(nativeTools.find((t) => t.name === 'upload_file'));
-    const args = { pageId: 7, elements: [{ uid: '7_3', value: 'Synthetic Candidate' }] };
+    const pageId = await open();
+    const args = { pageId, elements: [{ uid: '7_3', value: 'Synthetic Candidate' }] };
     expect(await client.callTool({ name: 'fill_form', arguments: args })).toEqual(nativeResult);
-    expect(calls).toEqual([{ name: 'fill_form', arguments: args }]);
+    expect(calls.at(-1)).toEqual({ name: 'fill_form', arguments: args });
   });
 
   it('rejects short fill values with control characters, which native typing would press as keys', async () => {
-    const { client, calls } = await connect({ assist: true });
+    const { client, calls, open } = await connect(fillPolicy(false));
+    const pageId = await open();
+    const before = calls.length;
     for (const value of ['5\n', 'Yes\r', 'Synthetic\t ', 'No\u001b']) {
       const elements = [
         { uid: '7_1', value: 'Synthetic Candidate' },
         { uid: '7_3', value },
       ];
-      await expect(client.callTool({ name: 'fill_form', arguments: { pageId: 7, elements } })).rejects.toThrow('control characters');
+      await expect(client.callTool({ name: 'fill_form', arguments: { pageId, elements } })).rejects.toThrow('control characters');
     }
-    expect(calls).toHaveLength(0);
+    expect(calls.slice(before).filter((c) => c.name === 'fill_form')).toHaveLength(0);
     // At 100 characters or more the native tool sets the value directly, so paragraphs keep their line breaks.
     const elements = [{ uid: '7_3', value: `${'Synthetic paragraph. '.repeat(5)}\n\nSecond synthetic paragraph.` }];
-    await client.callTool({ name: 'fill_form', arguments: { pageId: 7, elements } });
-    expect(calls).toEqual([{ name: 'fill_form', arguments: { pageId: 7, elements } }]);
+    await client.callTool({ name: 'fill_form', arguments: { pageId, elements } });
+    expect(calls.at(-1)).toEqual({ name: 'fill_form', arguments: { pageId, elements } });
   });
 
   it('preserves native tool errors and protocol errors', async () => {
     const result = { ...nativeResult, isError: true };
-    const toolError = await connect({}, { result });
+    const toolError = await connect(policy(), { result });
     expect(await toolError.client.callTool({ name: 'list_pages' })).toEqual(result);
-    const protocolError = await connect(
-      {},
-      { error: new McpError(ErrorCode.InvalidParams, 'Synthetic native rejection', { field: 'pageId' }) },
-    );
+    const protocolError = await connect(policy(), {
+      error: new McpError(ErrorCode.InvalidParams, 'Synthetic native rejection', { field: 'pageId' }),
+    });
     await expect(protocolError.client.callTool({ name: 'list_pages' })).rejects.toMatchObject({
       code: ErrorCode.InvalidParams,
       data: { field: 'pageId' },
@@ -153,14 +195,16 @@ describe('restricted browser MCP boundary', () => {
     await expect(client.callTool({ name: 'take_snapshot', arguments: { pageId: 7, filePath: join(home, 'output.txt') } })).rejects.toThrow(
       'inline',
     );
-    await expect(
-      client.callTool({ name: 'navigate_page', arguments: { pageId: 7, url: 'https://example.test', initScript: '' } }),
-    ).rejects.toThrow('scripts');
+    await expect(client.callTool({ name: 'navigate_page', arguments: { pageId: 7, url: PORTAL, initScript: '' } })).rejects.toThrow(
+      'scripts',
+    );
     expect(calls).toHaveLength(0);
   });
 
-  it('rejects local-file and executable navigation, allowing only web URLs and blank pages', async () => {
-    const { client, calls } = await connect();
+  it("opens only the run's sites: web URLs on a listed host or its subdomains, and blank pages", async () => {
+    const { client, calls, open } = await connect();
+    const pageId = await open();
+    const before = calls.length;
     for (const name of ['new_page', 'navigate_page']) {
       for (const url of [
         'file:///tmp/synthetic.txt',
@@ -168,22 +212,74 @@ describe('restricted browser MCP boundary', () => {
         'data:text/html,synthetic',
         'chrome://settings',
         'about:config',
-        'ftp://example.test',
+        'ftp://portal.test',
       ]) {
-        await expect(client.callTool({ name, arguments: { pageId: 7, url } })).rejects.toThrow('HTTP or HTTPS');
+        await expect(client.callTool({ name, arguments: { pageId, url } })).rejects.toThrow('HTTP or HTTPS');
       }
-      for (const url of ['https://example.test/apply', 'http://127.0.0.1:1234', 'about:blank']) {
-        await client.callTool({ name, arguments: { pageId: 7, url } });
+      // Another site, a look-alike host, the user's webmail, an exfiltration URL on a site outside the policy.
+      for (const url of [
+        'https://example.test/apply',
+        'https://portal.test.evil.test/',
+        'https://mail.webmail.test/',
+        'https://collector.test/?d=secret',
+      ]) {
+        await expect(client.callTool({ name, arguments: { pageId, url } })).rejects.toThrow('site not allowed');
       }
     }
-    expect(calls).toHaveLength(6);
+    expect(calls.slice(before).filter((c) => c.name !== 'list_pages')).toHaveLength(0);
+    for (const url of ['https://portal.test/jobs', 'https://jobs.portal.test/apply?step=2', 'about:blank']) {
+      await client.callTool({ name: 'navigate_page', arguments: { pageId, url } });
+    }
   });
 
-  it('allows the two existing rendered PDFs and validates the whole array before forwarding', async () => {
-    const { client, calls } = await connect({ assist: true, filesDir });
-    const args = { pageId: 7, uid: '7_3', filePaths: [join(filesDir, 'resume.pdf'), join(filesDir, 'cover_letter.pdf')] };
+  it('acts only on pages the run opened; every page call needs its pageId', async () => {
+    const { client, calls, open } = await connect(fillPolicy(false));
+    const pageId = await open();
+    const before = calls.length;
+    for (const name of ['take_snapshot', 'navigate_page', 'fill_form']) {
+      for (const args of [{}, { pageId: USER_PAGE }, { pageId: 99 }, { pageId: String(pageId) }]) {
+        await expect(client.callTool({ name, arguments: { ...args, url: PORTAL, elements: [] } })).rejects.toThrow('page this run opened');
+      }
+    }
+    await expect(client.callTool({ name: 'close_page', arguments: { pageId: USER_PAGE } })).rejects.toThrow('page this run opened');
+    expect(calls.slice(before)).toHaveLength(0);
+    await client.callTool({ name: 'take_snapshot', arguments: { pageId } });
+    await client.callTool({ name: 'close_page', arguments: { pageId } });
+    await expect(client.callTool({ name: 'take_snapshot', arguments: { pageId } })).rejects.toThrow('page this run opened');
+  });
+
+  it("shows the run only its own pages, and says how many are the user's", async () => {
+    const { client, open } = await connect();
+    const listed = (await client.callTool({ name: 'list_pages', arguments: {} })) as CallToolResult;
+    expect(listed.structuredContent).toEqual({ pages: [] });
+    expect(JSON.stringify(listed.content)).not.toContain('webmail');
+    expect(JSON.stringify(listed.content)).toContain('1 other page belongs to the user');
+    const pageId = await open();
+    const after = (await client.callTool({ name: 'list_pages', arguments: {} })) as CallToolResult;
+    expect((after.structuredContent as { pages: Array<{ id: number }> }).pages.map((p) => p.id)).toEqual([pageId]);
+    const text = (after.content[0] as { text: string }).text;
+    expect(text).toContain(`${pageId}: ${PORTAL}`);
+    expect(text).not.toContain(`${USER_PAGE}: `);
+  });
+
+  it('refuses to read or fill a page a redirect took off the run’s sites, and lets the run navigate back', async () => {
+    const { client, open, redirect } = await connect(fillPolicy(false));
+    const pageId = await open();
+    redirect(pageId, 'https://collector.test/landing');
+    await expect(client.callTool({ name: 'take_snapshot', arguments: { pageId } })).rejects.toThrow('site not allowed');
+    await expect(client.callTool({ name: 'fill_form', arguments: { pageId, elements: [{ uid: '1', value: 'x' }] } })).rejects.toThrow(
+      'site not allowed',
+    );
+    await client.callTool({ name: 'navigate_page', arguments: { pageId, url: PORTAL } });
+    expect(await client.callTool({ name: 'take_snapshot', arguments: { pageId } })).toEqual(nativeResult);
+  });
+
+  it('allows the two rendered PDFs in the policy and validates the whole array before forwarding', async () => {
+    const { client, calls, open } = await connect(fillPolicy());
+    const pageId = await open();
+    const args = { pageId, uid: '7_3', filePaths: [join(filesDir, 'resume.pdf'), join(filesDir, 'cover_letter.pdf')] };
     expect(await client.callTool({ name: 'upload_file', arguments: args })).toEqual(nativeResult);
-    expect(calls).toEqual([{ name: 'upload_file', arguments: args }]);
+    expect(calls.filter((c) => c.name === 'upload_file')).toEqual([{ name: 'upload_file', arguments: args }]);
     const forbidden = [
       join(filesDir, 'other.pdf'),
       join(home, 'files', 'other-role', 'resume.pdf'),
@@ -197,43 +293,48 @@ describe('restricted browser MCP boundary', () => {
         'Only this role',
       );
     }
-    expect(calls).toHaveLength(1);
+    expect(calls.filter((c) => c.name === 'upload_file')).toHaveLength(1);
   });
 
   it('rejects escaping symlinks, directories, missing files, relative paths and empty lists', async () => {
-    const { client, calls } = await connect({ assist: true, filesDir });
+    const { client, calls, open } = await connect(fillPolicy());
+    const pageId = await open();
     const outside = join(home, 'outside.pdf');
     const resume = join(filesDir, 'resume.pdf');
     await writeFile(outside, 'synthetic outside');
     await rm(resume);
     await symlink(outside, resume);
-    await expect(client.callTool({ name: 'upload_file', arguments: { filePaths: [resume] } })).rejects.toThrow('Only this role');
+    await expect(client.callTool({ name: 'upload_file', arguments: { pageId, filePaths: [resume] } })).rejects.toThrow('Only this role');
     await rm(resume);
     await mkdir(resume);
-    await expect(client.callTool({ name: 'upload_file', arguments: { filePaths: [resume] } })).rejects.toThrow('Only this role');
+    await expect(client.callTool({ name: 'upload_file', arguments: { pageId, filePaths: [resume] } })).rejects.toThrow('Only this role');
     for (const filePaths of [[], ['resume.pdf'], [join(filesDir, 'missing.pdf')], [null]]) {
-      await expect(client.callTool({ name: 'upload_file', arguments: { filePaths } })).rejects.toThrow();
+      await expect(client.callTool({ name: 'upload_file', arguments: { pageId, filePaths } })).rejects.toThrow();
     }
-    expect(calls).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'upload_file')).toHaveLength(0);
   });
 
   it('supports a symlinked role directory while forwarding canonical PDF paths', async () => {
     const alias = join(home, 'role-link');
     await symlink(filesDir, alias);
-    const { client, calls } = await connect({ assist: true, filesDir: alias });
-    await client.callTool({ name: 'upload_file', arguments: { pageId: 7, uid: '7_3', filePaths: [join(alias, 'resume.pdf')] } });
-    expect(calls[0]?.arguments?.filePaths).toEqual([join(filesDir, 'resume.pdf')]);
+    const { client, calls, open } = await connect(
+      policy({ tools: [...READ, 'fill_form', 'upload_file'], uploads: [join(alias, 'resume.pdf')] }),
+    );
+    const pageId = await open();
+    await client.callTool({ name: 'upload_file', arguments: { pageId, uid: '7_3', filePaths: [join(alias, 'resume.pdf')] } });
+    expect(calls.find((c) => c.name === 'upload_file')?.arguments?.filePaths).toEqual([join(filesDir, 'resume.pdf')]);
   });
 
   it('does not negotiate or forward downstream client roots, even after roots change', async () => {
-    const { client, native, roots, calls } = await connect({ assist: true, filesDir });
+    const { client, native, roots, calls, open } = await connect(fillPolicy());
     expect(native.getClientCapabilities()?.roots).toBeUndefined();
+    const pageId = await open();
     await client.sendRootsListChanged();
     const outside = join(home, 'outside.pdf');
     await writeFile(outside, 'synthetic');
-    await expect(client.callTool({ name: 'upload_file', arguments: { filePaths: [outside] } })).rejects.toThrow('Only this role');
+    await expect(client.callTool({ name: 'upload_file', arguments: { pageId, filePaths: [outside] } })).rejects.toThrow('Only this role');
     expect(roots).not.toHaveBeenCalled();
-    expect(calls).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'upload_file')).toHaveLength(0);
   });
 
   it('closes the upstream connection when the downstream client disconnects', async () => {
@@ -255,7 +356,7 @@ describe('restricted browser MCP boundary', () => {
     native.onclose = closed;
     const [upClient, upServer] = InMemoryTransport.createLinkedPair();
     await native.connect(upServer);
-    await expect(createBrowserAdapter(upClient)).rejects.toThrow('Synthetic discovery failure');
+    await expect(createBrowserAdapter(upClient, policy())).rejects.toThrow('Synthetic discovery failure');
     expect(closed).toHaveBeenCalledTimes(1);
   });
 
@@ -267,7 +368,7 @@ describe('restricted browser MCP boundary', () => {
     const [upClient, upServer] = InMemoryTransport.createLinkedPair();
     await native.connect(upServer);
     const controller = new AbortController();
-    const starting = createBrowserAdapter(upClient, {}, controller.signal);
+    const starting = createBrowserAdapter(upClient, policy(), controller.signal);
     const rejected = expect(starting).rejects.toThrow();
     controller.abort();
     await rejected;
@@ -296,7 +397,7 @@ describe('local browser startup', () => {
 
   it('uses absolute Node and the pinned local CLI without npm, npx, or network installation', async () => {
     const runtime = await runtimeFixture();
-    const spec = browserServerParameters(runtime.dir, { assist: true, filesDir }, runtime);
+    const spec = browserServerParameters(runtime.dir, fillPolicy(), runtime);
     expect(spec.command).toMatch(/^\//);
     expect(spec.command).not.toMatch(/(?:npm|npx)$/);
     expect(spec.args).toEqual([
@@ -305,21 +406,22 @@ describe('local browser startup', () => {
       '--no-usage-statistics',
       '--no-performance-crux',
       '--no-javascript-evaluation',
+      '--experimentalStructuredContent',
       `--workspace=${filesDir}`,
     ]);
     expect(spec.cwd).toBe(runtime.dir);
-    expect(browserServerParameters(runtime.dir, { filesDir }, runtime).args?.some((arg) => arg.startsWith('--workspace'))).toBe(false);
+    expect(browserServerParameters(runtime.dir, fillPolicy(false), runtime).args?.some((arg) => arg.startsWith('--workspace'))).toBe(false);
   });
 
   it('reports missing, incomplete, wrong-version and mismatched runtimes without installing', async () => {
     const runtime = await runtimeFixture();
-    expect(() => browserServerParameters(join(home, 'different'), {}, runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(join(home, 'different'), policy(), runtime)).toThrow('pp setup --runner codex');
     await writeFile(join(runtime.dir, 'node_modules/chrome-devtools-mcp/package.json'), JSON.stringify({ version: '0.0.0' }));
-    expect(() => browserServerParameters(runtime.dir, {}, runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
     await rm(join(runtime.dir, 'installed.json'));
-    expect(() => browserServerParameters(runtime.dir, {}, runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
     await rm(runtime.dir, { recursive: true, force: true });
-    expect(() => browserServerParameters(runtime.dir, {}, runtime)).toThrow('pp setup --runner codex');
+    expect(() => browserServerParameters(runtime.dir, policy(), runtime)).toThrow('pp setup --runner codex');
   });
 
   it('reaps an actual synthetic stdio child when the adapter closes', async () => {
@@ -342,7 +444,7 @@ describe('local browser startup', () => {
     const transport = new StdioClientTransport({ command: process.execPath, args: [script, ended], cwd: home });
     let adapter: BrowserAdapter | undefined;
     try {
-      adapter = await createBrowserAdapter(transport);
+      adapter = await createBrowserAdapter(transport, policy());
       const pid = transport.pid;
       expect(pid).toBeGreaterThan(0);
       await adapter.close();

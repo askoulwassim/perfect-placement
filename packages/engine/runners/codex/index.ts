@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { AskChatEvent } from '@perfect-placement/contracts';
+import { browserPolicy, skillSites } from '../browser-policy.js';
 import { SKILL_GRANTS, usesBrowser } from '../grants.js';
 import { isObj, type Obj, str } from '../json.js';
 import { MCP_SERVER_NAME, REPO_ROOT } from '../mcp-server.js';
@@ -21,7 +22,17 @@ function run(opts: RunContext): RunnerSpec {
   const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
   const browser = usesBrowser(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo;
   const browserEnv = { ...process.env, ...env };
-  const assist = opts.skill === 'fill' && opts.assist === true;
+  // #161: one policy for the adapter and for Codex's enabled tools, from the grants the prompt was built with.
+  const policy = browserPolicy({
+    caps: codexGrants({
+      skill: opts.skill,
+      linkedin: opts.linkedin !== false,
+      assist: opts.assist === true,
+      uploadsReady: Boolean(opts.filesDir),
+    }),
+    ...(opts.filesDir ? { filesDir: opts.filesDir } : {}),
+    sites: opts.sites ?? skillSites(opts.skill),
+  });
   return {
     runId,
     command: 'codex',
@@ -51,8 +62,7 @@ function run(opts: RunContext): RunnerSpec {
             adapterBin: join(REPO_ROOT, 'packages/mcp/dist/browser-bin.js'),
             runtimeDir: codexBrowserRuntime({ repoRoot: REPO_ROOT, env: browserEnv }).dir,
             env: browserEnv,
-            assist,
-            filesDir: opts.filesDir,
+            policy,
           })
         : []),
       ...extra,

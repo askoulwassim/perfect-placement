@@ -1,3 +1,4 @@
+import { ADAPTER_TOOL } from '../browser-policy.js';
 import { type Capability, GMAIL_STEP_CAPS, skillCapabilities } from '../grants.js';
 import { type PromptText, renderText } from '../text.js';
 import type { GrantRequest, PreambleContext } from '../types.js';
@@ -19,15 +20,8 @@ export const CODEX_TOOL: Readonly<Record<Capability, string>> = {
   'gmail.create_draft': 'Gmail create draft',
   'gmail.get_draft': 'Gmail read draft',
   'gmail.update_draft': 'Gmail update draft recipient',
-  'browser.tabs': 'list_pages',
-  'browser.new_tab': 'new_page',
-  'browser.close_tab': 'close_page',
-  'browser.navigate': 'navigate_page',
-  'browser.text': 'take_snapshot',
-  'browser.tree': 'take_snapshot',
-  'browser.find': 'take_snapshot',
-  'browser.fill': 'fill_form',
-  'browser.upload': 'upload_file',
+  // The PP browser adapter's tools (#161).
+  ...ADAPTER_TOOL,
 };
 
 const fullName = (c: Capability): string => (c.startsWith('browser.') ? `mcp__${CODEX_BROWSER_SERVER}__${CODEX_TOOL[c]}` : CODEX_TOOL[c]);
@@ -120,6 +114,7 @@ export function codexPreamble(p: PreambleContext): string[] {
                 `Browser: Chrome DevTools MCP, server ${CODEX_BROWSER_SERVER}. Allowed tools: ${browser.join(', ')}.`,
                 'If browser tools are missing, report the setup remedy: run pp setup --runner codex. Chrome must be running with remote debugging enabled at chrome://inspect/#remote-debugging, and the user must allow the connection request. Never install packages or change browser settings from the run.',
                 'First list pages. Existing pages belong to the user: never navigate, fill or close them. Create one run-owned page at the required URL with new_page; reuse that pageId for this run. Read with take_snapshot and locate elements and links in its returned text. Navigate only by URL with navigate_page. Never write a snapshot to a file.',
+                'The PP browser adapter enforces this: every page call needs the pageId of a page this run opened, list_pages shows only those pages, and only this run\'s allowed sites open (the posting\'s, the portal\'s and the company\'s sites and applicant-tracking and sign-in sites for fill; LinkedIn for connect and voice). A refused site is not retried: finish with status "error" and error "site not allowed: <host>", naming the URL in the note.',
                 'Use the actual tool schemas: pageId is the page identifier; uid comes from take_snapshot. There is no separate find or page-text tool. new_page takes a URL; close_page takes the owned pageId. Report page IDs as tabs on runs.finish.',
                 ...(p.assist
                   ? [
