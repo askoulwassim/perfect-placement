@@ -31,7 +31,7 @@ On pick (starting Research, Tailor or Connect moves an active or held role to on
 
 ## Tools
 
-A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_GRANTS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
 
 - `{{tool:pp}}`: the pp MCP tools (every Perfect Placement read and write is an op).
 - `{{tool:web.search}}`: find sources for the dossier.

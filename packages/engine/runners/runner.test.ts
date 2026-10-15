@@ -670,7 +670,7 @@ describe('fail loudly when a tool is denied (#20)', () => {
     expect(granted).toContain('tool denied: WebSearch');
     expect(granted).toContain('permissions.deny');
     const notGranted = deniedToolsError('inbox', ['WebSearch']);
-    expect(notGranted).toContain('SKILL_TOOLS');
+    expect(notGranted).toContain('SKILL_GRANTS');
     expect(notGranted).toContain('config.runner.args');
   });
 
