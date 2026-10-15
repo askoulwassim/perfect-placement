@@ -18,9 +18,33 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm lint
-      # The Codex browser runtime is installed only by pp setup; this catches a bump whose upload patch no longer applies.
-      - name: codex browser runtime (frozen lockfile + upload patch)
-        run: pnpm --dir runtimes/browser install --ignore-workspace --frozen-lockfile --ignore-scripts --prod
+  browser-regression:
+    # The PP browser adapter against the real, patched chrome-devtools-mcp and headless Chrome (#161): uploads only
+    # to file inputs, no Submit click, no Enter from a typed answer, only the run's page and sites. The runtime is
+    # installed the way users get it (pp setup), so a Dependabot bump whose upload patch no longer applies fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm i --frozen-lockfile
+      - run: pnpm build
+      - name: pp setup installs the pinned browser runtime into a temporary cache
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/pp-browser-cache
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+          OPENUI_TELEMETRY_DISABLED: '1'
+        run: node packages/cli/dist/index.js setup --home "$RUNNER_TEMP/pp-vault" --runner codex --yes --no-kev --no-mcp --no-schedules
+      - name: Let headless Chrome use its sandbox (Ubuntu 24.04 restricts unprivileged user namespaces)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Real-browser regression
+        env:
+          PP_BROWSER_TEST_CACHE: ${{ runner.temp }}/pp-browser-cache
+          OPENUI_TELEMETRY_DISABLED: '1'
+        run: pnpm --filter @perfect-placement/mcp exec vitest run src/browser.integration.test.ts
   fresh-install:
     runs-on: ubuntu-latest
     steps:

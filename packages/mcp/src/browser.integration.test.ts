@@ -1,5 +1,6 @@
 /**
- * Opt-in regression against the installed, patched native runtime and isolated headless Chrome.
+ * Regression against the installed, patched native runtime and isolated headless Chrome, through the adapter.
+ * CI runs it (job browser-regression) after `pp setup` installs the runtime into a temporary cache.
  * PP_BROWSER_TEST_CACHE must name the XDG cache used by a synthetic setup, never a real vault.
  * PP_BROWSER_TEST_CACHE=/tmp/<synthetic-cache> pnpm --filter @perfect-placement/mcp test -- src/browser.integration.test.ts
  */
@@ -18,8 +19,10 @@ import { type BrowserAdapter, browserServerParameters, createBrowserAdapter } fr
 const cache = process.env.PP_BROWSER_TEST_CACHE;
 const resultText = (result: CallToolResult) => result.content.flatMap((item) => (item.type === 'text' ? [item.text] : [])).join('\n');
 
-describe.skipIf(!cache)('patched native browser uploads', () => {
-  it('uploads to a file input but rejects a Submit UID without sending the form', { timeout: 30_000 }, async () => {
+describe.skipIf(!cache)('patched native browser through the PP adapter (#161)', () => {
+  it('uploads to a file input, never clicks Submit or presses Enter, and keeps to its own page and sites', {
+    timeout: 60_000,
+  }, async () => {
     const root = await mkdtemp(join(tmpdir(), 'pp-browser-upload-regression-'));
     const filesDir = join(root, 'files', 'synthetic-role');
     const userHome = join(root, 'home');
@@ -35,7 +38,7 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       res.end(
         req.url === '/submit'
           ? '<!doctype html><title>Submitted</title><h1>Synthetic submission received</h1>'
-          : '<!doctype html><title>Synthetic application</title><form method="post" action="/submit"><label>Resume <input type="file" name="resume"></label><button type="submit">Submit application</button></form>',
+          : '<!doctype html><title>Synthetic application</title><form method="post" action="/submit"><label>Years <input type="text" name="years"></label><label>Resume <input type="file" name="resume"></label><button type="submit">Submit application</button></form>',
       );
     });
     const client = new Client({ name: 'pp-synthetic-upload-test', version: '1' });
@@ -85,10 +88,10 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
         .find((line) => line.includes(url));
       const pageId = Number(pageLine?.match(/^(\d+):/)?.[1]);
       expect(pageId).toBeGreaterThan(0);
-      const uid = (snapshot: string, label: string): string => {
+      const uid = (snapshot: string, label: string, role = 'button'): string => {
         const value = snapshot
           .split('\n')
-          .find((line) => line.includes(`button "${label}"`))
+          .find((line) => line.includes(`${role} "${label}"`))
           ?.match(/uid=(\S+)/)?.[1];
         if (!value) throw new Error(`Missing ${label} UID in ${snapshot}`);
         return value;
@@ -106,6 +109,20 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       expect(afterRejected).toContain(`url="${url}"`);
       expect(afterRejected).toContain('Submit application');
       expect(afterRejected).toContain('resume.pdf');
+
+      // A short answer ending in a line break would be typed as Enter and submit the form: refused before Chrome.
+      const years = uid(afterRejected, 'Years', 'textbox');
+      await expect(call('fill_form', { pageId, elements: [{ uid: years, value: '5\n' }] })).rejects.toThrow('control characters');
+      const filled = await call('fill_form', { pageId, elements: [{ uid: years, value: '5' }] });
+      expect(filled.isError, resultText(filled)).not.toBe(true);
+      expect(submissions).toEqual([]);
+
+      // Only the run's own page is visible, and only its sites open (127.0.0.1, not localhost).
+      const listed = await call('list_pages', {});
+      expect((listed.structuredContent as { pages: Array<{ id: number }> }).pages.map((p) => p.id)).toEqual([pageId]);
+      await expect(call('navigate_page', { pageId, url: `http://localhost:${address.port}/` })).rejects.toThrow('site not allowed');
+      await expect(call('take_snapshot', { pageId: pageId + 1000 })).rejects.toThrow('page this run opened');
+      expect(submissions).toEqual([]);
     } finally {
       await client.close();
       await adapter?.close();

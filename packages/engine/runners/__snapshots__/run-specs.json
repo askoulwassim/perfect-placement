@@ -3,7 +3,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:692b139bf52fb4c3 len:10539>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -29,7 +29,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:fd11d0753263288d len:13283>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -57,7 +57,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:49213719bf7d6f4e len:5981>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -83,7 +83,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:ecba6c43d1929124 len:4807>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -109,7 +109,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:d19db728830358d6 len:3612>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -135,7 +135,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:8c368d0f9a9aa985 len:4637>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -161,7 +161,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:0e9c46160c54dec9 len:24290>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--allowedTools",
@@ -187,7 +187,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:ec00a2724e5b11d9 len:14248>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -215,7 +215,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:674d19392904edaf len:5954>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -242,7 +242,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:2bc2919a9527b84b len:4121>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--strict-mcp-config",
@@ -268,7 +268,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:7af8ae443f54dfd1 len:7990>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -296,7 +296,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:ea8e156580f868a3 len:23536>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--allowedTools",
@@ -321,7 +321,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:682cf03abcae91ff len:7204>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -348,7 +348,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:560e805c08244521 len:14058>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -376,7 +376,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:4c148d87ce4d91fe len:15451>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -406,7 +406,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:2072673014a38ad7 len:15467>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -434,7 +434,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:1b719abfaf192fe8 len:15203>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--tools",
@@ -462,7 +462,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:c23729aec9aecaba len:5004>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--allowedTools",
@@ -485,7 +485,7 @@
     "command": "claude",
     "args": [
       "-p",
-      "<sha256:282aba784641d7e8 len:2560>",
+      "<prompt>",
       "--mcp-config",
       "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_RUN_ID\":\"rn_snapshot\"}}}}",
       "--allowedTools",
@@ -523,7 +523,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:2f1e62642b871cf1 len:10534>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -553,7 +553,7 @@
       "web_search=\"live\"",
       "--model",
       "synthetic",
-      "<sha256:e8fcfcf6402f887c len:13762>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -581,7 +581,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:a4dd2269e5dba47f len:6462>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -609,7 +609,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:c58f70f00b945873 len:5286>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -637,7 +637,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:63c7a478218a75f6 len:4091>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -665,7 +665,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:677b39b3f9558e40 len:5118>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -709,7 +709,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:44fc25a4a405ad0c len:26049>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -753,7 +753,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:763e37eb0332e169 len:16213>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -781,7 +781,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:ebd41e1d6b82a26d len:6686>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -809,7 +809,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:7286f88b892d847c len:4116>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -853,7 +853,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:c26f061e7c15f9cd len:10185>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -881,7 +881,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:caff0d1f35b5bfb1 len:23846>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -909,7 +909,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:b01c00edd796c29e len:7950>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -953,7 +953,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:4d6ffbbeb34f8171 len:16024>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -997,7 +997,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:f2c4d9661b778212 len:17940>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1041,7 +1041,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:2c1e678b4b274bd2 len:16789>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1085,7 +1085,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:29cf18738e27f938 len:16805>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1113,7 +1113,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:8806e0090fab489b len:5678>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1141,7 +1141,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:f940648d3785b926 len:3444>"
+      "<prompt>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1154,7 +1154,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:2f1e62642b871cf1 len:10534>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1181,7 +1181,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:89d6a85856d58352 len:13278>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1210,7 +1210,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:60a91400fa3b5ebe len:5976>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1237,7 +1237,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:8fffd6fe76a9b3f9 len:4802>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1264,7 +1264,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:eaed98773b9db065 len:3607>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1291,7 +1291,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:b84180c081e21142 len:4632>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1318,7 +1318,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:b14680cd0d1d2e37 len:25789>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1345,7 +1345,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:c803b63fe354384f len:15433>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1372,7 +1372,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:60c43f5174882960 len:6687>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1399,7 +1399,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:7286f88b892d847c len:4116>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1426,7 +1426,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:69fcfd1390dcc5f6 len:9925>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1453,7 +1453,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:4e83929778e3ac94 len:23728>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1480,7 +1480,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:1b7f444f0a7ebaa1 len:7832>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1507,7 +1507,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:556c88caa213e3ca len:15244>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1534,7 +1534,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:65e84de279200f15 len:17092>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1561,7 +1561,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:48801e887a7f2fc8 len:15992>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1588,7 +1588,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:46011e6272938d26 len:16008>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1615,7 +1615,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:5345d18729360c6a len:5679>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",
@@ -1642,7 +1642,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:ca642f96a4ba476c len:3445>",
+      "<prompt>",
       "--output-format",
       "text",
       "--trust",

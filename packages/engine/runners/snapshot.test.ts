@@ -1,8 +1,10 @@
 /**
- * Every runner's command line for every skill and mode, pinned (#160). A runner refactor must leave
- * this file byte-identical; a deliberate change regenerates it (`vitest -u`) and the diff shows what moved.
- * Long arguments (prompts, system prompts) are stored as a hash and length; paths that depend on the
- * machine (the checkout, the browser runtime cache) are normalized.
+ * Every runner's command line for every skill and mode, pinned (#160): the flags that enforce what a run may do
+ * (Claude's allowed and denied tools, Codex's enabled tools and pp_browser policy, Cursor's permission files). A change
+ * that should not alter a command line must leave these files byte-identical; a deliberate one regenerates them
+ * (`vitest -u`) and the diff shows what moved. The run's prompt is `<prompt>` (#161): its content is checked by
+ * text.test.ts and the sweeps, so a SKILL.md edit touches no snapshot. Other long arguments (the Ask system prompt)
+ * are a hash and length; paths that depend on the machine (the checkout, the browser runtime cache) are normalized.
  */
 import { createHash } from 'node:crypto';
 import { DEFAULT_CONFIG, RUNNER_COMMANDS, type RunnerConfig, SKILLS, type Skill } from '@perfect-placement/contracts';
@@ -35,9 +37,12 @@ const arg = (a: string) => {
   const n = normalize(a);
   return n.length > LONG ? `<sha256:${createHash('sha256').update(n).digest('hex').slice(0, 16)} len:${n.length}>` : n;
 };
-const shape = (s: { command: string; args: string[]; cwd: string | null; env: Record<string, string>; files: unknown }) => ({
+const shape = (
+  s: { command: string; args: string[]; cwd: string | null; env: Record<string, string>; files: unknown },
+  prompt?: string,
+) => ({
   command: s.command,
-  args: s.args.map(arg),
+  args: s.args.map((a) => (a === prompt ? '<prompt>' : arg(a))),
   cwd: s.cwd,
   env: s.env,
   files: JSON.parse(normalize(JSON.stringify(s.files))) as unknown,
@@ -165,6 +170,7 @@ describe('runner specs (#160)', () => {
           };
           specs[`${command} ${skill} ${mode.name}`] = shape(
             buildRunnerSpec({ runner: config, skill, runId, home: HOME, mcp: MCP, prompt, ...extra }),
+            prompt,
           );
         }
     await expect(`${JSON.stringify(specs, null, 2)}\n`).toMatchFileSnapshot('./__snapshots__/run-specs.json');
