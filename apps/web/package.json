@@ -17,8 +17,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@openuidev/lang-core": "0.4.1",
-    "@openuidev/react-lang": "0.4.1",
+    "@openuidev/lang-core": "1.0.0",
+    "@openuidev/react-lang": "1.0.0",
     "@perfect-placement/contracts": "workspace:*",
     "@perfect-placement/fixtures": "workspace:*",
     "markdown-it": "^15.0.2",
