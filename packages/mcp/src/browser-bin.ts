@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Internal Codex browser adapter. stdout is exclusively the MCP stdio protocol. */
+/** The PP browser adapter (`pp_browser`) for Codex and Cursor runs. stdout is exclusively the MCP stdio protocol. */
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { runners } from '@perfect-placement/engine';
@@ -13,7 +13,7 @@ async function main(): Promise<void> {
       policy: { type: 'string' },
     },
   });
-  if (!values['runtime-dir']) throw new Error('Missing browser runtime. Run pp setup --runner codex');
+  if (!values['runtime-dir']) throw new Error('Missing browser runtime. Run pp setup');
   if (!values.policy) throw new Error("Missing the run's browser policy");
   const policy = runners.parseBrowserPolicy(values.policy);
   const controller = new AbortController();

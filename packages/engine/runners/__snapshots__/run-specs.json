@@ -1154,7 +1154,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:692b139bf52fb4c3 len:10539>",
+      "<sha256:2f1e62642b871cf1 len:10534>",
       "--output-format",
       "text",
       "--trust",
@@ -1181,7 +1181,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:fd11d0753263288d len:13283>",
+      "<sha256:89d6a85856d58352 len:13278>",
       "--output-format",
       "text",
       "--trust",
@@ -1210,7 +1210,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:49213719bf7d6f4e len:5981>",
+      "<sha256:60a91400fa3b5ebe len:5976>",
       "--output-format",
       "text",
       "--trust",
@@ -1237,7 +1237,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:ecba6c43d1929124 len:4807>",
+      "<sha256:8fffd6fe76a9b3f9 len:4802>",
       "--output-format",
       "text",
       "--trust",
@@ -1264,7 +1264,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:d19db728830358d6 len:3612>",
+      "<sha256:eaed98773b9db065 len:3607>",
       "--output-format",
       "text",
       "--trust",
@@ -1291,7 +1291,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:8c368d0f9a9aa985 len:4637>",
+      "<sha256:b84180c081e21142 len:4632>",
       "--output-format",
       "text",
       "--trust",
@@ -1318,7 +1318,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:0e9c46160c54dec9 len:24290>",
+      "<sha256:b14680cd0d1d2e37 len:25789>",
       "--output-format",
       "text",
       "--trust",
@@ -1333,11 +1333,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"linkedin.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1345,7 +1345,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:ec00a2724e5b11d9 len:14248>",
+      "<sha256:c803b63fe354384f len:15433>",
       "--output-format",
       "text",
       "--trust",
@@ -1360,11 +1360,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1372,7 +1372,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:674d19392904edaf len:5954>",
+      "<sha256:60c43f5174882960 len:6687>",
       "--output-format",
       "text",
       "--trust",
@@ -1399,7 +1399,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:2bc2919a9527b84b len:4121>",
+      "<sha256:7286f88b892d847c len:4116>",
       "--output-format",
       "text",
       "--trust",
@@ -1426,7 +1426,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:7af8ae443f54dfd1 len:7990>",
+      "<sha256:69fcfd1390dcc5f6 len:9925>",
       "--output-format",
       "text",
       "--trust",
@@ -1441,11 +1441,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"linkedin.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1453,7 +1453,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:ea8e156580f868a3 len:23536>",
+      "<sha256:4e83929778e3ac94 len:23728>",
       "--output-format",
       "text",
       "--trust",
@@ -1480,7 +1480,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:682cf03abcae91ff len:7204>",
+      "<sha256:1b7f444f0a7ebaa1 len:7832>",
       "--output-format",
       "text",
       "--trust",
@@ -1507,7 +1507,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:560e805c08244521 len:14058>",
+      "<sha256:556c88caa213e3ca len:15244>",
       "--output-format",
       "text",
       "--trust",
@@ -1522,11 +1522,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1534,7 +1534,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:4c148d87ce4d91fe len:15451>",
+      "<sha256:65e84de279200f15 len:17092>",
       "--output-format",
       "text",
       "--trust",
@@ -1549,11 +1549,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\",\\\"upload_file\\\"],\\\"uploads\\\":[\\\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role/resume.pdf\\\",\\\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role/cover_letter.pdf\\\"],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\",\n      \"Mcp(pp_browser:fill_form)\",\n      \"Mcp(pp_browser:upload_file)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1561,7 +1561,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:2072673014a38ad7 len:15467>",
+      "<sha256:48801e887a7f2fc8 len:15992>",
       "--output-format",
       "text",
       "--trust",
@@ -1576,11 +1576,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\",\n      \"Mcp(pp_browser:fill_form)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1588,7 +1588,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:1b719abfaf192fe8 len:15203>",
+      "<sha256:46011e6272938d26 len:16008>",
       "--output-format",
       "text",
       "--trust",
@@ -1603,11 +1603,11 @@
     "files": [
       {
         "path": ".cursor/mcp.json",
-        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    }\n  }\n}\n"
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_RUN_ID\": \"rn_snapshot\"\n      }\n    },\n    \"pp_browser\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"<repo>/packages/mcp/dist/browser-bin.js\",\n        \"--runtime-dir\",\n        \"<codex-runtime>\",\n        \"--policy\",\n        \"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"\n      ],\n      \"env\": {\n        \"HOME\": \"/tmp/pp-snapshot-user\",\n        \"XDG_CACHE_HOME\": \"/tmp/pp-snapshot-cache\"\n      }\n    }\n  }\n}\n"
       },
       {
         "path": ".cursor/cli.json",
-        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\",\n      \"Mcp(pp_browser:list_pages)\",\n      \"Mcp(pp_browser:new_page)\",\n      \"Mcp(pp_browser:close_page)\",\n      \"Mcp(pp_browser:navigate_page)\",\n      \"Mcp(pp_browser:take_snapshot)\",\n      \"Mcp(pp_browser:fill_form)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
       }
     ]
   },
@@ -1615,7 +1615,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:c23729aec9aecaba len:5004>",
+      "<sha256:5345d18729360c6a len:5679>",
       "--output-format",
       "text",
       "--trust",
@@ -1642,7 +1642,7 @@
     "command": "cursor-agent",
     "args": [
       "-p",
-      "<sha256:282aba784641d7e8 len:2560>",
+      "<sha256:ca642f96a4ba476c len:3445>",
       "--output-format",
       "text",
       "--trust",

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_CONFIG, RUNNER_COMMANDS, type RunnerConfig, SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAskSpec } from '../ops/ask.js';
-import { codexBrowserRuntime } from './codex/browser-runtime.js';
+import { browserRuntime } from './browser/runtime.js';
 import {
   type AssistUploads,
   buildRunnerSpec,
@@ -146,7 +146,7 @@ beforeEach(() => {
   vi.stubEnv('XDG_CACHE_HOME', '/tmp/pp-snapshot-cache');
   for (const key of BROWSER_LOCATIONS.slice(2)) vi.stubEnv(key, '');
   vi.stubEnv('PP_NODE', '');
-  runtimeDir = codexBrowserRuntime({ repoRoot: REPO, env: process.env }).dir;
+  runtimeDir = browserRuntime({ repoRoot: REPO, env: process.env }).dir;
 });
 afterEach(() => vi.unstubAllEnvs());
 

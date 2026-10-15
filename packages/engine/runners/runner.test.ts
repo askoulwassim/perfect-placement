@@ -5,6 +5,7 @@ import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ctxAt, type FixtureEngine, fakeLauncher, okOut, openFixtureEngine } from '../testing/index.js';
 import {
+  BROWSER_READ_TOOLS,
   BUILTIN_WRITE_TOOLS,
   buildRunnerSpec,
   CHROME_PREFIX,
@@ -434,9 +435,14 @@ describe('runner command lines', () => {
     expect(JSON.parse(s.files[0]?.content as string).mcpServers.pp).toMatchObject({ command: 'node', env: { PP_RUN_ID: 'rn_1' } });
     expect(s.files[1]?.path).toBe('.cursor/cli.json');
     expect(JSON.parse(s.files[1]?.content as string).permissions).toEqual({
-      allow: ['Mcp(pp:*)', 'WebFetch(*)'],
+      allow: ['Mcp(pp:*)', 'WebFetch(*)', ...BROWSER_READ_TOOLS.map((t) => `Mcp(pp_browser:${t})`)],
       deny: ['Shell(*)', 'Write(**)'],
     });
+    // #161: fill reads the portal through PP's browser adapter with the run's policy.
+    const browser = JSON.parse(s.files[0]?.content as string).mcpServers.pp_browser;
+    expect(browser.command).toBe('node');
+    expect(browser.args[0]).toMatch(/packages\/mcp\/dist\/browser-bin\.js$/);
+    expect(JSON.parse(browser.args[browser.args.indexOf('--policy') + 1]).tools).toEqual([...BROWSER_READ_TOOLS]);
   });
 
   it('the prompt is the skill file plus the run ids', () => {
@@ -540,8 +546,14 @@ describe('per-skill tools (#20)', () => {
     for (const skill of SKILLS) {
       const web = SKILL_TOOLS[skill].web.length > 0;
       expect(spec('codex', skill).args).toContain(web ? 'web_search="live"' : 'web_search="disabled"');
-      const perms = JSON.parse(spec('cursor-agent', skill).files[1]?.content as string).permissions;
-      expect(perms).toEqual(cursorPermissions(skill));
+      const cursor = spec('cursor-agent', skill);
+      const perms = JSON.parse(cursor.files[1]?.content as string).permissions;
+      // #161: a browser skill also allows exactly its policy's pp_browser tools.
+      const servers = JSON.parse(cursor.files[0]?.content as string).mcpServers;
+      const policyArg = servers.pp_browser?.args;
+      const policy = policyArg ? JSON.parse(policyArg[policyArg.indexOf('--policy') + 1]) : undefined;
+      expect(Boolean(policy)).toBe(usesChrome(skill));
+      expect(perms).toEqual(cursorPermissions(skill, policy));
       expect(perms.allow.includes('WebFetch(*)')).toBe(web);
       expect(perms.deny).toEqual(['Shell(*)', 'Write(**)']);
     }

@@ -61,7 +61,7 @@ describe('pp setup', () => {
     };
     d.run = async (cmd, args, opts) => {
       d.runs.push({ cmd, args, cwd: opts?.cwd });
-      const bin = join(opts?.cwd as string, runners.CODEX_BROWSER_ENTRY);
+      const bin = join(opts?.cwd as string, runners.BROWSER_ENTRY);
       mkdirSync(dirname(bin), { recursive: true });
       writeFileSync(bin, '// synthetic runtime');
       writeFileSync(join(opts?.cwd as string, 'node_modules/chrome-devtools-mcp/package.json'), '{"version":"1.10.1"}');
@@ -93,9 +93,7 @@ describe('pp setup', () => {
     d.capture = () => ({ code: 0, stdout: 'v22.11.0', stderr: '' });
     expect(await runCli(['setup', '--runner', 'codex', '--yes', '--no-kev', '--no-mcp', '--no-schedules'], io)).toBe(1);
     expect(text()).toContain('Node 22.12 or newer');
-    expect(text()).toContain(
-      'fix: upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup --runner codex',
-    );
+    expect(text()).toContain('fix: upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup');
     expect(text()).toMatch(/FAIL {2}browser/);
     expect(d.runs).toEqual([]);
   });

@@ -49,10 +49,10 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       const address = http.address();
       if (!address || typeof address === 'string') throw new Error('No fixture server address');
       const url = `http://127.0.0.1:${address.port}/`;
-      const runtime = runners.codexBrowserRuntime({ userHome, env: { XDG_CACHE_HOME: cache } });
+      const runtime = runners.browserRuntime({ userHome, env: { XDG_CACHE_HOME: cache } });
       // The run's policy (#161): fill assist tools, the rendered PDFs, and the fixture server as its one site.
       const policy = {
-        tools: [...runners.CODEX_BROWSER_READ_TOOLS, 'fill_form', 'upload_file'],
+        tools: [...runners.BROWSER_READ_TOOLS, 'fill_form', 'upload_file'],
         uploads: [resume, join(filesDir, 'cover_letter.pdf')],
         sites: ['127.0.0.1'],
       };

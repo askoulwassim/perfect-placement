@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { skillCapabilities } from '../grants.js';
 import {
   ADAPTER_TOOLS,
   ATS_SITES,
@@ -9,8 +10,7 @@ import {
   siteAllowed,
   siteOf,
   skillSites,
-} from './browser-policy.js';
-import { skillCapabilities } from './grants.js';
+} from './policy.js';
 
 describe('browser run policy (#161)', () => {
   it('names a URL by its registrable site, with country second-level domains', () => {

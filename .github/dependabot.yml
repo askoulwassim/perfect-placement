@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: npm
     directories:
       - /
-      - /runtimes/codex-browser
+      - /runtimes/browser
     schedule:
       interval: weekly
     groups:

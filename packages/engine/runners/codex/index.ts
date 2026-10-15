@@ -1,12 +1,12 @@
 import { join } from 'node:path';
 import type { AskChatEvent } from '@perfect-placement/contracts';
-import { browserPolicy, skillSites } from '../browser-policy.js';
+import { browserEnvironment } from '../browser/env.js';
+import { browserPolicy, skillSites } from '../browser/policy.js';
+import { browserRuntime } from '../browser/runtime.js';
 import { SKILL_GRANTS, usesBrowser } from '../grants.js';
 import { isObj, type Obj, str } from '../json.js';
 import { MCP_SERVER_NAME, REPO_ROOT } from '../mcp-server.js';
 import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, RunnerSpec } from '../types.js';
-import { codexBrowserEnvironment } from './browser-env.js';
-import { codexBrowserRuntime } from './browser-runtime.js';
 import { codexBrowserArgs } from './connectors.js';
 import { CODEX_TEXT, codexGrants, codexPreamble, codexToolsPhrase } from './text.js';
 
@@ -60,7 +60,7 @@ function run(opts: RunContext): RunnerSpec {
         ? codexBrowserArgs({
             nodePath: mcp.command,
             adapterBin: join(REPO_ROOT, 'packages/mcp/dist/browser-bin.js'),
-            runtimeDir: codexBrowserRuntime({ repoRoot: REPO_ROOT, env: browserEnv }).dir,
+            runtimeDir: browserRuntime({ repoRoot: REPO_ROOT, env: browserEnv }).dir,
             env: browserEnv,
             policy,
           })
@@ -156,5 +156,5 @@ export const codex: RunnerBinding = {
   ask,
   askParser,
   // A scheduled job keeps the browser's runtime cache and Chrome profile locations (#157).
-  jobEnv: (env) => codexBrowserEnvironment(env),
+  jobEnv: (env) => browserEnvironment(env),
 };

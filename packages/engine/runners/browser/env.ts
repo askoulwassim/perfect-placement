@@ -1,5 +1,5 @@
-/** Location settings needed on both sides of Codex's filtered MCP environment. Never inherit secrets. */
-export function codexBrowserEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+/** Location settings needed on both sides of a runner's filtered MCP environment (Codex clears the rest). Never inherit secrets. */
+export function browserEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
   const selected: Record<string, string> = {};
   for (const key of [
     'HOME', // User cache and Chrome profile fallback.
