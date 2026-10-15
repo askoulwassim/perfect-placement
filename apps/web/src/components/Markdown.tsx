@@ -10,7 +10,7 @@ import { C, display, eyebrow, mono } from './theme';
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: false });
 
-type Token = ReturnType<MarkdownIt['parse']>[number];
+type Token = ReturnType<typeof md.parse>[number];
 interface MdNode {
   tok: Token;
   children: Array<MdNode | string>;
@@ -147,7 +147,7 @@ function render(nodes: ReadonlyArray<MdNode | string>, z: Sizes, compact: boolea
       case 's_open':
         return <s key={k}>{kids()}</s>;
       case 'link_open': {
-        const href = tok.attrGet('href') ?? '';
+        const href = String(tok.attrGet('href') ?? ''); // v15 types attrs as string | number
         if (!SAFE_HREF.test(href)) return <span key={k}>{kids()}</span>;
         return (
           <a key={k} href={href} target="_blank" rel="noopener noreferrer" data-op="nav">
