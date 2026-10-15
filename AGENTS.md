@@ -14,7 +14,7 @@ Background: `docs/architecture.md` (how the parts fit), `docs/decisions.md` and 
 AGENTS.md               this file
 packages/
   contracts/            zod schemas, statuses, events, ops registry, resolver + policy types, design tokens, UI inventory
-  engine/               openEngine(): db/ (repos, migrations, vault, doctor)  ops/ (runOp + handlers)  status/  profile/  scoring/  freshness/  people/  integrations/
+  engine/               openEngine(): db/ (repos, migrations, vault, doctor)  ops/ (runOp + handlers)  runners/ (one module per agent CLI)  status/  profile/  scoring/  freshness/  people/  integrations/
   resolver/             decision layer: rule, Kev, agent, human; policy; decision ops
   mcp/                  MCP server generated from ops (stdio `pp-mcp`, HTTP at /mcp)
   cli/                  `pp`: setup, up, init, kev, doctor, op, scout, score, fresh, inbox, uninstall

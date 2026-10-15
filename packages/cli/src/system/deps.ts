@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, openSync, realpathSync, statSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 
 export interface SystemDeps {
   platform: NodeJS.Platform;
@@ -57,7 +57,7 @@ export function whichIn(cmd: string, path: string | undefined): string | null {
 }
 
 /** The node to write into MCP client configs (PP_NODE, else a Cellar path mapped to `opt/`): one rule with the runner. */
-export const stableNodePath = ops.stableNodePath;
+export const stableNodePath = runners.stableNodePath;
 
 export function realDeps(env: NodeJS.ProcessEnv = process.env): SystemDeps {
   return {

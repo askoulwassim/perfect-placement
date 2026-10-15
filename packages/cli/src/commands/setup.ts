@@ -8,7 +8,7 @@
  *   --no-schedules   skip the OS jobs for config.schedules (#29; add later: pp schedules install)
  */
 import { existsSync } from 'node:fs';
-import { RUNNER_COMMANDS, type RunnerConfig } from '@perfect-placement/contracts';
+import { RUNNER_COMMANDS } from '@perfect-placement/contracts';
 import { db, ops } from '@perfect-placement/engine';
 import type { Args } from '../args.js';
 import { CliError, confirm, type Io } from '../io.js';
@@ -22,8 +22,8 @@ import {
   ppMcpBin,
   registerClient,
 } from '../system/clients.js';
-import { browserNodeCheck, browserRuntimeFor, installCodexBrowser } from '../system/codex-browser.js';
 import { isKevModel, KEV_MODELS, type KevModel, kevInstalled, kevSupport } from '../system/kev.js';
+import { runnerSetupSteps } from '../system/runners.js';
 import { jobManager, syncJobs } from '../system/schedules.js';
 import { init } from './init.js';
 import { configuredModel, ensureUv, kevInstall, sysOf } from './kev.js';
@@ -131,7 +131,8 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
     }
     io.out(`runner: ${requestedRunner}`);
   }
-  steps.push(await setupCodexBrowser(ops.readConfig(home).runner.command, io, yes));
+  // What the selected runner needs installed (Codex: its browser runtime, #157).
+  steps.push(...(await runnerSetupSteps(ops.readConfig(home).runner.command, io, d, yes)));
 
   // (b) Kev
   steps.push(await setupKev(args, home, io, yes, model as KevModel | undefined));
@@ -194,32 +195,6 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
     ].join('\n'),
   );
   return finish();
-}
-
-async function setupCodexBrowser(runner: RunnerConfig['command'], io: Io, yes: boolean): Promise<SetupStep> {
-  const step = 'browser';
-  if (runner !== 'codex') return { step, result: 'skipped', detail: `not needed for ${runner}` };
-  const d = sysOf(io);
-  try {
-    const node = browserNodeCheck(d);
-    if (!node.ok)
-      return {
-        step,
-        result: 'failed',
-        detail: node.detail,
-        fix: 'upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup --runner codex',
-      };
-    const runtime = browserRuntimeFor(d);
-    if (ops.codexBrowserReadiness(runtime).ok)
-      return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
-    if (!(await confirm(io, yes, `Install Codex browser support (chrome-devtools-mcp ${runtime.packageVersion})?`, true)))
-      return { step, result: 'skipped', detail: 'declined (add later: pp setup --runner codex)' };
-    await installCodexBrowser(d, runtime);
-    io.out('browser: enable remote debugging at chrome://inspect/#remote-debugging, then Allow the Chrome connection prompt');
-    return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
-  } catch (e) {
-    return { step, result: 'failed', detail: (e as Error).message, fix: 'pp setup --runner codex' };
-  }
 }
 
 async function setupKev(args: Args, home: string, io: Io, yes: boolean, model: KevModel | undefined): Promise<SetupStep> {

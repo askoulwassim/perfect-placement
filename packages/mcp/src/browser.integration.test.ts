@@ -11,7 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 import { describe, expect, it } from 'vitest';
 import { type BrowserAdapter, browserServerParameters, createBrowserAdapter } from './browser.js';
 
@@ -49,7 +49,7 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       const address = http.address();
       if (!address || typeof address === 'string') throw new Error('No fixture server address');
       const url = `http://127.0.0.1:${address.port}/`;
-      const runtime = ops.codexBrowserRuntime({ userHome, env: { XDG_CACHE_HOME: cache } });
+      const runtime = runners.codexBrowserRuntime({ userHome, env: { XDG_CACHE_HOME: cache } });
       const options = { assist: true, filesDir };
       const parameters = browserServerParameters(runtime.dir, options, runtime);
       // Only the connection changes for this test. The adapter's guards and native upload tool are production code.

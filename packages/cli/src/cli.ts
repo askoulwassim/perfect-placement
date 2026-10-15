@@ -12,8 +12,8 @@ import { uninstallCommand } from './commands/uninstall.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
-import { codexBrowserDoctor } from './system/codex-browser.js';
 import { kevInstalled } from './system/kev.js';
+import { runnerDoctorChecks } from './system/runners.js';
 import { scheduleJobsCheck } from './system/schedules.js';
 
 export const COMMANDS = [
@@ -108,7 +108,7 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
             ...res.checks,
             ...nodePathChecks(home, sysOf(io)),
             scheduleJobsCheck(home, ops.readConfig(home).schedules, sysOf(io)),
-            codexBrowserDoctor(ops.readConfig(home).runner.command, sysOf(io)),
+            ...runnerDoctorChecks(ops.readConfig(home).runner.command, sysOf(io)),
           ];
           return renderDoctor({ ...res, checks, ok: checks.every((c) => c.ok) }, home, io, args.has('json'));
         } finally {

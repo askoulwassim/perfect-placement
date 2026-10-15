@@ -1,0 +1,68 @@
+# packages/engine/runners
+
+One module per agent CLI that can run a skill headless or answer in Ask (#160). `config.runner.command` picks one; everything about that CLI lives in its module.
+
+| File | What |
+| --- | --- |
+| `types.ts` | `RunnerBinding`, `RunnerSpec`, `RunRequest` / `RunContext`, `AskSpec` / `AskContext`, `AskSink`, the launcher types. |
+| `registry.ts` | `RUNNERS` (one binding per `RUNNER_COMMANDS` entry) and `buildRunnerSpec`, which prepares what every runner shares (PP_RUN_ID, the pp MCP server, `config.runner.args`) and calls the selected binding. |
+| `claude.ts` | `claude -p`: run and Ask command lines, the `stream-json` Ask parser, `deniedTools` (`permission_denials`) and the Claude deny lists. |
+| `codex/` | `codex exec`: `index.ts` (command lines, Ask parser, schedule job env), `connectors.ts` (tool bindings, prompt rewriting), `browser-runtime.ts` + `browser-env.ts` (the optional browser runtime, #157). |
+| `cursor.ts` | `cursor-agent -p`: command lines in a temp dir with `.cursor/mcp.json` + `.cursor/cli.json`, Ask parser. |
+| `grants.ts` | `SKILL_TOOLS`: what each skill's run may use (Claude names today; #159 makes them runner-neutral). |
+| `prompt.ts` | The headless prompt every runner gets: `skillPrompt`, the Gmail draft and To step prompts, the per-skill lines. |
+| `mcp-server.ts` | The pp MCP server a runner is pointed at (`defaultMcpServer`, `stableNodePath`), `resolveRepoRoot`, `DEFAULT_SKILLS_DIR`. |
+| `launcher.ts` | The spawn launcher (detached, log + pid in `<os tmp>/pp-runs/`, never the vault), `runnerAlive`, `killRunner`. |
+
+A binding is `{ command, run, ask, askParser, deniedTools?, jobEnv? }`. Ops call `buildRunnerSpec` (runs) and `buildAskSpec` (Ask, `ops/ask.ts`); `AskStreamParser` keeps the turn's state and feeds each JSON line to the binding's parser. Machine work a runner needs (Codex: install the browser runtime, its doctor check) is in the CLI's `src/system/runners.ts`, which keeps every file write and spawn in `src/system`.
+
+**Adding a runner:** add its command to `RUNNER_COMMANDS` (contracts), a module here, its entry in `RUNNERS` and in the CLI's `RUNNER_MACHINE`. `registry.test.ts` fails until every command has a binding; `snapshot.test.ts` pins every runner's command line for every skill and mode (`__snapshots__/`): a change that should not alter a command line must leave it byte-identical, and a deliberate one regenerates it (`vitest -u`) so the diff shows what changed.
+
+## Headless runs
+
+**Per-skill tools (`SKILL_TOOLS`, #20).** Headless runs cannot answer a permission prompt, so each run pre-approves exactly what its skill needs and nothing broader (no shell, no file writes or reads; every read and write is an op):
+
+| Skill | Tools | Why |
+| --- | --- | --- |
+| scout, research, freshness | pp + WebSearch + WebFetch | query boards and career pages; sourced dossier; judge live pages |
+| tailor, score | pp + WebFetch | capture the full JD when only a title is on file |
+| fill | pp + WebFetch + Claude in Chrome read tools; with assist (#106) also `form_input` + `file_upload` | read the real portal questions; with assist upload the rendered PDFs (`apply.render_documents`) and fill the answer fields, stop before Submit, report `apply.fill_done` |
+| inbox | pp + Gmail `search_threads`, `get_thread`, `get_message` | classify replies, read-only (#80) |
+| learn, onboard | pp | ops only |
+| connect | pp + Gmail `search_threads`, `get_thread`, `get_message`, `create_draft` (+ `--chrome`) | contact emails (#37); the run finishes its own Gmail drafts (#79) |
+
+**Gmail (claude.ai connector, `mcp__claude_ai_Gmail__*`).** A skill with Gmail tools (`inbox`, `connect`, and the Gmail draft step) runs without `--strict-mcp-config` so the connector loads, pre-approves only its Gmail tools (`SKILL_TOOLS[skill].gmail`) and passes every other Gmail write in `GMAIL_WRITE_TOOLS` (send, reply, forward, draft create / update / delete, trash, spam, labels) to `--disallowedTools` (`gmailDeniedTools`). `inbox` is read-only: all writes denied, built-ins still narrowed (`--tools ""`, `dontAsk`). Each `skills/<skill>/SKILL.md` declares its tools in a `## Tools` section; `runners/runner.test.ts` fails when that list and `skillAllowedTools` drift, when a SKILL.md names a Gmail tool its skill is not granted, or when a read-only skill is granted a write.
+
+**Fail loudly.** If the runner exits while the run is still `running`, `runs.start` finishes it as `error` with `summary_json.error` (and `denied_tools`, `runner_log`). For Claude Code the denied tools come from the result's `permission_denials`; the error names each tool and the fix (settings deny rule, or `SKILL_TOOLS` / `config.runner.args`). The prompt also tells the agent to finish with `summary.error: "tool denied: <tool>"` itself. Only observable while the launching process (`pp up`) is alive.
+
+For Codex, the runner translates the shared skill text's `WebSearch` and `WebFetch` names to the built-in web tool's search and open actions. This applies to the tool list, inlined skill and companion files, so a scoring run uses page retrieval instead of looking for a separate Claude `WebFetch` tool. Fetch-only skills still prohibit search queries, and skills without web access keep it disabled. An actual missing tool or denied call still ends the run; shell and connector fallbacks remain prohibited. See [Codex web search](https://learn.chatgpt.com/docs/web-search?surface=cli).
+
+Codex also receives `mcp_servers.pp.default_tools_approval_mode="approve"` for the child run, matching the pp MCP grant in `skillAllowedTools`. `approval_policy="never"` alone rejects MCP writes that require approval, so scoring or saving a dossier would fail after successful reads. The default applies only to pp, preserves explicit per-tool approval overrides, and does not edit the user's Codex config. PP's resolver and human-only restrictions still apply inside every op. See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+**Codex connectors.** `codex/connectors.ts` binds the shared workflow to Codex's tools instead of requiring Claude connector names. Gmail search/read/draft labels describe capabilities: the session discovers the actual tools exposed by its connected Gmail app or MCP server. Inbox and Voice stay read-only; Connect may create drafts; the To-update step may only read and update the existing draft. Installing or authenticating Gmail is separate from selecting the runner. Missing setup finishes with `setup required: <capability>`, without the transient `connector_unavailable` retry. A denied call still stops the run.
+
+Browser skills receive a `pp_browser` MCP server through PP's adapter in `packages/mcp`. `pp setup --runner codex` installs pinned `chrome-devtools-mcp@1.10.1` from the standalone manifest, lockfile and pnpm patch in `runtimes/codex-browser`, outside the normal workspace dependencies. Setup installs it only for the selected Codex runner, into a PP-owned user cache keyed by the manifest, lockfile and patch contents; older unpatched installations are not reused. Registering Codex as an MCP client does not select the runner; browser installation follows the current runner selection. The runner starts the adapter with absolute Node and JavaScript paths; the adapter starts the installed browser server without `npx` or an installation fallback. Missing or stale runtime setup reports `pp setup --runner codex`; nonbrowser runs need no browser installation.
+
+The browser MCP configuration explicitly passes the location settings selected by `codexBrowserEnvironment`: `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `CHROME_CONFIG_HOME`, `LOCALAPPDATA` and `APPDATA` when set (never `TMPDIR`, `TMP` or `TEMP`, which vary by shell). This preserves runtime and Chrome locations across Codex's filtered MCP environment; Codex schedule jobs retain the same settings.
+
+Both the Codex configuration and adapter expose only `list_pages`, `new_page`, `close_page`, `navigate_page`, and `take_snapshot`; fill assist additionally gets `fill_form`, and gets `upload_file` only when rendering supplied a files directory. The prompt follows the same grants. The adapter validates every upload path before forwarding, permitting only the canonical rendered `resume.pdf` and `cover_letter.pdf`, rejecting unrelated files and escaping symlinks. It rejects snapshot `filePath`, navigation scripts/local-file URLs, and `fill_form` values under 100 characters that contain a control character: native `fill_form` types those values as keystrokes, so a line break would press Enter and submit the form, and a Tab would move focus. Longer values are set directly. Native `fill_form` toggles checkboxes, radios and switches with a click on that element. It does not forward the client's MCP roots. These checks enforce PP's file-operation limits independently of native `--workspace`, which is additive to client roots and the OS temp directory. No Codex writable root is added. Click, key, script, dialog, and other tools are excluded; native JavaScript evaluation, usage statistics and CrUX are disabled. The agent is instructed to create and use its own pages, leave the filled portal page open for review, and never act on an existing user page or submit. Page ownership is an agent instruction; the adapter does not enforce ownership of `pageId`.
+
+The browser connection is `--autoConnect`: Chrome 144+ must be running. At `chrome://inspect/#remote-debugging`, check **Allow remote debugging for this browser instance**, then click **Allow** on Chrome's connection request when the run starts. Both steps are required; see the [install guide](../../../docs/install.md#chrome-setup-for-codex). This attaches to the existing browser so the portal stays open after the headless runner exits. See [Chrome DevTools MCP setup](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md) and [tool schemas](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/tool-reference.md). No browser server is started for Gmail-only steps or when LinkedIn is disabled for Connect/Voice.
+
+PP's native upload patch removes the chooser-click fallback: `upload_file` requires an actual file input and propagates a failed direct upload without clicking the target. Chooser-opening buttons are unsupported. This restriction does not suppress a site's own event handlers when fields or files change.
+
+| Runner | Command line (flags checked 2026-10: `claude --help` 2.1.x, Codex config reference, Cursor CLI parameters + permissions docs) |
+| --- | --- |
+| `claude` | `claude -p <prompt> --mcp-config '<json>' --strict-mcp-config --tools <web tools or ""> --allowedTools mcp__pp[,WebSearch,WebFetch] --permission-mode dontAsk --permission-prompts none --output-format json`, cwd `PP_HOME`. `--tools` limits the built-ins (MCP tools stay), `--allowedTools` pre-approves, `dontAsk` + `--permission-prompts none` deny anything else. `connect`: `--strict-mcp-config --allowedTools mcp__pp ... --chrome` as before. Fill assist (#123): `runs.dispatch` renders the PDFs first (`apply.render_documents`, logged on the run) and adds `--add-dir <absolute PP_HOME>/files/<role_id>` (that folder only, never PP_HOME or `files/`) so Claude in Chrome's `file_upload` can read them; the prompt's Uploads line names their absolute paths. A failed render launches without `--add-dir`, and the prompt says to upload nothing and report both documents as skipped with the reason. |
+| `codex` | `codex exec --skip-git-repo-check -c mcp_servers.pp.command=".." -c mcp_servers.pp.args=[..] -c mcp_servers.pp.env.PP_HOME=".." -c mcp_servers.pp.env.PP_RUN_ID=".." -c mcp_servers.pp.default_tools_approval_mode="approve" -c approval_policy="never" -c web_search="live"\|"disabled" <prompt>`, cwd `PP_HOME` (never a git repo). Web skills get `live`, others `disabled`. Browser skills add the `pp_browser` adapter described above; fill assist passes its rendered directory through `--files-dir` and the adapter permits only the two rendered PDFs. No Codex `--add-dir` writable root is granted. |
+| `cursor-agent` | `cursor-agent -p <prompt> --output-format text --trust --approve-mcps --force`, cwd = a temp dir holding `.cursor/mcp.json` (MCP servers) and `.cursor/cli.json` (`permissions`: allow `Mcp(pp:*)` + `WebFetch(*)` for web skills, deny `Shell(*)`, `Write(**)`; deny wins over `--force`). Cursor documents no web search tool or permission for the CLI; web skills rely on `WebFetch`. No Claude in Chrome and no documented extra-directory flag, so no fill assist upload. |
+
+`config.runner.args` are appended. Tests use `fakeLauncher()`; nothing spawns in CI.
+
+## Ask turns
+
+| Runner | Ask turn |
+| --- | --- |
+| `claude` | `claude -p <message> --append-system-prompt <prompt> --mcp-config '<json>' --strict-mcp-config --tools WebSearch,WebFetch --allowedTools mcp__pp,WebSearch,WebFetch --permission-mode dontAsk --permission-prompts none --output-format stream-json --verbose --include-partial-messages [--resume <session_id>]`, cwd `PP_HOME` (sessions are per directory). Text streams token by token. |
+| `codex` | `codex exec --json --skip-git-repo-check -c mcp_servers.pp.* -c approval_policy="never" -c sandbox_mode="read-only" -c web_search="live" <prompt>`; no resume here: the prompt replays the last turns (`replayPrompt`). Text arrives per agent message, not per token. |
+| `cursor-agent` | `cursor-agent -p <prompt> --output-format stream-json --trust --approve-mcps --force` in a temp dir with `.cursor/mcp.json` + `.cursor/cli.json` (allow `Mcp(pp:*)`, `WebFetch(*)`; deny `Shell(*)`, `Write(**)`); transcript replay as Codex. Tool call shapes are parsed best effort. |

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_CONFIG, RUNNER_COMMANDS, type RunnerConfig, SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAskSpec } from '../ops/ask.js';
-import { codexBrowserRuntime } from '../ops/codex-browser-runtime.js';
+import { codexBrowserRuntime } from './codex/browser-runtime.js';
 import {
   type AssistUploads,
   buildRunnerSpec,
@@ -19,7 +19,7 @@ import {
   type PromptContext,
   resolveRepoRoot,
   skillPrompt,
-} from '../ops/runner.js';
+} from './index.js';
 
 const REPO = resolveRepoRoot();
 const HOME = '/tmp/pp-snapshot-vault';

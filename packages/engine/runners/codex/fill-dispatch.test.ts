@@ -2,8 +2,8 @@ import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXTURE_ROLE_IDS } from '@perfect-placement/fixtures';
 import { describe, expect, it } from 'vitest';
-import { ctxAt, okOut, openFixtureEngine } from '../testing/index.js';
-import { CODEX_BROWSER_READ_TOOLS } from './codex-connectors.js';
+import { ctxAt, okOut, openFixtureEngine } from '../../testing/index.js';
+import { CODEX_BROWSER_READ_TOOLS } from './connectors.js';
 
 describe('Codex fill assist dispatch', () => {
   it.each(['rendered', 'failed'] as const)(

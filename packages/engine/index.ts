@@ -9,6 +9,7 @@ export * as ops from './ops/index.js';
 export { createEngine, type Engine, type EngineServices, type OpenEngineOptions, openEngine } from './ops/index.js';
 export * as people from './people/index.js';
 export * as profile from './profile/index.js';
+export * as runners from './runners/index.js';
 export * as scoring from './scoring/index.js';
 export * as scout from './scout/index.js';
 export * as status from './status/index.js';

@@ -23,7 +23,7 @@ import {
   type ScheduleJobState,
   type ScheduleKey,
 } from '@perfect-placement/contracts';
-import { ops } from '@perfect-placement/engine';
+import { ops, runners } from '@perfect-placement/engine';
 import type { SystemDeps } from './deps.js';
 
 export type Schedules = PolicyConfig['schedules'];
@@ -192,14 +192,15 @@ export interface JobPlan {
 export function planJobs(home: string, schedules: Schedules, d: SystemDeps, opts: JobOptions = {}): JobPlan[] {
   const m = jobManager(d);
   const cli = opts.cli ?? ppCliBin();
-  let runner: string | undefined;
+  let runner: runners.RunnerCommand | undefined;
   try {
     runner = ops.readConfig(home).runner.command;
   } catch {
     runner = undefined;
   }
   const env = { PATH: jobPath(d, d.nodePath, runner) };
-  const browserEnv = runner === 'codex' ? ops.codexBrowserEnvironment({ ...d.env, HOME: d.home }) : undefined;
+  // What the runner's jobs keep from this shell (Codex: browser locations, #157); part of the job fingerprint.
+  const browserEnv = runner ? runners.RUNNERS[runner].jobEnv?.({ ...d.env, HOME: d.home }) : undefined;
   return SCHEDULE_KEYS.map((key): JobPlan => {
     const spec = schedules[key];
     if (spec === 'off') return { key, spec, on: false, files: [] };

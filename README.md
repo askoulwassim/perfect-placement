@@ -118,7 +118,7 @@ Everything in this repo, and where to find it.
 | Packages | |
 | :-- | :-- |
 | [packages/contracts](packages/contracts) | Schemas, statuses, events, the ops registry, policy, design tokens |
-| [packages/engine](packages/engine) | The mechanics: [db](packages/engine/db/README.md) · [ops](packages/engine/ops/README.md) · [status](packages/engine/status/README.md) · [scoring](packages/engine/scoring/README.md) · [freshness](packages/engine/freshness/README.md) · [people](packages/engine/people/README.md) · [profile](packages/engine/profile/README.md) · [ATS](packages/engine/integrations/ats/README.md) · [Gmail](packages/engine/integrations/gmail/README.md) · [LinkedIn](packages/engine/integrations/linkedin/README.md) |
+| [packages/engine](packages/engine) | The mechanics: [db](packages/engine/db/README.md) · [ops](packages/engine/ops/README.md) · [runners](packages/engine/runners/README.md) · [status](packages/engine/status/README.md) · [scoring](packages/engine/scoring/README.md) · [freshness](packages/engine/freshness/README.md) · [people](packages/engine/people/README.md) · [profile](packages/engine/profile/README.md) · [ATS](packages/engine/integrations/ats/README.md) · [Gmail](packages/engine/integrations/gmail/README.md) · [LinkedIn](packages/engine/integrations/linkedin/README.md) |
 | [packages/resolver](packages/resolver/README.md) | Who decides: rule, Kev, agent, you · [Kev setup](packages/resolver/docs/kev-setup.md) · [eval report](packages/resolver/eval-reports/synthetic/report.md) |
 | [packages/mcp](packages/mcp/README.md) | The MCP server, with config snippets for each agent |
 | [packages/cli](packages/cli/README.md) | The `pp` command |

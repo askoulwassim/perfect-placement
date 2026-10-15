@@ -4,13 +4,6 @@ import { type RenderDoc, type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, 
 import { draftRecipient } from '../../people/email.js';
 import { gmailRecipient, hasNoAddress } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
-import { achievedMix, mixLine } from '../../scoring/source-mix.js';
-import { notFound, OpError } from '../errors.js';
-import { newId } from '../ids.js';
-import { peopleDeps } from '../lanes/people.js';
-import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scheduleOf, scopeOf, summaryOf, waiting } from '../queue.js';
-import { isTransient, nextRetry, realTimer, retryPolicyFor, transientMarker } from '../retry.js';
-import { get, insert, select, update } from '../rows.js';
 import {
   type AssistUploads,
   buildRunnerSpec,
@@ -18,14 +11,21 @@ import {
   createSpawnLauncher,
   DEFAULT_SKILLS_DIR,
   defaultMcpServer,
-  deniedTools,
   deniedToolsError,
   gmailDraftPrompt,
   gmailToPrompt,
+  RUNNERS,
   type RunnerExit,
   SKILL_TOOLS,
   skillPrompt,
-} from '../runner.js';
+} from '../../runners/index.js';
+import { achievedMix, mixLine } from '../../scoring/source-mix.js';
+import { notFound, OpError } from '../errors.js';
+import { newId } from '../ids.js';
+import { peopleDeps } from '../lanes/people.js';
+import { activeDuplicate, isQueueRun, pipelineStarts, queueRuns, sameScope, scheduleOf, scopeOf, summaryOf, waiting } from '../queue.js';
+import { isTransient, nextRetry, realTimer, retryPolicyFor, transientMarker } from '../retry.js';
+import { get, insert, select, update } from '../rows.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
@@ -293,7 +293,8 @@ function launchRun(run: Run, h: HandlerContext): void {
   const failIfOpen = async (r: RunnerExit) => {
     const got = await runOp('runs.get', { run_id: id }, ctx);
     if (got.status !== 'ok' || (got.output as { run: { status: string } }).run.status !== 'running') return;
-    const denied = command === 'claude' ? deniedTools(r.output) : [];
+    // Only a runner that reports denials (Claude Code's permission_denials) names them.
+    const denied = RUNNERS[command].deniedTools?.(r.output) ?? [];
     // #121: a runner that died on a connection reset or idle timeout says so, so a scheduled run is retried.
     const marker = denied.length ? null : transientMarker(r.output);
     const error = denied.length

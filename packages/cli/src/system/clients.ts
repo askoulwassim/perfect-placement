@@ -7,7 +7,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { ops } from '@perfect-placement/engine';
+import { runners } from '@perfect-placement/engine';
 import type { SystemDeps } from './deps.js';
 
 export const CLIENT_IDS = ['claude-code', 'codex', 'cursor', 'claude-desktop'] as const;
@@ -309,7 +309,7 @@ export function registeredNodes(d: Pick<SystemDeps, 'platform' | 'home' | 'env'>
 /** Why a node path will not (or soon will not) start: missing, or inside a versioned Homebrew keg. Null when fine. */
 export function nodePathProblem(command: string, exists: (p: string) => boolean = existsSync): string | null {
   if (!exists(command)) return `${command} no longer exists`;
-  if (ops.CELLAR_NODE.test(command)) return `${command} is a versioned Homebrew path (breaks on brew upgrade)`;
+  if (runners.CELLAR_NODE.test(command)) return `${command} is a versioned Homebrew path (breaks on brew upgrade)`;
   return null;
 }
 
@@ -322,7 +322,7 @@ export function nodePathChecks(
   d: Pick<SystemDeps, 'platform' | 'home' | 'env'>,
   exists: (p: string) => boolean = existsSync,
 ): { name: string; ok: boolean; detail?: string }[] {
-  const runner = ops.defaultMcpServer(ppHome, ops.stableNodePath(d.env, process.execPath, exists)).command;
+  const runner = runners.defaultMcpServer(ppHome, runners.stableNodePath(d.env, process.execPath, exists)).command;
   const runnerProblem = nodePathProblem(runner, exists);
   const registered = registeredNodes(d);
   const bad = registered.flatMap((r) => {

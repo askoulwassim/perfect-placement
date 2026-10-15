@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { codexBrowserNodeCompatible, codexBrowserReadiness, codexBrowserRuntime } from './codex-browser-runtime.js';
+import { codexBrowserNodeCompatible, codexBrowserReadiness, codexBrowserRuntime } from './browser-runtime.js';
 
 let root: string;
 beforeEach(() => {

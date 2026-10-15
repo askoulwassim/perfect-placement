@@ -5,10 +5,10 @@ import type { Actor, Answer, AskRequest, DecisionBackend, OpContext, OpOutcome, 
 import { FIXTURE_NOW, FIXTURE_SEED_SQL, FIXTURE_VAULT_DIR } from '@perfect-placement/fixtures';
 import { BackendUnavailableError } from '@perfect-placement/resolver';
 import { type OpenEngineOptions, openEngine } from '../ops/index.js';
-import type { RunnerExit, RunnerLauncher, RunnerSpec } from '../ops/runner.js';
 import type { EngineServices } from '../ops/services.js';
 import { deepMerge } from '../ops/vault.js';
 import type { ProfileLlm } from '../profile/deps.js';
+import type { RunnerExit, RunnerLauncher, RunnerSpec } from '../runners/types.js';
 
 /*
  * TEST-ONLY helpers (excluded from the build; exported as `@perfect-placement/engine/testing` for

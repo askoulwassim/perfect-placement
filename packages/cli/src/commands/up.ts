@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { askChatFrame, type OpContext, type OpOutcome } from '@perfect-placement/contracts';
-import { ops } from '@perfect-placement/engine';
+import { ops, runners } from '@perfect-placement/engine';
 import { createMcpHttpHandler, type ToolNameStyle } from '@perfect-placement/mcp';
 
 /*
@@ -40,7 +40,7 @@ export interface UpOptions {
   /** Launches Ask turns (#39). Default: spawns `config.runner`. Tests inject a fake; never a real agent. */
   askLauncher?: ops.AskLauncher;
   /** The pp MCP server an Ask turn gets. Default: `defaultMcpServer(home)`. */
-  askMcp?: ops.McpServerSpec;
+  askMcp?: runners.McpServerSpec;
 }
 
 export interface Running {
@@ -134,7 +134,7 @@ async function streamAsk(
   engine: ops.Engine,
   body: unknown,
   res: ServerResponse,
-  o: { threads: ops.AskThreads; launcher: ops.AskLauncher; mcp: ops.McpServerSpec | undefined },
+  o: { threads: ops.AskThreads; launcher: ops.AskLauncher; mcp: runners.McpServerSpec | undefined },
 ): Promise<void> {
   const abort = new AbortController();
   res.once('close', () => {
@@ -145,7 +145,7 @@ async function streamAsk(
   const turn = ops.runAsk(body, {
     home: engine.home,
     runner: ops.readConfig(engine.home).runner,
-    mcp: o.mcp ?? ops.defaultMcpServer(engine.home),
+    mcp: o.mcp ?? runners.defaultMcpServer(engine.home),
     launcher: o.launcher,
     threads: o.threads,
     signal: abort.signal,

@@ -1,14 +1,16 @@
 /** Optional machine runtime. Install only from setup; never from a run or into the vault. */
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type db, ops } from '@perfect-placement/engine';
+import { type db, runners } from '@perfect-placement/engine';
+import type { SetupStep } from '../commands/setup.js';
+import { confirm, type Io } from '../io.js';
 import type { SystemDeps } from './deps.js';
 
-export const browserRuntimeFor = (d: Pick<SystemDeps, 'home' | 'env'>) => ops.codexBrowserRuntime({ userHome: d.home, env: d.env });
+export const browserRuntimeFor = (d: Pick<SystemDeps, 'home' | 'env'>) => runners.codexBrowserRuntime({ userHome: d.home, env: d.env });
 
 export function browserNodeCheck(d: Pick<SystemDeps, 'nodePath' | 'capture'>): { ok: boolean; detail: string } {
   const version = d.capture(d.nodePath, ['--version']);
-  return version.code === 0 && ops.codexBrowserNodeCompatible(version.stdout)
+  return version.code === 0 && runners.codexBrowserNodeCompatible(version.stdout)
     ? { ok: true, detail: version.stdout.trim() }
     : {
         ok: false,
@@ -17,7 +19,7 @@ export function browserNodeCheck(d: Pick<SystemDeps, 'nodePath' | 'capture'>): {
       };
 }
 
-function packageManager(d: SystemDeps, runtime: ops.CodexBrowserRuntime): { command: string; args: string[] } {
+function packageManager(d: SystemDeps, runtime: runners.CodexBrowserRuntime): { command: string; args: string[] } {
   const corepack = d.which('corepack');
   if (corepack) return { command: corepack, args: [runtime.packageManager] };
   const pnpm = d.which('pnpm');
@@ -31,7 +33,7 @@ function packageManager(d: SystemDeps, runtime: ops.CodexBrowserRuntime): { comm
 export async function installCodexBrowser(d: SystemDeps, runtime = browserRuntimeFor(d)): Promise<void> {
   const node = browserNodeCheck(d);
   if (!node.ok) throw new Error(node.detail);
-  if (ops.codexBrowserReadiness(runtime).ok) return;
+  if (runners.codexBrowserReadiness(runtime).ok) return;
   const manager = packageManager(d, runtime);
   mkdirSync(runtime.cacheRoot, { recursive: true });
   const staging = mkdtempSync(join(runtime.cacheRoot, '.install-'));
@@ -50,8 +52,8 @@ export async function installCodexBrowser(d: SystemDeps, runtime = browserRuntim
     );
     if (code !== 0) throw new Error(`Browser install failed (exit ${code}). Run pp setup --runner codex to retry`);
     writeFileSync(join(staging, 'installed.json'), `${JSON.stringify({ fingerprint: runtime.fingerprint })}\n`);
-    const staged = { ...runtime, dir: staging, bin: join(staging, ops.CODEX_BROWSER_ENTRY) };
-    if (!ops.codexBrowserReadiness(staged).ok) throw new Error('Browser install did not produce the expected locked executable');
+    const staged = { ...runtime, dir: staging, bin: join(staging, runners.CODEX_BROWSER_ENTRY) };
+    if (!runners.codexBrowserReadiness(staged).ok) throw new Error('Browser install did not produce the expected locked executable');
     // Serialize the short, synchronous publication step. Recheck after acquiring it so a second
     // repair cannot rename or delete the complete installation a concurrent setup just published.
     const lock = join(runtime.cacheRoot, `.publish-${runtime.fingerprint}`);
@@ -59,13 +61,13 @@ export async function installCodexBrowser(d: SystemDeps, runtime = browserRuntim
       mkdirSync(lock);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-      if (ops.codexBrowserReadiness(runtime).ok) return;
+      if (runners.codexBrowserReadiness(runtime).ok) return;
       throw new Error(
         `Another browser setup is publishing. Retry pp setup --runner codex. If no setup is running, remove the stale lock directory ${lock}`,
       );
     }
     try {
-      if (ops.codexBrowserReadiness(runtime).ok) return;
+      if (runners.codexBrowserReadiness(runtime).ok) return;
       if (existsSync(runtime.dir)) {
         if (lstatSync(runtime.dir).isSymbolicLink()) throw new Error(`Refusing to replace a linked browser runtime: ${runtime.dir}`);
         const damaged = `${staging}-incomplete`;
@@ -84,9 +86,34 @@ export async function installCodexBrowser(d: SystemDeps, runtime = browserRuntim
   }
 }
 
-export function codexBrowserDoctor(runner: string, d: SystemDeps): db.DoctorResult['checks'][number] {
-  if (runner !== 'codex') return { name: 'codex_browser', ok: true, detail: 'not needed for the selected runner' };
+/** `pp setup`'s step for the Codex runner: install the pinned browser runtime, asked first. */
+export async function setupCodexBrowser(io: Io, d: SystemDeps, yes: boolean): Promise<SetupStep> {
+  const step = 'browser';
+  try {
+    const node = browserNodeCheck(d);
+    if (!node.ok)
+      return {
+        step,
+        result: 'failed',
+        detail: node.detail,
+        fix: 'upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup --runner codex',
+      };
+    const runtime = browserRuntimeFor(d);
+    if (runners.codexBrowserReadiness(runtime).ok)
+      return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
+    if (!(await confirm(io, yes, `Install Codex browser support (chrome-devtools-mcp ${runtime.packageVersion})?`, true)))
+      return { step, result: 'skipped', detail: 'declined (add later: pp setup --runner codex)' };
+    await installCodexBrowser(d, runtime);
+    io.out('browser: enable remote debugging at chrome://inspect/#remote-debugging, then Allow the Chrome connection prompt');
+    return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
+  } catch (e) {
+    return { step, result: 'failed', detail: (e as Error).message, fix: 'pp setup --runner codex' };
+  }
+}
+
+/** `pp doctor`'s check for the Codex runner: Node new enough and the pinned browser runtime installed. */
+export function codexBrowserDoctor(d: SystemDeps): db.DoctorResult['checks'][number] {
   const node = browserNodeCheck(d);
   if (!node.ok) return { name: 'codex_browser', ...node };
-  return { name: 'codex_browser', ...ops.codexBrowserReadiness(browserRuntimeFor(d)) };
+  return { name: 'codex_browser', ...runners.codexBrowserReadiness(browserRuntimeFor(d)) };
 }
