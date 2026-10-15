@@ -17,14 +17,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@openuidev/lang-core": "0.3.2",
-    "@openuidev/react-lang": "0.3.2",
+    "@openuidev/lang-core": "0.4.1",
+    "@openuidev/react-lang": "0.4.1",
     "@perfect-placement/contracts": "workspace:*",
     "@perfect-placement/fixtures": "workspace:*",
     "markdown-it": "^14.3.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@perfect-placement/engine": "workspace:*",

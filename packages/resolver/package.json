@@ -19,9 +19,9 @@
     "eval": "node dist/eval/cli.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.1",
+    "@anthropic-ai/sdk": "^0.133.0",
     "@perfect-placement/contracts": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@perfect-placement/fixtures": "workspace:*",

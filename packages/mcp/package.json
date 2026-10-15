@@ -22,7 +22,7 @@
     "@perfect-placement/contracts": "workspace:*",
     "@perfect-placement/engine": "workspace:*",
     "@perfect-placement/fixtures": "workspace:*",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "bin": {
     "pp-mcp": "./dist/bin.js"
