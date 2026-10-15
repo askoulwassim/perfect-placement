@@ -69,7 +69,7 @@ Chrome must be 144 or newer. To let pp connect to your existing Chrome session:
 3. Check **Allow remote debugging for this browser instance**.
 4. Start **Open and fill** in pp. When Chrome asks to allow the connection, click **Allow**. Enabling the checkbox alone does not approve that connection.
 
-The agent is instructed to work in a new portal tab and leave it open for your review; the adapter does not enforce tab ownership. Review the remaining fields before submitting: custom dropdowns that do not retain selections, questions without saved answers, and demographic questions you chose to answer yourself are reported as skipped. PP's browser adapter exposes no click, key, script or submit tools.
+The agent is instructed to work in a new portal tab and leave it open for your review; the adapter does not enforce tab ownership. Review the remaining fields before submitting: custom dropdowns that do not retain selections, questions without saved answers, and demographic questions you chose to answer yourself are reported as skipped. PP's browser adapter exposes no click, key, script or submit tools; filling a checkbox or radio clicks only that control, and short answers cannot contain line breaks or tabs, which would be typed as key presses.
 
 PP's browser adapter permits uploads only of the role's rendered `resume.pdf` and `cover_letter.pdf`. It rejects other file paths, including links escaping that directory, and snapshots cannot be saved to files. An upload aimed at another element fails without clicking it; buttons that open file choosers are unsupported. If document rendering fails, form filling remains available but uploads are withheld and reported as skipped.
 

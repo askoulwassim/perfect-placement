@@ -6,9 +6,8 @@ export function codexBrowserEnvironment(env: NodeJS.ProcessEnv): Record<string, 
     'XDG_CACHE_HOME', // The optional installed browser runtime.
     'XDG_CONFIG_HOME', // Chrome's user configuration.
     'CHROME_CONFIG_HOME', // Chrome's Linux profile override, ahead of XDG_CONFIG_HOME.
-    'TMPDIR',
-    'TMP',
-    'TEMP', // Browser temporary files on macOS, Linux and Windows.
+    // Not TMPDIR/TMP/TEMP: they vary by shell (agent sandboxes set their own), and a schedule job would
+    // keep one for its whole run. The adapter attaches to a running Chrome and keeps snapshots inline.
     'LOCALAPPDATA',
     'APPDATA', // Windows Chrome profile/cache locations.
   ]) {

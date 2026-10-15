@@ -101,16 +101,19 @@ describe('Codex browser locations in scheduled jobs', () => {
   const locations = () => ({
     HOME: d.home,
     XDG_CACHE_HOME: join(root, 'cache & <browser>'),
-    XDG_CONFIG_HOME: join(root, 'config'),
+    XDG_CONFIG_HOME: join(root, 'config \' " $HOME \\%n'),
     CHROME_CONFIG_HOME: join(root, 'chrome-config'),
-    TMPDIR: join(root, 'scratch \' " $HOME \\%n'),
-    TMP: join(root, 'tmp'),
-    TEMP: join(root, 'temp'),
     LOCALAPPDATA: join(root, 'local-app-data'),
     APPDATA: join(root, 'app-data'),
   });
   function setLocations() {
-    d.env = { ...d.env, ...locations(), HOME: '/must-not-override-system-deps-home', SECRET_TOKEN: 'do-not-copy' };
+    d.env = {
+      ...d.env,
+      ...locations(),
+      HOME: '/must-not-override-system-deps-home',
+      SECRET_TOKEN: 'do-not-copy',
+      TMPDIR: join(root, 'shell-scratch'),
+    };
   }
   const plan = () => planJobs(join(root, 'vault'), schedules, d, { cli: realCli() })[0];
 
@@ -128,6 +131,7 @@ describe('Codex browser locations in scheduled jobs', () => {
     expect(ops.codexBrowserEnvironment(env)).toEqual(locations());
     expect(content).not.toContain('do-not-copy');
     expect(content).not.toContain('/must-not-override-system-deps-home');
+    expect(content).not.toContain('shell-scratch');
     expect(ops.codexBrowserRuntime({ env }).dir).toBe(ops.codexBrowserRuntime({ userHome: d.home, env: d.env }).dir);
   });
 
@@ -136,7 +140,7 @@ describe('Codex browser locations in scheduled jobs', () => {
     setLocations();
     d.platform = 'linux';
     d.which = (cmd) => (cmd === 'systemctl' ? '/usr/bin/systemctl' : null);
-    d.env.TMPDIR += '\nEnvironment=BAD=unexpected\r\t';
+    d.env.XDG_CONFIG_HOME += '\nEnvironment=BAD=unexpected\r\t';
     const service = plan()?.files[0]?.content as string;
     const lines = service.split('\n').filter((line) => line.startsWith('Environment='));
     const env = Object.fromEntries(
@@ -146,8 +150,8 @@ describe('Codex browser locations in scheduled jobs', () => {
         return [assignment.slice(0, equals), assignment.slice(equals + 1)];
       }),
     );
-    expect(ops.codexBrowserEnvironment(env)).toEqual({ ...locations(), TMPDIR: d.env.TMPDIR });
-    expect(lines).toHaveLength(12); // PATH, PP_HOME, PP_NODE, and the nine browser locations.
+    expect(ops.codexBrowserEnvironment(env)).toEqual({ ...locations(), XDG_CONFIG_HOME: d.env.XDG_CONFIG_HOME });
+    expect(lines).toHaveLength(9); // PATH, PP_HOME, PP_NODE, and the six browser locations.
     expect(service).toContain('%%n');
     expect(service).not.toContain('\nEnvironment=BAD');
     expect(service).not.toContain('do-not-copy');
@@ -201,7 +205,10 @@ describe('Codex browser locations in scheduled jobs', () => {
     expect(states(join(root, 'vault'), realCli())).toEqual(['stale', 'off', 'stale']);
     expect((await syncJobs(join(root, 'vault'), schedules, d, { cli: realCli() })).ok).toBe(true);
     expect(states(join(root, 'vault'), realCli())).toEqual(['installed', 'off', 'installed']);
-    delete d.env.TMPDIR;
+    // A shell's temp dir varies (agent sandboxes set their own) and is not part of the job.
+    d.env.TMPDIR = join(root, 'another-shell-scratch');
+    expect(states(join(root, 'vault'), realCli())).toEqual(['installed', 'off', 'installed']);
+    delete d.env.XDG_CONFIG_HOME;
     expect(states(join(root, 'vault'), realCli())).toEqual(['stale', 'off', 'stale']);
   });
 

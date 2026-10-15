@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -71,7 +71,8 @@ async function connect(options: BrowserOptions = {}, behavior: { result?: CallTo
 }
 
 beforeEach(async () => {
-  home = await mkdtemp(join(tmpdir(), 'pp-browser-adapter-'));
+  // Canonical, as the adapter forwards it (macOS tmpdir() is under the /var -> /private/var link).
+  home = await realpath(await mkdtemp(join(tmpdir(), 'pp-browser-adapter-')));
   filesDir = join(home, 'files', 'synthetic-role');
   await mkdir(filesDir, { recursive: true });
   await writeFile(join(filesDir, 'resume.pdf'), 'synthetic resume');
@@ -112,6 +113,22 @@ describe('restricted browser MCP boundary', () => {
     const args = { pageId: 7, elements: [{ uid: '7_3', value: 'Synthetic Candidate' }] };
     expect(await client.callTool({ name: 'fill_form', arguments: args })).toEqual(nativeResult);
     expect(calls).toEqual([{ name: 'fill_form', arguments: args }]);
+  });
+
+  it('rejects short fill values with control characters, which native typing would press as keys', async () => {
+    const { client, calls } = await connect({ assist: true });
+    for (const value of ['5\n', 'Yes\r', 'Synthetic\t ', 'No\u001b']) {
+      const elements = [
+        { uid: '7_1', value: 'Synthetic Candidate' },
+        { uid: '7_3', value },
+      ];
+      await expect(client.callTool({ name: 'fill_form', arguments: { pageId: 7, elements } })).rejects.toThrow('control characters');
+    }
+    expect(calls).toHaveLength(0);
+    // At 100 characters or more the native tool sets the value directly, so paragraphs keep their line breaks.
+    const elements = [{ uid: '7_3', value: `${'Synthetic paragraph. '.repeat(5)}\n\nSecond synthetic paragraph.` }];
+    await client.callTool({ name: 'fill_form', arguments: { pageId: 7, elements } });
+    expect(calls).toEqual([{ name: 'fill_form', arguments: { pageId: 7, elements } }]);
   });
 
   it('preserves native tool errors and protocol errors', async () => {

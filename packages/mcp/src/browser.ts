@@ -77,6 +77,22 @@ function webUrl(value: unknown): void {
 }
 
 /**
+ * Native fill_form types values shorter than Puppeteer's typing threshold (100) as keystrokes, and a
+ * control character there is a key press: a line break is Enter (submits a single-line field's form),
+ * Tab moves focus to the next control. Longer values are set directly, without key events.
+ */
+const TYPED_VALUE_LIMIT = 100;
+function fillValues(elements: unknown): void {
+  if (!Array.isArray(elements)) return; // the native schema rejects it
+  for (const element of elements) {
+    const value = (element as { value?: unknown } | null)?.value;
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is rejected
+    if (typeof value === 'string' && value.length < TYPED_VALUE_LIMIT && /[\u0000-\u001f\u007f]/.test(value))
+      denied('Short fill values cannot contain line breaks, tabs or other control characters; they would be typed as key presses');
+  }
+}
+
+/**
  * The upstream transport is injectable so protocol and path checks run on synthetic servers.
  * The native client advertises no roots and never relays downstream roots or notifications.
  */
@@ -123,6 +139,7 @@ export async function createBrowserAdapter(
       if (name === 'take_snapshot' && Object.hasOwn(args, 'filePath')) denied('Snapshots must be returned inline');
       if (name === 'navigate_page' && Object.hasOwn(args, 'initScript')) denied('Navigation scripts are not allowed');
       if (name === 'new_page' || (name === 'navigate_page' && Object.hasOwn(args, 'url'))) webUrl(args.url);
+      if (name === 'fill_form') fillValues(args.elements);
       if (name === 'upload_file') {
         if (!filesDir) denied('Uploads require a fill assist with rendered documents');
         args.filePaths = await uploadPaths(args.filePaths, filesDir);

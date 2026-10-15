@@ -70,14 +70,12 @@ describe('Codex connector bindings', () => {
       HOME: '/tmp/pp-synthetic-user',
       XDG_CACHE_HOME: '/tmp/pp-synthetic-cache',
       XDG_CONFIG_HOME: '/tmp/pp-synthetic-config',
-      CHROME_CONFIG_HOME: '/tmp/pp-synthetic-chrome-config',
-      TMPDIR: '/tmp/pp-browser scratch "quotes" \\ slash\nnew line\u007f',
-      TMP: '/tmp/pp-browser-tmp',
-      TEMP: '/tmp/pp-browser-temp',
+      CHROME_CONFIG_HOME: '/tmp/pp-browser scratch "quotes" \\ slash\nnew line\u007f',
       LOCALAPPDATA: '/tmp/pp-local-app-data',
       APPDATA: '/tmp/pp-app-data',
     };
     vi.stubEnv('XDG_CACHE_HOME', '/tmp/pp-parent-cache');
+    vi.stubEnv('TMPDIR', '/tmp/pp-shell-scratch');
     vi.stubEnv('PP_BROWSER_TEST_SECRET', 'must-not-be-forwarded');
     const s = buildRunnerSpec({
       runner: { command: 'codex' },
