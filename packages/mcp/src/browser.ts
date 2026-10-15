@@ -165,8 +165,8 @@ export async function createBrowserAdapter(
 ): Promise<BrowserAdapter> {
   if (policy.uploads.some((file) => !isAbsolute(file))) denied('The rendered files must be absolute paths');
   const allowed = new Set(policy.tools);
-  const upstream = new Client({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: {} });
-  const server = new Server({ name: 'perfect-placement-browser', version: '0.1.0' }, { capabilities: { tools: { listChanged: false } } });
+  const upstream = new Client({ name: 'perfect-placement-browser', version: '0.2.0' }, { capabilities: {} });
+  const server = new Server({ name: 'perfect-placement-browser', version: '0.2.0' }, { capabilities: { tools: { listChanged: false } } });
   /** Pages this run opened with new_page; the only ones it may see or act on. */
   const owned = new Set<number>();
   let closing: Promise<void> | undefined;
