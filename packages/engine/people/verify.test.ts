@@ -4,7 +4,7 @@ import type { OpOutcome } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDryRunGmail, type DryRunGmail } from '../integrations/gmail/index.js';
 import type { EngineServices } from '../ops/services.js';
-import { GMAIL_DRAFT_TOOL, GMAIL_GET_DRAFT_TOOL, GMAIL_PREFIX, GMAIL_UPDATE_TOOL } from '../runners/grants.js';
+import { GMAIL_DRAFT_TOOL, GMAIL_GET_DRAFT_TOOL, GMAIL_PREFIX, GMAIL_UPDATE_TOOL } from '../runners/claude-tools.js';
 import { ctxAt, type FixtureEngine, openFixtureEngine } from '../testing/index.js';
 import { createMailResolver } from './dns.js';
 import { NO_CANDIDATE } from './email.js';

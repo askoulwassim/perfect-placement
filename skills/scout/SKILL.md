@@ -36,11 +36,11 @@ Optional, only when the posting states it: `url`, `ats_job_id`, `company_domain`
 
 ## Tools
 
-A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
+A headless run pre-approves exactly these (`SKILL_GRANTS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
 
-- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
-- `WebSearch`: run the plan's queries on job boards and the open market.
-- `WebFetch`: open each hit to capture the candidate fields.
+- `{{tool:pp}}`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `{{tool:web.search}}`: run the plan's queries on job boards and the open market.
+- `{{tool:web.fetch}}`: open each hit to capture the candidate fields.
 
 ## Rules
 

@@ -1,14 +1,6 @@
 import { DEFAULT_CONFIG, SKILLS, type Skill } from '@perfect-placement/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  type AssistUploads,
-  buildRunnerSpec,
-  DEFAULT_SKILLS_DIR,
-  gmailDraftPrompt,
-  gmailToPrompt,
-  skillPrompt,
-  uploadsLine,
-} from '../index.js';
+import { buildRunnerSpec, DEFAULT_SKILLS_DIR, gmailDraftPrompt, gmailToPrompt, skillPrompt, uploadsLine } from '../index.js';
 import { codexBrowserEnvironment } from './browser-env.js';
 import { codexBrowserRuntime } from './browser-runtime.js';
 import { CODEX_BROWSER_FILL_TOOLS, CODEX_BROWSER_READ_TOOLS } from './connectors.js';
@@ -26,6 +18,7 @@ function spec(
       opts.prompt ??
       skillPrompt(DEFAULT_SKILLS_DIR, {
         ...context,
+        runner: 'codex',
         skill,
         assist: opts.assist,
         ...(opts.filesDir
@@ -186,6 +179,7 @@ describe('Codex connector bindings', () => {
       assist: true,
       prompt: skillPrompt(DEFAULT_SKILLS_DIR, {
         ...context,
+        runner: 'codex',
         skill: 'fill',
         assist: true,
         uploads,
@@ -202,17 +196,9 @@ describe('Codex connector bindings', () => {
     expect(failed.args.join(' ')).not.toContain('--files-dir');
   });
 
-  it.each([
-    { name: 'omitted upload metadata', uploads: undefined },
-    {
-      name: 'rendered paths without an upload grant',
-      uploads: { dir: filesDir, files: [{ doc: 'resume', abs_path: `${filesDir}/resume.pdf` }] } satisfies AssistUploads,
-    },
-  ])('keeps filling usable with $name and no files directory', ({ uploads }) => {
-    const sharedPrompt = skillPrompt(DEFAULT_SKILLS_DIR, { ...context, skill: 'fill', assist: true, uploads });
-    const s = spec('fill', { assist: true, prompt: sharedPrompt });
-    const prompt = s.args.at(-1) as string;
-    expect(browserTools(s.args)).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
+  it('keeps filling usable when no upload metadata was given, and Claude still renders in the session', () => {
+    const prompt = spec('fill', { assist: true }).args.at(-1) as string;
+    expect(browserTools(spec('fill', { assist: true }).args)).toEqual([...CODEX_BROWSER_READ_TOOLS, 'fill_form']);
     expectNoUploadInstructions(prompt);
     expect(prompt).toContain('fill saved answer fields with fill_form');
     expect(prompt).toContain('uploaded: []');
@@ -220,20 +206,10 @@ describe('Codex connector bindings', () => {
       expect(prompt).toContain(`{ label: "${label}", reason: "uploads unavailable: no rendered-files directory was supplied" }`);
     }
     expect(prompt).not.toContain(`${filesDir}/resume.pdf`);
-    expect(s.args.join(' ')).not.toContain('--files-dir');
-    // The shared skill still supports the other runners' render-in-session flow.
-    for (const runner of ['claude', 'cursor-agent'] as const) {
-      const other = buildRunnerSpec({
-        runner: { command: runner },
-        skill: 'fill',
-        assist: true,
-        prompt: sharedPrompt,
-        runId: context.runId,
-        home: '/tmp/pp-home',
-        mcp,
-      });
-      expect(other.args).toContain(sharedPrompt);
-    }
+    // Claude reads the PDFs through --add-dir, so its run renders them itself when the engine did not.
+    const claude = skillPrompt(DEFAULT_SKILLS_DIR, { ...context, skill: 'fill', assist: true });
+    expect(claude).toContain('Uploads: call apply.render_documents');
+    expect(claude).toContain('with file_upload');
   });
 
   it('keeps pasted questions usable and preserves the writing rules', () => {
@@ -244,8 +220,9 @@ describe('Codex connector bindings', () => {
     expect(prompt).toContain('do not read the portal for questions');
     expect(prompt).toContain('the only source of facts');
     expect(prompt).toContain('No em dashes');
-    expect(prompt).not.toContain('mcp__pp_browser__fill_form');
-    expect(prompt).not.toContain('mcp__pp_browser__upload_file');
+    const tools = prompt.split('\n').find((line) => line.startsWith('Tools:'));
+    expect(tools).not.toContain('mcp__pp_browser__fill_form');
+    expect(tools).not.toContain('mcp__pp_browser__upload_file');
   });
 
   it('binds Gmail to connected capabilities without inventing server names or retrying missing setup', () => {
@@ -263,8 +240,8 @@ describe('Codex connector bindings', () => {
   });
 
   it('keeps draft creation and To updates separate and grants neither browser tools nor extra Gmail writes', () => {
-    const draft = spec('connect', { gmailDraft: true, prompt: gmailDraftPrompt(DEFAULT_SKILLS_DIR, context) });
-    const update = spec('connect', { gmailTo: true, prompt: gmailToPrompt(DEFAULT_SKILLS_DIR, context) });
+    const draft = spec('connect', { gmailDraft: true, prompt: gmailDraftPrompt(DEFAULT_SKILLS_DIR, { ...context, runner: 'codex' }) });
+    const update = spec('connect', { gmailTo: true, prompt: gmailToPrompt(DEFAULT_SKILLS_DIR, { ...context, runner: 'codex' }) });
     for (const s of [draft, update]) {
       expect(browserTools(s.args)).toBeUndefined();
       expect(s.args.at(-1)).not.toMatch(/mcp__claude|error_code: "connector_unavailable"/);
@@ -290,13 +267,21 @@ describe('Codex connector bindings', () => {
             const s = spec(skill, { assist, linkedin, filesDir: dir });
             expect(s.args.at(-1), `${skill}, assist=${assist}, linkedin=${linkedin}, files=${Boolean(dir)}`).not.toMatch(legacy);
             const uploads = skill === 'fill' && assist && Boolean(dir);
+            const prompt = s.args.at(-1) as string;
             expect(browserTools(s.args)?.includes('upload_file') ?? false).toBe(uploads);
-            expect(s.args.at(-1)?.includes('mcp__pp_browser__upload_file')).toBe(uploads);
-            if (!uploads) expectNoUploadInstructions(s.args.at(-1) as string);
-            else expect(s.args.at(-1)).toContain('Uploads: rendered before launch');
+            // The Tools line lists what the run is granted; the SKILL.md's own Tools list documents the skill's full grant.
+            expect(
+              prompt
+                .split('\n')
+                .find((line) => line.startsWith('Tools:'))
+                ?.includes('mcp__pp_browser__upload_file'),
+            ).toBe(uploads);
+            if (uploads) expect(prompt).toContain('Uploads: rendered before launch');
+            // The fill assist without uploads never tells the run to upload.
+            else if (skill === 'fill' && assist) expectNoUploadInstructions(prompt);
           }
           for (const mode of ['gmailDraft', 'gmailTo'] as const) {
-            const prompt = (mode === 'gmailDraft' ? gmailDraftPrompt : gmailToPrompt)(DEFAULT_SKILLS_DIR, context);
+            const prompt = (mode === 'gmailDraft' ? gmailDraftPrompt : gmailToPrompt)(DEFAULT_SKILLS_DIR, { ...context, runner: 'codex' });
             const s = spec('connect', { assist, linkedin, filesDir: dir, [mode]: true, prompt });
             expect(s.args.at(-1), `${mode}, assist=${assist}, linkedin=${linkedin}, files=${Boolean(dir)}`).not.toMatch(legacy);
             expect(browserTools(s.args)).toBeUndefined();

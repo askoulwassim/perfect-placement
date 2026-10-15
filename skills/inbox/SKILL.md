@@ -15,7 +15,7 @@ Daily (scheduled) once applications are out, and on demand.
 
 1. `runs.start { skill: "inbox" }`.
 2. Watch set: `roles.list { status: ["draft-ready", "applied", "interviews", "offers", "active"] }` plus outreach in Gmail (`in_gmail` drafts). Derive companies from it; never hardcode a company or sender.
-3. Search Gmail (read-only, see Tools: `mcp__claude_ai_Gmail__search_threads`, then `mcp__claude_ai_Gmail__get_thread` or `mcp__claude_ai_Gmail__get_message` to read) for the last 2 days (`newer_than:2d`): ATS and recruiting senders (Greenhouse, Lever, Ashby, Workday, Jobvite, iCIMS, SmartRecruiters, Workable, BambooHR, and no-reply, talent, recruiting, careers, notifications addresses) or mail naming a watch-set company. Each message's id and thread id are the `message_id` and `thread_id` you pass to `inbox.ingest`. A Gmail search or read tool denied: finish as `error` with `tool denied`; not loaded in this session: finish with `error_code: "connector_unavailable"` (Tools below); never guess.
+3. Search Gmail (read-only, see Tools: `{{gmail.search}}`, then `{{gmail.thread}}` or `{{gmail.message}}` to read) for the last 2 days (`newer_than:2d`): ATS and recruiting senders (Greenhouse, Lever, Ashby, Workday, Jobvite, iCIMS, SmartRecruiters, Workable, BambooHR, and no-reply, talent, recruiting, careers, notifications addresses) or mail naming a watch-set company. Each message's id and thread id are the `message_id` and `thread_id` you pass to `inbox.ingest`. A Gmail search or read tool denied: finish as `error` with `tool denied`; {{connector.not_loaded}}; never guess.
 4. For each message pick one `class`:
    - `confirmation`: "thank you for applying", application received.
    - `interview_request`: next steps, availability, scheduling. Add `interview_at` (ISO) when a time is fixed.
@@ -35,14 +35,14 @@ confirmation -> `applied` (records `applied_at`), interview_request -> `intervie
 
 ## Tools
 
-A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`. A Gmail or Claude in Chrome tool from this list that is not available in the session at all (the connector did not load; not a denial) is reported as `runs.finish { run_id, status: "error", error_code: "connector_unavailable", error: "connector_unavailable: <tool>" }` before doing anything else: the engine retries the run once about 45 s later (#122).
+A headless run pre-approves exactly these (`SKILL_GRANTS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`. {{connector.tools}}
 
-- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
-- `mcp__claude_ai_Gmail__search_threads`: search Gmail (Claude Code's claude.ai Gmail connector).
-- `mcp__claude_ai_Gmail__get_thread`: read a thread found by the search.
-- `mcp__claude_ai_Gmail__get_message`: read one message.
+- `{{tool:pp}}`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `{{tool:gmail.search}}`: search Gmail{{gmail.connector_note}}.
+- `{{tool:gmail.thread}}`: read a thread found by the search.
+- `{{tool:gmail.message}}`: read one message.
 
-Gmail is **read-only** here: every Gmail write (send, reply, forward, draft create / update / delete, trash, spam, labels) is denied. Other MCP clients (Codex, Cursor) use the search and read tools of the Gmail MCP server the user configured for them.
+Gmail is **read-only** here: every Gmail write (send, reply, forward, draft create / update / delete, trash, spam, labels) is denied.{{gmail.other_clients}}
 
 ## Rules
 

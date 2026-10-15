@@ -1,4 +1,6 @@
 import type { AskChatEvent, RunnerConfig, Skill } from '@perfect-placement/contracts';
+import type { Capability, RunMode } from './grants.js';
+import type { PromptText } from './text.js';
 
 /*
  * One module per runner (#160): each `RunnerBinding` owns its command lines (headless run, Ask turn), how its
@@ -140,8 +142,36 @@ export interface AskSink {
 /** One JSON line of a runner's Ask output to chat events. A fresh parser per turn: its state lives in the closure. */
 export type AskLineParser = (line: Record<string, unknown>, sink: AskSink) => AskChatEvent[];
 
+/** What a run is granted depends on (#159). */
+export interface GrantRequest {
+  skill: Skill;
+  mode?: RunMode;
+  /** config.linkedin.mode is `live` (connect, voice). Default true. */
+  linkedin?: boolean;
+  /** The fill assist (#106). */
+  assist?: boolean;
+  /** The engine rendered the fill assist's PDFs (#123). */
+  uploadsReady?: boolean;
+}
+
+/** What a runner's preamble may say about the run. */
+export interface PreambleContext {
+  runId: string;
+  caps: readonly Capability[];
+  /** A fill run with the assist. */
+  assist: boolean;
+}
+
 export interface RunnerBinding {
   readonly command: RunnerCommand;
+  /** The capabilities this runner grants the run, in order (web, Gmail, browser). */
+  grants(g: GrantRequest): Capability[];
+  /** Its text for every placeholder in SKILL.md and the prompt lines. */
+  readonly text: PromptText;
+  /** What follows "the pp MCP tools" in the prompt's Tools line ("" when nothing). */
+  toolsPhrase(caps: readonly Capability[]): string;
+  /** Lines before the prompt (Codex: its tool bindings). */
+  preamble?(p: PreambleContext): string[];
   /** A headless skill run's command line. */
   run(r: RunContext): RunnerSpec;
   /** One Ask turn's command line. */

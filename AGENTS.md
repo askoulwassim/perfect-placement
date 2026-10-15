@@ -20,7 +20,7 @@ packages/
   cli/                  `pp`: setup, up, init, kev, doctor, op, scout, score, fresh, inbox, uninstall
   fixtures/             synthetic vault + db seed
 apps/web/               UI from the Claude Design prototype; genui/ renders Ask replies with OpenUI
-skills/<name>/SKILL.md  agent-agnostic skills
+skills/<name>/SKILL.md  agent-agnostic skills; tools are {{placeholders}} each runner names (packages/engine/runners/README.md)
 docs/                   architecture, decisions, UI design; history/ keeps the build-era contract log
 ```
 

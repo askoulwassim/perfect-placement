@@ -11,6 +11,7 @@ import {
   CHROME_READ_TOOLS,
   CHROME_TAB_TOOLS,
   CHROME_WRITE_TOOLS,
+  CLAUDE_TEXT,
   chromeDeniedTools,
   connectDeniedTools,
   cursorPermissions,
@@ -30,6 +31,7 @@ import {
   gmailDraftPrompt,
   gmailStepSection,
   MCP_SERVER_NAME,
+  renderText,
   resolveRepoRoot,
   SKILL_ASSETS,
   SKILL_TOOLS,
@@ -365,7 +367,8 @@ describe('runner command lines', () => {
         'web_search="live"',
       ]),
     );
-    expect(s.args.at(-1)).toContain('\n\nP');
+    // The prompt arrives in Codex's names (skillPrompt with runner codex, #159): passed through as is.
+    expect(s.args.at(-1)).toBe('P');
   });
 
   it('codex scopes its approval default to pp and permits a stricter runner override', () => {
@@ -389,7 +392,7 @@ describe('runner command lines', () => {
   });
 
   it('codex maps the score skill web fetch to page retrieval without granting search queries', () => {
-    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'score' });
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'score', runner: 'codex' });
     const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp });
     const delivered = s.args.at(-1);
     expect(delivered).toContain('Tools: the pp MCP tools and web.run open, nothing else.');
@@ -401,19 +404,25 @@ describe('runner command lines', () => {
     expect(delivered).toContain('never edit files or the database directly');
     expect(delivered).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
     expect(s.args).toContain('web_search="live"');
-    expect(buildRunnerSpec({ runner: { command: 'claude' }, prompt, runId: 'rn_1', skill: 'score', home: '/h', mcp }).args[1]).toBe(prompt);
+    const claudePrompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'score' });
+    expect(claudePrompt).toContain('Tools: the pp MCP tools and WebFetch, nothing else.');
+    expect(
+      buildRunnerSpec({ runner: { command: 'claude' }, prompt: claudePrompt, runId: 'rn_1', skill: 'score', home: '/h', mcp }).args[1],
+    ).toBe(claudePrompt);
   });
 
   it('codex maps scout search and fetch in the skill and companion plan, but keeps ops-only skills unchanged', () => {
-    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'scout' });
+    const prompt = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_1', skill: 'scout', runner: 'codex' });
     const s = buildRunnerSpec({ runner: { command: 'codex' }, prompt, runId: 'rn_1', skill: 'scout', home: '/h', mcp });
     expect(s.args.at(-1)).toContain('Tools: the pp MCP tools and web.run search, web.run open, nothing else.');
     expect(s.args.at(-1)).toContain('Web search queries and page retrieval are allowed');
     expect(s.args.at(-1)).toContain('# Scout plan');
     expect(s.args.at(-1)).not.toMatch(/\bWebFetch\b|\bWebSearch\b/);
-    const learn = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_2', skill: 'learn' });
+    // An ops-only skill gets no Codex preamble: the prompt starts with the run, like Claude's.
+    const learn = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_2', skill: 'learn', runner: 'codex' });
     const opsOnly = buildRunnerSpec({ runner: { command: 'codex' }, prompt: learn, runId: 'rn_2', skill: 'learn', home: '/h', mcp });
     expect(opsOnly.args.at(-1)).toBe(learn);
+    expect(learn.startsWith('You are running the Perfect Placement "learn" skill headless.')).toBe(true);
     expect(opsOnly.args).toContain('web_search="disabled"');
   });
 
@@ -546,7 +555,8 @@ function declaredTools(skillMd: string): string[] | null {
 }
 
 describe('SKILL.md tools vs the allowlist (#79, #80)', () => {
-  const read = (skill: Skill) => readFileSync(join(DEFAULT_SKILLS_DIR, skill, 'SKILL.md'), 'utf8');
+  // As Claude reads it: the SKILL.md with its {{placeholders}} in Claude's names (#159).
+  const read = (skill: Skill) => renderText(readFileSync(join(DEFAULT_SKILLS_DIR, skill, 'SKILL.md'), 'utf8'), CLAUDE_TEXT);
   // The claude.ai Gmail connector's tools, read and write: a SKILL.md naming one by its short name counts too.
   const GMAIL_SHORT = new Set(
     [...GMAIL_WRITE_TOOLS, ...GMAIL_READ_TOOLS, `${GMAIL_PREFIX}get_draft`, `${GMAIL_PREFIX}list_drafts`, `${GMAIL_PREFIX}list_labels`].map(
@@ -604,7 +614,7 @@ describe('SKILL.md tools vs the allowlist (#79, #80)', () => {
 describe('skill assets in the prompt (#20)', () => {
   it('scout: the prompt inlines SKILL.md and plan.md read from the repo, and names its web tools', () => {
     const p = skillPrompt(DEFAULT_SKILLS_DIR, { runId: 'rn_9', skill: 'scout' });
-    const skillMd = readFileSync(join(DEFAULT_SKILLS_DIR, 'scout', 'SKILL.md'), 'utf8').trim();
+    const skillMd = renderText(readFileSync(join(DEFAULT_SKILLS_DIR, 'scout', 'SKILL.md'), 'utf8').trim(), CLAUDE_TEXT);
     const plan = readFileSync(join(DEFAULT_SKILLS_DIR, 'scout', 'plan.md'), 'utf8').trim();
     expect(p).toContain(skillMd);
     expect(p).toContain(plan);
@@ -632,7 +642,8 @@ describe('skill assets in the prompt (#20)', () => {
   });
 
   it('no skill reads repo files through vault.read; every companion file is inlined or a human runbook', () => {
-    for (const skill of readdirSync(DEFAULT_SKILLS_DIR)) {
+    // Skill folders only: an OS file such as .DS_Store is not a skill.
+    for (const skill of readdirSync(DEFAULT_SKILLS_DIR).filter((name) => !name.startsWith('.'))) {
       const files = readdirSync(join(DEFAULT_SKILLS_DIR, skill));
       for (const f of files) {
         const text = readFileSync(join(DEFAULT_SKILLS_DIR, skill, f), 'utf8');
@@ -659,7 +670,7 @@ describe('fail loudly when a tool is denied (#20)', () => {
     expect(granted).toContain('tool denied: WebSearch');
     expect(granted).toContain('permissions.deny');
     const notGranted = deniedToolsError('inbox', ['WebSearch']);
-    expect(notGranted).toContain('SKILL_TOOLS');
+    expect(notGranted).toContain('SKILL_GRANTS');
     expect(notGranted).toContain('config.runner.args');
   });
 

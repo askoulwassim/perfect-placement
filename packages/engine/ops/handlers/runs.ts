@@ -16,7 +16,7 @@ import {
   gmailToPrompt,
   RUNNERS,
   type RunnerExit,
-  SKILL_TOOLS,
+  SKILL_GRANTS,
   skillPrompt,
 } from '../../runners/index.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
@@ -268,12 +268,15 @@ function launchRun(run: Run, h: HandlerContext): void {
       prompt:
         outreachId && s.role_id && s.contact_id
           ? (fillTo ? gmailToPrompt : gmailDraftPrompt)(DEFAULT_SKILLS_DIR, {
+              runner: h.config.runner.command,
               runId: id,
               outreachId,
               roleId: s.role_id,
               contactId: s.contact_id,
             })
           : skillPrompt(DEFAULT_SKILLS_DIR, {
+              // #159: SKILL.md placeholders resolve to this runner's tool names.
+              runner: h.config.runner.command,
               runId: id,
               skill,
               ...(s.role_id ? { roleId: s.role_id } : {}),
@@ -351,7 +354,7 @@ async function renderForAssist(
 }
 
 /** Skills whose runs use Claude in Chrome (#107: they report the tabs they used and closed). */
-const CHROME_SKILLS: readonly Skill[] = SKILLS.filter((s) => (SKILL_TOOLS[s].chrome?.length ?? 0) > 0);
+const CHROME_SKILLS: readonly Skill[] = SKILLS.filter((s) => (SKILL_GRANTS[s].browser?.length ?? 0) > 0);
 
 /**
  * The tabs a Chrome run reported on `runs.finish` (#107), checked: only `connect`, `fill` and `voice` report
