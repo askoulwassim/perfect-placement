@@ -17,6 +17,7 @@ import {
   gmailToPrompt,
   type McpServerSpec,
   type PromptContext,
+  type RunnerCommand,
   resolveRepoRoot,
   skillPrompt,
 } from './index.js';
@@ -49,9 +50,12 @@ interface Mode {
 }
 
 const li = DEFAULT_CONFIG.linkedin;
+/** The runner whose names the prompts use (#159): the one whose command line is being built. */
+let runner: RunnerCommand = 'claude';
 const context = (skill: Skill, runId: string, over: Partial<PromptContext> = {}): PromptContext => ({
   runId,
   skill,
+  runner,
   roleId: 'synthetic-co_synthetic-role',
   ...(skill === 'connect' ? { contactId: 'ct_synthetic', linkedin: { ...li, mode: 'live' as const, budget_left: 7 } } : {}),
   ...(skill === 'voice' ? { voice: { linkedin: true, max_pages: 5 } } : {}),
@@ -64,7 +68,13 @@ const uploads: AssistUploads = {
     { doc: 'cover_letter', abs_path: `${FILES_DIR}/cover_letter.pdf` },
   ],
 };
-const ids = (runId: string) => ({ runId, outreachId: 'out_synthetic', roleId: 'synthetic-co_synthetic-role', contactId: 'ct_synthetic' });
+const ids = (runId: string) => ({
+  runId,
+  runner,
+  outreachId: 'out_synthetic',
+  roleId: 'synthetic-co_synthetic-role',
+  contactId: 'ct_synthetic',
+});
 
 const MODES: Mode[] = [
   {
@@ -147,13 +157,14 @@ describe('runner specs (#160)', () => {
       for (const mode of MODES)
         for (const skill of mode.skills) {
           const runId = 'rn_snapshot';
+          runner = command;
           const { prompt, extra } = mode.build(skill, runId);
-          const runner: RunnerConfig = {
+          const config: RunnerConfig = {
             command,
             ...(mode.name === 'default' && skill === 'scout' ? { args: ['--model', 'synthetic'] } : {}),
           };
           specs[`${command} ${skill} ${mode.name}`] = shape(
-            buildRunnerSpec({ runner, skill, runId, home: HOME, mcp: MCP, prompt, ...extra }),
+            buildRunnerSpec({ runner: config, skill, runId, home: HOME, mcp: MCP, prompt, ...extra }),
           );
         }
     await expect(`${JSON.stringify(specs, null, 2)}\n`).toMatchFileSnapshot('./__snapshots__/run-specs.json');

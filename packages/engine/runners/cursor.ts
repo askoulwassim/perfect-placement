@@ -1,5 +1,7 @@
 import type { AskChatEvent, Skill } from '@perfect-placement/contracts';
-import { SKILL_TOOLS } from './grants.js';
+import { claudeGrants, claudeToolsPhrase } from './claude.js';
+import { CLAUDE_TEXT } from './claude-tools.js';
+import { SKILL_GRANTS } from './grants.js';
 import { isObj, type Obj, str } from './json.js';
 import { MCP_SERVER_NAME } from './mcp-server.js';
 import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, RunnerSpec } from './types.js';
@@ -12,7 +14,7 @@ import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, Run
  */
 export function cursorPermissions(skill: Skill): { allow: string[]; deny: string[] } {
   return {
-    allow: [`Mcp(${MCP_SERVER_NAME}:*)`, ...(SKILL_TOOLS[skill].web.length ? ['WebFetch(*)'] : [])],
+    allow: [`Mcp(${MCP_SERVER_NAME}:*)`, ...(SKILL_GRANTS[skill].web.length ? ['WebFetch(*)'] : [])],
     deny: ['Shell(*)', 'Write(**)'],
   };
 }
@@ -84,4 +86,16 @@ function askParser(): AskLineParser {
   };
 }
 
-export const cursorAgent: RunnerBinding = { command: 'cursor-agent', run, ask, askParser };
+/**
+ * Cursor reads the same names as Claude today: its run has the pp tools and WebFetch, and no Gmail or browser of its
+ * own (#161 brings it the PP browser adapter).
+ */
+export const cursorAgent: RunnerBinding = {
+  command: 'cursor-agent',
+  grants: claudeGrants,
+  text: CLAUDE_TEXT,
+  toolsPhrase: claudeToolsPhrase,
+  run,
+  ask,
+  askParser,
+};

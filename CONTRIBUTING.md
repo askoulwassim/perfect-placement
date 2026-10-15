@@ -28,7 +28,7 @@ Tests never touch a real `PP_HOME`: develop against `@perfect-placement/fixtures
 1. Open an issue first for anything bigger than a small fix, so we can agree on the shape.
 2. One branch per piece of work; keep pull requests focused.
 3. `pnpm build && pnpm test && pnpm lint` pass locally (CI runs the same, plus a fresh-install smoke test).
-4. Update the docs the change touches: a package README, a `skills/*/SKILL.md`, `docs/`.
+4. Update the docs the change touches: a package README, a `skills/*/SKILL.md`, `docs/`. A SKILL.md names tools as `{{placeholders}}`, never a runner's tool names (see `packages/engine/runners/README.md`).
 5. Open the pull request with the template filled in.
 
 **Contracts and schema.** `packages/contracts` (schemas, ops, events, policy) and the database migrations change in their own pull request that updates schemas, tests and docs together. A schema change is a new numbered migration; never edit an applied one.

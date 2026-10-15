@@ -2,6 +2,8 @@ import type { AskChatEvent, Skill } from '@perfect-placement/contracts';
 import {
   BUILTIN_WRITE_TOOLS,
   CHROME_WRITE_TOOLS,
+  CLAUDE_TEXT,
+  CLAUDE_TOOL,
   GMAIL_DENIED_TOOLS,
   GMAIL_DRAFT_TOOL,
   GMAIL_GET_DRAFT_TOOL,
@@ -12,10 +14,11 @@ import {
   skillAllowedTools,
   usesChrome,
   type WebTool,
-} from './grants.js';
+} from './claude-tools.js';
+import { type Capability, GMAIL_STEP_CAPS, skillCapabilities } from './grants.js';
 import { isObj, type Obj, str } from './json.js';
 import { MCP_SERVER_NAME } from './mcp-server.js';
-import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, RunnerSpec } from './types.js';
+import type { AskContext, AskLineParser, AskSpec, GrantRequest, RunContext, RunnerBinding, RunnerSpec } from './types.js';
 
 /* Claude Code: `claude -p`, flags checked against `claude --help` 2.1.x. */
 
@@ -246,4 +249,26 @@ function askParser(): AskLineParser {
   };
 }
 
-export const claude: RunnerBinding = { command: 'claude', run, ask, askParser, deniedTools };
+/**
+ * Claude's grants: the skill's (#20), or a Gmail step's. Claude in Chrome reads the PDFs through `--add-dir`, granted
+ * with the fill assist whether or not they were rendered (a render failure is in the Uploads line).
+ */
+export function claudeGrants(g: GrantRequest): Capability[] {
+  if (g.mode && g.mode !== 'skill') return [...GMAIL_STEP_CAPS[g.mode]];
+  return skillCapabilities(g.skill, { linkedin: g.linkedin !== false, assist: g.assist === true });
+}
+
+/** The prompt's Tools line in Claude's names: every granted tool. */
+export const claudeToolsPhrase = (caps: readonly Capability[]): string =>
+  caps.length ? ` and ${caps.map((c) => CLAUDE_TOOL[c]).join(', ')}` : '';
+
+export const claude: RunnerBinding = {
+  command: 'claude',
+  grants: claudeGrants,
+  text: CLAUDE_TEXT,
+  toolsPhrase: claudeToolsPhrase,
+  run,
+  ask,
+  askParser,
+  deniedTools,
+};

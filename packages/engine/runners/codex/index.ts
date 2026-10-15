@@ -1,43 +1,27 @@
 import { join } from 'node:path';
-import type { AskChatEvent, Skill } from '@perfect-placement/contracts';
-import { GMAIL_DRAFT_TOOL, GMAIL_GET_DRAFT_TOOL, GMAIL_UPDATE_TOOL, SKILL_TOOLS, usesChrome } from '../grants.js';
+import type { AskChatEvent } from '@perfect-placement/contracts';
+import { SKILL_GRANTS, usesBrowser } from '../grants.js';
 import { isObj, type Obj, str } from '../json.js';
 import { MCP_SERVER_NAME, REPO_ROOT } from '../mcp-server.js';
 import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, RunnerSpec } from '../types.js';
 import { codexBrowserEnvironment } from './browser-env.js';
 import { codexBrowserRuntime } from './browser-runtime.js';
-import { codexBrowserArgs, codexConnectorPrompt } from './connectors.js';
+import { codexBrowserArgs } from './connectors.js';
+import { CODEX_TEXT, codexGrants, codexPreamble, codexToolsPhrase } from './text.js';
 
-/* Codex: `codex exec`, flags checked against the Codex config reference. */
-
-/** Translate the shared skills' Claude web tool names to Codex's built-in web actions. */
-function codexWebPrompt(prompt: string, skill: Skill): string {
-  const web = SKILL_TOOLS[skill].web;
-  if (!web.length) return prompt;
-  return [
-    'Codex web tools: use the built-in web tool (web.run) for the web actions below. Its open action fetches a URL; click and find read linked pages and page content. These are actions of one tool, not separate tools to discover.',
-    web.includes('WebSearch')
-      ? 'Web search queries and page retrieval are allowed for this skill.'
-      : 'Only page retrieval is allowed for this skill; do not run web search queries.',
-    'If the built-in web tool is actually unavailable or a call is denied, follow the missing-tool rule. Do not use shell commands, file tools or another connector as a fallback.',
-    '',
-    prompt.replace(/\bWebSearch\b/g, 'web.run search').replace(/\bWebFetch\b/g, 'web.run open'),
-  ].join('\n');
-}
+/*
+ * Codex: `codex exec`, flags checked against the Codex config reference. The prompt arrives in Codex's names
+ * (skillPrompt with runner `codex`, #159); the command line adds the pp server and, for browser skills, pp_browser.
+ */
 
 function run(opts: RunContext): RunnerSpec {
   const { prompt, home, runId, extra, env } = opts;
   const mcp = opts.server;
   const toml = (v: unknown) => JSON.stringify(v).replaceAll('\u007f', '\\u007f');
   const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
-  const browser = usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo;
+  const browser = usesBrowser(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo;
   const browserEnv = { ...process.env, ...env };
   const assist = opts.skill === 'fill' && opts.assist === true;
-  const gmail = opts.gmailTo
-    ? [GMAIL_GET_DRAFT_TOOL, GMAIL_UPDATE_TOOL]
-    : opts.gmailDraft
-      ? [GMAIL_DRAFT_TOOL]
-      : SKILL_TOOLS[opts.skill].gmail;
   return {
     runId,
     command: 'codex',
@@ -50,7 +34,7 @@ function run(opts: RunContext): RunnerSpec {
       '-c',
       `mcp_servers.${MCP_SERVER_NAME}.args=${toml(mcp.args)}`,
       ...envPairs,
-      // Match the pp MCP grant in skillAllowedTools. `never` alone rejects writes that
+      // Match the pp MCP grant every run has. `never` alone rejects writes that
       // need approval. This default is scoped to pp; explicit per-tool overrides still win,
       // and runOp still applies PP's policy grid and human-only restrictions.
       '-c',
@@ -58,9 +42,9 @@ function run(opts: RunContext): RunnerSpec {
       // Headless: nobody can approve tools outside the run's grants.
       '-c',
       'approval_policy="never"',
-      // Web search per skill (SKILL_TOOLS): live retrieval for web skills, the tool removed otherwise.
+      // Web per skill (SKILL_GRANTS): live retrieval for web skills, the tool removed otherwise.
       '-c',
-      `web_search=${toml(SKILL_TOOLS[opts.skill].web.length ? 'live' : 'disabled')}`,
+      `web_search=${toml(SKILL_GRANTS[opts.skill].web.length ? 'live' : 'disabled')}`,
       ...(browser
         ? codexBrowserArgs({
             nodePath: mcp.command,
@@ -72,17 +56,7 @@ function run(opts: RunContext): RunnerSpec {
           })
         : []),
       ...extra,
-      codexWebPrompt(
-        codexConnectorPrompt(prompt, {
-          runId,
-          browser,
-          assist,
-          uploads: assist && Boolean(opts.filesDir),
-          gmail,
-          web: SKILL_TOOLS[opts.skill].web,
-        }),
-        opts.skill,
-      ),
+      prompt,
     ],
     cwd: home,
     env,
@@ -164,6 +138,10 @@ function askParser(): AskLineParser {
 
 export const codex: RunnerBinding = {
   command: 'codex',
+  grants: codexGrants,
+  text: CODEX_TEXT,
+  toolsPhrase: codexToolsPhrase,
+  preamble: codexPreamble,
   run,
   ask,
   askParser,

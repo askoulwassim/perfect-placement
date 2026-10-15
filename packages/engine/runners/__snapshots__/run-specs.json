@@ -523,7 +523,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:72c313af6615f280 len:10538>"
+      "<sha256:4ed10d26a210ec7d len:10533>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -553,7 +553,7 @@
       "web_search=\"live\"",
       "--model",
       "synthetic",
-      "<sha256:e10ca16f31b0c01a len:13766>"
+      "<sha256:e5ad1c0d2512f2f5 len:13761>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -581,7 +581,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:f291e8d51b7c1b7b len:6466>"
+      "<sha256:3b0953a60ece3ead len:6461>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -609,7 +609,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:40e07f036da21392 len:5290>"
+      "<sha256:e9ab94f08b73d0aa len:5285>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -637,7 +637,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:2665f7a8f3ee7e34 len:4095>"
+      "<sha256:b05912bf3efac6eb len:4090>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -665,7 +665,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"live\"",
-      "<sha256:ebb9e2794d88b967 len:5122>"
+      "<sha256:282b7337685e2601 len:5117>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -709,7 +709,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:ca2b69e58e2a0243 len:23936>"
+      "<sha256:fe24fce7f89c4e21 len:25615>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -753,7 +753,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:163c30000a16dcf4 len:13609>"
+      "<sha256:3121949b1fc24deb len:15779>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -781,7 +781,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:c234a5a02b0c16da len:6048>"
+      "<sha256:895b1f7a95328393 len:6685>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -809,7 +809,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:ac9654d6e0daa8fe len:4120>"
+      "<sha256:f960a0b90d82959f len:4115>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -853,7 +853,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:86a73eacb3dbc3d4 len:8428>"
+      "<sha256:af4960d00bb22454 len:9751>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -881,7 +881,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:3790608454dcff60 len:22166>"
+      "<sha256:8e6a3a179b2d5368 len:23845>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -909,7 +909,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:cf93758be649dcad len:6626>"
+      "<sha256:48699bc8d84c5a3b len:7949>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -953,7 +953,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:1367b2f38ecfe733 len:13420>"
+      "<sha256:1914fe625fa43ffc len:15590>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -997,7 +997,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:ee46e0e334e55af1 len:16013>"
+      "<sha256:9fb354ced051e4e6 len:17506>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1041,7 +1041,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:1106050efd263a1b len:14964>"
+      "<sha256:053682cc18c0b82b len:16355>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1085,7 +1085,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:b8def325208efefc len:14980>"
+      "<sha256:f385ec9856cbe8b8 len:16371>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1113,7 +1113,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:3aa0cc2a8c274748 len:5600>"
+      "<sha256:8806e0090fab489b len:5678>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1141,7 +1141,7 @@
       "approval_policy=\"never\"",
       "-c",
       "web_search=\"disabled\"",
-      "<sha256:9afca196055afc4f len:3444>"
+      "<sha256:f940648d3785b926 len:3444>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {

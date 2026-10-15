@@ -31,8 +31,8 @@ A role is `active`, `held` or `on-deck` (or `draft-ready`, to re-tailor) and you
 
 A headless run pre-approves exactly these (`SKILL_TOOLS` in `packages/engine/runners/grants.ts`; a test keeps this list and that one equal) and denies everything else. If one you need is denied or missing, do not work around it: `runs.finish { run_id, status: "error", summary: { error: "tool denied: <tool>", denied_tools: [...] } }`.
 
-- `mcp__pp`: the pp MCP tools (every Perfect Placement read and write is an op).
-- `WebFetch`: capture the full JD from the posting when only a title is on file.
+- `{{tool:pp}}`: the pp MCP tools (every Perfect Placement read and write is an op).
+- `{{tool:web.fetch}}`: capture the full JD from the posting when only a title is on file.
 
 ## Rules
 
