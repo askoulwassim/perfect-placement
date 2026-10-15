@@ -52,7 +52,28 @@ Supported: Apple Silicon (MLX), and Linux with an NVIDIA GPU (the Kev README's P
 
 ## Documents and Open and fill
 
-On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+On a role's **Resume** and **Cover** tabs, **Download** gives the tailored document as PDF or DOCX (one clean, ATS-friendly template, rendered from the markdown into the vault's `files/<role_id>/`). At the Fill stage the primary is **Open and fill**: with Claude Code and Claude in Chrome, or Codex and Chrome DevTools MCP, the fill run answers the portal's questions, opens the portal, uploads the resume and cover letter PDFs, fills the answer fields, and stops before Submit with the tab left open for you. Then the primary is **Open portal**. You review and submit; pp never does.
+
+### Chrome setup for Codex
+
+Run `pp setup --runner codex` to select Codex and install its pinned browser runtime. If Codex is already selected, rerunning `pp setup` offers the same installation. Other runners do not install it. `pp setup --mcp codex` registers the PP MCP server with Codex without selecting the runner; browser installation still follows the currently selected runner.
+
+The browser package has its own manifest, lockfile and upload patch outside the normal workspace dependencies. Setup needs Corepack or pnpm 9.15.9 and installs it into a PP-owned user cache, using the locked version with lifecycle scripts disabled. The patch permits uploads only through actual file inputs. Runs launch the installed JavaScript with an absolute Node path and need no package manager or downloads. After an update changes the pinned runtime or patch, rerun setup; older installations are not reused. A missing runtime affects browser work only; Codex's other skills can still run. Switching runners leaves the cache in place and stops using it.
+
+On Node 22, browser support requires **22.12 or newer**; this does not change the requirements for the other runners. After upgrading Node, rerun `./install.sh` from the checkout with the upgraded Node on PATH to refresh pp's pinned launchers, then run `pp setup --runner codex`. Selecting a newer Node in your shell alone does not update those launchers.
+
+Chrome must be 144 or newer. To let pp connect to your existing Chrome session:
+
+1. Open Chrome 144 or newer and keep it running.
+2. Open `chrome://inspect/#remote-debugging` in Chrome.
+3. Check **Allow remote debugging for this browser instance**.
+4. Start **Open and fill** in pp. When Chrome asks to allow the connection, click **Allow**. Enabling the checkbox alone does not approve that connection.
+
+The agent is instructed to work in a new portal tab and leave it open for your review; the adapter does not enforce tab ownership. Review the remaining fields before submitting: custom dropdowns that do not retain selections, questions without saved answers, and demographic questions you chose to answer yourself are reported as skipped. PP's browser adapter exposes no click, key, script or submit tools; filling a checkbox or radio clicks only that control, and short answers cannot contain line breaks or tabs, which would be typed as key presses.
+
+PP's browser adapter permits uploads only of the role's rendered `resume.pdf` and `cover_letter.pdf`. It rejects other file paths, including links escaping that directory, and snapshots cannot be saved to files. An upload aimed at another element fails without clicking it; buttons that open file choosers are unsupported. If document rendering fails, form filling remains available but uploads are withheld and reported as skipped.
+
+If a run reports `setup required` for the browser, complete the steps above and retry it; missing setup is not retried automatically. Gmail is a separate connection: selecting Codex or enabling Chrome debugging does not connect Gmail. See the [runner connector details](../packages/engine/ops/README.md) and [Chrome DevTools MCP setup](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md).
 
 ## Email check
 

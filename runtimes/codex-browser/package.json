@@ -1,0 +1,14 @@
+{
+  "name": "perfect-placement-codex-browser",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.9",
+  "dependencies": {
+    "chrome-devtools-mcp": "1.10.1"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "chrome-devtools-mcp@1.10.1": "patches/chrome-devtools-mcp@1.10.1.patch"
+    }
+  }
+}

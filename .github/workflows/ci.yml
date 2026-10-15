@@ -18,6 +18,9 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm lint
+      # The Codex browser runtime is installed only by pp setup; this catches a bump whose upload patch no longer applies.
+      - name: codex browser runtime (frozen lockfile + upload patch)
+        run: pnpm --dir runtimes/codex-browser install --ignore-workspace --frozen-lockfile --ignore-scripts --prod
   fresh-install:
     runs-on: ubuntu-latest
     steps:

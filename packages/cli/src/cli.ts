@@ -12,6 +12,7 @@ import { uninstallCommand } from './commands/uninstall.js';
 import { checkKev, DEFAULT_PORT, type Running, up } from './commands/up.js';
 import { CliError, type Io, processIo } from './io.js';
 import { nodePathChecks } from './system/clients.js';
+import { codexBrowserDoctor } from './system/codex-browser.js';
 import { kevInstalled } from './system/kev.js';
 import { scheduleJobsCheck } from './system/schedules.js';
 
@@ -34,8 +35,8 @@ export const COMMANDS = [
 
 const USAGE = `pp <command> [--home <PP_HOME>] [--actor agent|human|schedule]
 
-  setup    [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]
-                                           first run: vault, optional Kev, MCP for your agents (safe to rerun)
+  setup    [--runner claude|codex|cursor-agent] [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]
+                                           vault, optional Kev, MCP; browser runtime only for Codex (safe to rerun)
   up       [--port ${DEFAULT_PORT}] [--web <dir>] [--fixtures] [--no-kev] [--kev] [--no-catch-up]
                                            API /api/ops, MCP /mcp, web / on 127.0.0.1; starts Kev if installed;
                                            queues schedules missed since their last run
@@ -107,6 +108,7 @@ export async function runCli(argv: readonly string[], io: Io = processIo, waitFo
             ...res.checks,
             ...nodePathChecks(home, sysOf(io)),
             scheduleJobsCheck(home, ops.readConfig(home).schedules, sysOf(io)),
+            codexBrowserDoctor(ops.readConfig(home).runner.command, sysOf(io)),
           ];
           return renderDoctor({ ...res, checks, ok: checks.every((c) => c.ok) }, home, io, args.has('json'));
         } finally {

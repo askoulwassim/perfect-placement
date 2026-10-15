@@ -3,7 +3,8 @@
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { ops } from '@perfect-placement/engine';
 import { fakeBackend, fakeLauncher, noNetwork } from '@perfect-placement/engine/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCli } from '../cli.js';
@@ -52,6 +53,53 @@ const config = () => JSON.parse(readFileSync(join(ppHome, 'config.json'), 'utf8'
 const text = () => out.join('\n');
 
 describe('pp setup', () => {
+  it('selects Codex through config.update and installs its pinned browser runtime only once', async () => {
+    d.which = (cmd) => (cmd === 'corepack' ? '/usr/bin/corepack' : null);
+    d.capture = (cmd, args) => {
+      d.captures.push({ cmd, args });
+      return { code: 0, stdout: 'v24.22.0\n', stderr: '' };
+    };
+    d.run = async (cmd, args, opts) => {
+      d.runs.push({ cmd, args, cwd: opts?.cwd });
+      const bin = join(opts?.cwd as string, ops.CODEX_BROWSER_ENTRY);
+      mkdirSync(dirname(bin), { recursive: true });
+      writeFileSync(bin, '// synthetic runtime');
+      writeFileSync(join(opts?.cwd as string, 'node_modules/chrome-devtools-mcp/package.json'), '{"version":"1.10.1"}');
+      return 0;
+    };
+    const flags = ['--yes', '--no-kev', '--no-mcp', '--no-schedules'];
+    expect(await runCli(['setup', '--runner', 'codex', ...flags], io)).toBe(0);
+    expect(config().runner.command).toBe('codex');
+    expect(d.runs).toHaveLength(1);
+    expect(text()).toContain('chrome://inspect/#remote-debugging');
+    expect(await runCli(['setup', ...flags], io)).toBe(0);
+    expect(d.runs).toHaveLength(1);
+    expect(await runCli(['setup', '--runner', 'claude', ...flags], io)).toBe(0);
+    expect(config().runner.command).toBe('claude');
+    expect(d.runs).toHaveLength(1);
+  });
+
+  it('registering Codex MCP does not select Codex or install browser support', async () => {
+    mkdirSync(join(home, '.codex'));
+    expect(await runCli(['setup', '--yes', '--no-kev', '--mcp', 'codex', '--no-schedules'], io)).toBe(0);
+    expect(config().runner.command).toBe('claude');
+    expect(d.runs).toEqual([]);
+    expect(existsSync(join(home, '.cache'))).toBe(false);
+  });
+
+  it('rejects unknown runners before creating a vault and reports incompatible Codex Node in the summary', async () => {
+    expect(await runCli(['setup', '--runner', 'bash'], io)).toBe(2);
+    expect(existsSync(ppHome)).toBe(false);
+    d.capture = () => ({ code: 0, stdout: 'v22.11.0', stderr: '' });
+    expect(await runCli(['setup', '--runner', 'codex', '--yes', '--no-kev', '--no-mcp', '--no-schedules'], io)).toBe(1);
+    expect(text()).toContain('Node 22.12 or newer');
+    expect(text()).toContain(
+      'fix: upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup --runner codex',
+    );
+    expect(text()).toMatch(/FAIL {2}browser/);
+    expect(d.runs).toEqual([]);
+  });
+
   it('--yes --no-kev --no-mcp: creates the vault, then is a no-op on rerun', async () => {
     expect(await runCli(['setup', '--yes', '--no-kev', '--no-mcp'], io)).toBe(0);
     expect(existsSync(join(ppHome, 'pp.db'))).toBe(true);
