@@ -1,0 +1,182 @@
+{
+  "claude first": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "Which roles fit?",
+      "--append-system-prompt",
+      "<sha256:398e6be0d093828a len:3476>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_ASK\":\"1\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebSearch,WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebSearch,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": []
+  },
+  "claude resumed": {
+    "command": "claude",
+    "args": [
+      "-p",
+      "Which roles fit?",
+      "--append-system-prompt",
+      "<sha256:398e6be0d093828a len:3476>",
+      "--mcp-config",
+      "{\"mcpServers\":{\"pp\":{\"command\":\"/usr/bin/node\",\"args\":[\"/opt/pp/packages/mcp/dist/bin.js\"],\"env\":{\"PP_HOME\":\"/tmp/pp-snapshot-vault\",\"PP_ASK\":\"1\"}}}}",
+      "--strict-mcp-config",
+      "--tools",
+      "WebSearch,WebFetch",
+      "--allowedTools",
+      "mcp__pp,WebSearch,WebFetch",
+      "--permission-mode",
+      "dontAsk",
+      "--permission-prompts",
+      "none",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+      "--resume",
+      "sess_synthetic",
+      "--model",
+      "synthetic"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": []
+  },
+  "codex first": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_ASK=\"1\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"read-only\"",
+      "-c",
+      "web_search=\"live\"",
+      "<sha256:0fd635775e02211a len:3509>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": []
+  },
+  "codex resumed": {
+    "command": "codex",
+    "args": [
+      "exec",
+      "--json",
+      "--skip-git-repo-check",
+      "-c",
+      "mcp_servers.pp.command=\"/usr/bin/node\"",
+      "-c",
+      "mcp_servers.pp.args=[\"/opt/pp/packages/mcp/dist/bin.js\"]",
+      "-c",
+      "mcp_servers.pp.env.PP_HOME=\"/tmp/pp-snapshot-vault\"",
+      "-c",
+      "mcp_servers.pp.env.PP_ASK=\"1\"",
+      "-c",
+      "approval_policy=\"never\"",
+      "-c",
+      "sandbox_mode=\"read-only\"",
+      "-c",
+      "web_search=\"live\"",
+      "--model",
+      "synthetic",
+      "<sha256:405dc8d15ca49d59 len:3559>"
+    ],
+    "cwd": "/tmp/pp-snapshot-vault",
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": []
+  },
+  "cursor-agent first": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:0fd635775e02211a len:3509>",
+      "--output-format",
+      "stream-json",
+      "--trust",
+      "--approve-mcps",
+      "--force"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_ASK\": \"1\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  },
+  "cursor-agent resumed": {
+    "command": "cursor-agent",
+    "args": [
+      "-p",
+      "<sha256:405dc8d15ca49d59 len:3559>",
+      "--output-format",
+      "stream-json",
+      "--trust",
+      "--approve-mcps",
+      "--force",
+      "--model",
+      "synthetic"
+    ],
+    "cwd": null,
+    "env": {
+      "PP_HOME": "/tmp/pp-snapshot-vault",
+      "PP_ASK": "1"
+    },
+    "files": [
+      {
+        "path": ".cursor/mcp.json",
+        "content": "{\n  \"mcpServers\": {\n    \"pp\": {\n      \"command\": \"/usr/bin/node\",\n      \"args\": [\n        \"/opt/pp/packages/mcp/dist/bin.js\"\n      ],\n      \"env\": {\n        \"PP_HOME\": \"/tmp/pp-snapshot-vault\",\n        \"PP_ASK\": \"1\"\n      }\n    }\n  }\n}\n"
+      },
+      {
+        "path": ".cursor/cli.json",
+        "content": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Mcp(pp:*)\",\n      \"WebFetch(*)\"\n    ],\n    \"deny\": [\n      \"Shell(*)\",\n      \"Write(**)\"\n    ]\n  }\n}\n"
+      }
+    ]
+  }
+}
