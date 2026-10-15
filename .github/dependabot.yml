@@ -7,6 +7,9 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # lang-core and react-lang must move together (a 1.0 prompt does not run on a 0.x client), majors included.
+      openui:
+        patterns: ['@openuidev/*']
       minor-and-patch:
         update-types: [minor, patch]
     ignore:
