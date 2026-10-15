@@ -43,6 +43,13 @@ function spec(
   });
 }
 
+/** The run's browser policy, as the adapter receives it (#161). */
+function policyOf(args: string[]): { tools: string[]; uploads: string[]; sites: string[] } {
+  const setting = args.find((arg) => arg.startsWith('mcp_servers.pp_browser.args=')) as string;
+  const adapterArgs = JSON.parse(setting.slice(setting.indexOf('=') + 1)) as string[];
+  return JSON.parse(adapterArgs[adapterArgs.indexOf('--policy') + 1] as string);
+}
+
 function browserTools(args: string[]): string[] | undefined {
   const setting = args.find((arg) => arg.startsWith('mcp_servers.pp_browser.enabled_tools='));
   return setting ? JSON.parse(setting.slice(setting.indexOf('=') + 1)) : undefined;
@@ -123,7 +130,8 @@ describe('Codex connector bindings', () => {
     expect(assist.args).toContain(`mcp_servers.pp_browser.command="${mcp.command}"`);
     expect(command).toContain('/packages/mcp/dist/browser-bin.js');
     expect(command).toContain('--runtime-dir');
-    expect(command).toContain('--files-dir');
+    expect(command).toContain('--policy');
+    expect(policyOf(assist.args).uploads).toEqual([`${filesDir}/resume.pdf`, `${filesDir}/cover_letter.pdf`]);
     expect(command).not.toMatch(/npx|--yes|chrome-devtools-mcp@/);
     for (const denied of ['click', 'press_key', 'type_text', 'evaluate_script', 'handle_dialog', 'take_screenshot']) {
       expect(browserTools(assist.args)).not.toContain(denied);
@@ -157,9 +165,7 @@ describe('Codex connector bindings', () => {
       assist: true,
       filesDir: dir,
     });
-    const setting = s.args.find((arg) => arg.startsWith('mcp_servers.pp_browser.args=')) as string;
-    const browserArgs = JSON.parse(setting.slice(setting.indexOf('=') + 1)) as string[];
-    expect(browserArgs[browserArgs.indexOf('--files-dir') + 1]).toBe(dir);
+    expect(policyOf(s.args).uploads).toEqual([`${dir}/resume.pdf`, `${dir}/cover_letter.pdf`]);
     expect(s.args).not.toContain('--add-dir');
     const readOnly = buildRunnerSpec({
       runner: { command: 'codex' },
@@ -170,7 +176,29 @@ describe('Codex connector bindings', () => {
       mcp,
       filesDir: dir,
     });
-    expect(readOnly.args.join(' ')).not.toContain('--files-dir');
+    expect(policyOf(readOnly.args).uploads).toEqual([]);
+  });
+
+  it('drives the adapter, Codex config and prompt from one policy for every browser skill and mode (#161)', () => {
+    for (const skill of ['fill', 'connect', 'voice'] as const)
+      for (const assist of [false, true])
+        for (const dir of [undefined, filesDir]) {
+          const s = spec(skill, { assist, filesDir: dir });
+          const policy = policyOf(s.args);
+          const prompt = s.args.at(-1) as string;
+          expect(browserTools(s.args), skill).toEqual(policy.tools);
+          const allowed = prompt.split('\n').find((line) => line.startsWith('Browser: Chrome DevTools MCP'));
+          expect(allowed, skill).toContain(`Allowed tools: ${policy.tools.map((t) => `mcp__pp_browser__${t}`).join(', ')}.`);
+          expect(policy.sites).toEqual(
+            skill === 'fill' ? expect.arrayContaining(['lever.co', 'login.microsoftonline.com']) : ['linkedin.com'],
+          );
+          expect(policy.uploads.length > 0).toBe(skill === 'fill' && assist && Boolean(dir));
+        }
+    const sites = ['acme.test', 'lever.co'];
+    expect(
+      policyOf(buildRunnerSpec({ runner: { command: 'codex' }, prompt: 'P', runId: 'rn_1', skill: 'fill', home: '/h', mcp, sites }).args)
+        .sites,
+    ).toEqual(sites);
   });
 
   it('withholds uploads after a render failure while preserving filling and an accurate report', () => {

@@ -1,5 +1,6 @@
 // Runners (#160): one module per agent CLI (claude, codex/, cursor) behind `RunnerBinding`, plus what they share.
 
+export * from './browser-policy.js';
 export {
   ASK_WEB_TOOLS,
   askAllowedTools,
@@ -15,7 +16,7 @@ export {
 export * from './claude-tools.js';
 export { codexBrowserEnvironment } from './codex/browser-env.js';
 export * from './codex/browser-runtime.js';
-export { CODEX_BROWSER_READ_TOOLS, codexBrowserTools } from './codex/connectors.js';
+export { CODEX_BROWSER_FILL_TOOLS, CODEX_BROWSER_READ_TOOLS } from './codex/connectors.js';
 export { codex } from './codex/index.js';
 export { CODEX_TEXT, CODEX_TOOL, codexGrants, codexPreamble, codexToolsPhrase } from './codex/text.js';
 export { cursorAgent, cursorPermissions } from './cursor.js';

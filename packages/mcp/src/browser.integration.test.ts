@@ -50,8 +50,13 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       if (!address || typeof address === 'string') throw new Error('No fixture server address');
       const url = `http://127.0.0.1:${address.port}/`;
       const runtime = runners.codexBrowserRuntime({ userHome, env: { XDG_CACHE_HOME: cache } });
-      const options = { assist: true, filesDir };
-      const parameters = browserServerParameters(runtime.dir, options, runtime);
+      // The run's policy (#161): fill assist tools, the rendered PDFs, and the fixture server as its one site.
+      const policy = {
+        tools: [...runners.CODEX_BROWSER_READ_TOOLS, 'fill_form', 'upload_file'],
+        uploads: [resume, join(filesDir, 'cover_letter.pdf')],
+        sites: ['127.0.0.1'],
+      };
+      const parameters = browserServerParameters(runtime.dir, policy, runtime);
       // Only the connection changes for this test. The adapter's guards and native upload tool are production code.
       parameters.args = parameters.args?.flatMap((arg) => (arg === '--autoConnect' ? ['--headless', '--isolated'] : [arg]));
       parameters.env = {
@@ -65,7 +70,7 @@ describe.skipIf(!cache)('patched native browser uploads', () => {
       };
       parameters.stderr = 'pipe';
       native = new StdioClientTransport(parameters);
-      adapter = await createBrowserAdapter(native, options);
+      adapter = await createBrowserAdapter(native, policy);
       const [downClient, downServer] = InMemoryTransport.createLinkedPair();
       await adapter.server.connect(downServer);
       await client.connect(downClient);

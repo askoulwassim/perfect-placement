@@ -18,6 +18,7 @@ import {
   type RunnerExit,
   SKILL_GRANTS,
   skillPrompt,
+  skillSites,
 } from '../../runners/index.js';
 import { achievedMix, mixLine } from '../../scoring/source-mix.js';
 import { notFound, OpError } from '../errors.js';
@@ -29,7 +30,7 @@ import { get, insert, select, update } from '../rows.js';
 import { defineHandler, type HandlerContext } from '../runtime.js';
 import { renderMarkdown, stripFrontmatter } from '../vault.js';
 import { scoutRunAdds } from './roles.js';
-import { applicationFor, getRole, PICK_STAGES, type PickStage, pickRole } from './shared.js';
+import { applicationFor, getCompany, getRole, PICK_STAGES, type PickStage, pickRole } from './shared.js';
 
 /**
  * runs.start, the single entry point for a skill run (#30). A human or schedule run is written `queued`
@@ -233,6 +234,16 @@ export const runsDispatch = defineHandler('runs.dispatch', {
   },
 });
 
+/** What the vault knows of a role's own sites: its posting, its application's portal, its company's domain. */
+function roleSites(h: HandlerContext, roleId: string): { urls: Array<string | null>; companyDomain: string | null } {
+  try {
+    const role = getRole(h.db, roleId);
+    return { urls: [role.url, applicationFor(h.db, roleId)?.portal_url ?? null], companyDomain: getCompany(h.db, role.company_id).domain };
+  } catch {
+    return { urls: [], companyDomain: null };
+  }
+}
+
 /**
  * After commit, launch the headless runner for a run `runs.dispatch` just marked `running`. If the
  * runner cannot start, or exits leaving the run open, the run is finished as `error`.
@@ -253,6 +264,9 @@ function launchRun(run: Run, h: HandlerContext): void {
   const questions = skill === 'fill' && s.role_id ? applicationFor(h.db, s.role_id)?.package_paths_json.questions : undefined;
   // #106: the fill assist (Open and fill) uploads the rendered PDFs and fills answer fields, stops before Submit.
   const assist = skill === 'fill' && (run.summary_json as { assist?: unknown }).assist === true;
+  // #161: the sites a browser run may open. Fill: the role's posting, its portal and the company's domain (plus
+  // applicant-tracking and sign-in sites); connect and voice: LinkedIn.
+  const sites = skillSites(skill, skill === 'fill' && s.role_id ? roleSites(h, s.role_id) : {});
   const build = (uploads?: AssistUploads) =>
     buildRunnerSpec({
       runner: h.config.runner,
@@ -263,6 +277,7 @@ function launchRun(run: Run, h: HandlerContext): void {
       ...(outreachId ? (fillTo ? { gmailTo: true } : { gmailDraft: true }) : {}),
       ...(skill === 'connect' || skill === 'voice' ? { linkedin: li.mode === 'live' } : {}),
       ...(assist ? { assist: true } : {}),
+      sites,
       // #123: the session may read the role's rendered-files folder, and only that one.
       ...(uploads && 'dir' in uploads ? { filesDir: uploads.dir } : {}),
       prompt:

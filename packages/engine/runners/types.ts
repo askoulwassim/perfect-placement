@@ -83,6 +83,11 @@ export interface RunRequest {
    * only its rendered PDFs, never as a Codex --add-dir writable root. Cursor documents no equivalent.
    */
   filesDir?: string;
+  /**
+   * Browser skills (#161): the sites the run may open (`skillSites`: for fill, the posting's, portal's and company's
+   * sites plus applicant-tracking and sign-in sites). Default: `skillSites(skill)` with nothing known about the role.
+   */
+  sites?: string[];
 }
 
 /** What every binding's `run` gets: the request plus what `buildRunnerSpec` prepares for all runners. */

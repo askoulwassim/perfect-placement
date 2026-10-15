@@ -2,17 +2,20 @@
 /** Internal Codex browser adapter. stdout is exclusively the MCP stdio protocol. */
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { runners } from '@perfect-placement/engine';
 import { type BrowserAdapter, startBrowserAdapter } from './browser.js';
 
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       'runtime-dir': { type: 'string' },
-      assist: { type: 'boolean', default: false },
-      'files-dir': { type: 'string' },
+      /** The run's browser policy (#161), JSON: its tools, rendered-PDF uploads and sites. */
+      policy: { type: 'string' },
     },
   });
   if (!values['runtime-dir']) throw new Error('Missing browser runtime. Run pp setup --runner codex');
+  if (!values.policy) throw new Error("Missing the run's browser policy");
+  const policy = runners.parseBrowserPolicy(values.policy);
   const controller = new AbortController();
   let adapter: BrowserAdapter | undefined;
   const shutdown = () => {
@@ -23,7 +26,7 @@ async function main(): Promise<void> {
   process.stdin.once('end', shutdown);
   process.stdin.once('close', shutdown);
   try {
-    adapter = await startBrowserAdapter(values['runtime-dir'], { assist: values.assist, filesDir: values['files-dir'] }, controller.signal);
+    adapter = await startBrowserAdapter(values['runtime-dir'], policy, controller.signal);
     controller.signal.throwIfAborted();
     await adapter.server.connect(new StdioServerTransport());
   } catch (error) {

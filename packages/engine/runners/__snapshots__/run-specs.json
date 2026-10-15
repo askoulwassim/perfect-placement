@@ -696,7 +696,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"linkedin.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -709,7 +709,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:4c67d798b1272b63 len:25616>"
+      "<sha256:44fc25a4a405ad0c len:26049>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -740,7 +740,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -753,7 +753,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:4c2678c7112f4327 len:15780>"
+      "<sha256:763e37eb0332e169 len:16213>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -840,7 +840,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"linkedin.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -853,7 +853,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:f1eda0d9f35b04d3 len:9752>"
+      "<sha256:c26f061e7c15f9cd len:10185>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -940,7 +940,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -953,7 +953,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:e3bfb76a3f6b3717 len:15591>"
+      "<sha256:4d6ffbbeb34f8171 len:16024>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -984,7 +984,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\",\"--files-dir\",\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\",\\\"upload_file\\\"],\\\"uploads\\\":[\\\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role/resume.pdf\\\",\\\"/tmp/pp-snapshot-vault/files/synthetic-co_synthetic-role/cover_letter.pdf\\\"],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -997,7 +997,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:7670a7059327d329 len:17507>"
+      "<sha256:f2c4d9661b778212 len:17940>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1028,7 +1028,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -1041,7 +1041,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:0d5ece41d56244e7 len:16356>"
+      "<sha256:2c1e678b4b274bd2 len:16789>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
@@ -1072,7 +1072,7 @@
       "-c",
       "mcp_servers.pp_browser.command=\"/usr/bin/node\"",
       "-c",
-      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--assist\"]",
+      "mcp_servers.pp_browser.args=[\"<repo>/packages/mcp/dist/browser-bin.js\",\"--runtime-dir\",\"<codex-runtime>\",\"--policy\",\"{\\\"tools\\\":[\\\"list_pages\\\",\\\"new_page\\\",\\\"close_page\\\",\\\"navigate_page\\\",\\\"take_snapshot\\\",\\\"fill_form\\\"],\\\"uploads\\\":[],\\\"sites\\\":[\\\"adp.com\\\",\\\"applytojob.com\\\",\\\"ashbyhq.com\\\",\\\"bamboohr.com\\\",\\\"breezy.hr\\\",\\\"dayforcehcm.com\\\",\\\"gem.com\\\",\\\"greenhouse.io\\\",\\\"icims.com\\\",\\\"jazzhr.com\\\",\\\"jobvite.com\\\",\\\"lever.co\\\",\\\"myworkdayjobs.com\\\",\\\"myworkdaysite.com\\\",\\\"oraclecloud.com\\\",\\\"personio.com\\\",\\\"personio.de\\\",\\\"pinpointhq.com\\\",\\\"recruitee.com\\\",\\\"rippling.com\\\",\\\"smartrecruiters.com\\\",\\\"successfactors.com\\\",\\\"successfactors.eu\\\",\\\"taleo.net\\\",\\\"teamtailor.com\\\",\\\"ultipro.com\\\",\\\"workable.com\\\",\\\"workday.com\\\",\\\"accounts.google.com\\\",\\\"appleid.apple.com\\\",\\\"login.live.com\\\",\\\"login.microsoftonline.com\\\"]}\"]",
       "-c",
       "mcp_servers.pp_browser.env.HOME=\"/tmp/pp-snapshot-user\"",
       "-c",
@@ -1085,7 +1085,7 @@
       "mcp_servers.pp_browser.default_tools_approval_mode=\"approve\"",
       "-c",
       "mcp_servers.pp_browser.startup_timeout_sec=60",
-      "<sha256:dee3a8336b35440e len:16372>"
+      "<sha256:29cf18738e27f938 len:16805>"
     ],
     "cwd": "/tmp/pp-snapshot-vault",
     "env": {
