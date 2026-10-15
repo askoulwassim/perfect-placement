@@ -18,7 +18,7 @@ export interface RunnerMachine {
 export const RUNNER_MACHINE: Readonly<Record<runners.RunnerCommand, RunnerMachine>> = {
   claude: {},
   codex: { setup: setupBrowser, doctor: browserDoctor },
-  'cursor-agent': {},
+  'cursor-agent': { setup: setupBrowser, doctor: browserDoctor },
 };
 
 /** The selected runner's setup steps (none for a runner that needs nothing installed). */

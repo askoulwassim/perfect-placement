@@ -4,7 +4,14 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Added
+- Cursor runs fill, connect and voice through PP's browser adapter (`pp_browser`), including the fill assist (Open and fill), with the same browser policy as Codex (#161). `pp setup --runner cursor-agent` installs the browser runtime.
+
+### Changed
+- The browser runtime is no longer named for Codex: `runtimes/browser`, cached in `~/.cache/perfect-placement/browser`, checked by `pp doctor` as `browser_runtime`. Existing Codex installations need `pp setup` once; the old `perfect-placement/codex-browser` cache can be deleted by hand (#161).
+
 ### Security
+- Codex and Cursor browser runs follow one policy per run, enforced by PP's adapter: they act only on tabs they opened (your own tabs are hidden from them), open only the role's own sites, applicant-tracking and sign-in sites (LinkedIn only for connect and voice), and cannot read or fill a page a redirect took elsewhere (#161).
 - Closed the nine CodeQL alerts (#152): ATS hosts match by domain, so `evilgreenhouse.io` is not Greenhouse; `parseMoney`, the submit-label guard and base-url slash trimming run in linear time (`parseMoney` was cubic on long runs of spaces); the resolver eval's agreement matrix cannot be steered onto `Object.prototype` by a backend name; an op that throws a non-Error returns `unexpected error` instead of echoing the thrown value.
 
 ## [0.1.0] - 2026-10-10

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { runners } from '@perfect-placement/engine';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { processIo } from '../io.js';
-import { browserDoctor, browserRuntimeFor, installBrowser } from './browser.js';
+import { browserDoctor, browserRuntimeFor, installBrowser, setupBrowser } from './browser.js';
 import { type FakeDeps, fakeDeps } from './fake-deps.test-helpers.js';
 import { RUNNER_MACHINE, runnerDoctorChecks, runnerSetupSteps } from './runners.js';
 
@@ -114,12 +114,13 @@ describe('optional Codex browser installation', () => {
     expect(readdirSync(previous.cacheRoot)).toEqual([previous.fingerprint]);
   });
 
-  it('only Codex has a setup step and doctor check; other runners never look up runtime state', async () => {
+  it('Codex and Cursor have the browser setup step and doctor check; Claude never looks up runtime state', async () => {
     expect(runnerDoctorChecks('claude', d)).toEqual([]);
-    expect(runnerDoctorChecks('cursor-agent', d)).toEqual([]);
     expect(await runnerSetupSteps('claude', processIo, d, true)).toEqual([]);
-    expect(await runnerSetupSteps('cursor-agent', processIo, d, true)).toEqual([]);
-    expect(RUNNER_MACHINE.codex.doctor).toBe(browserDoctor);
+    for (const runner of ['codex', 'cursor-agent'] as const) {
+      expect(RUNNER_MACHINE[runner].doctor).toBe(browserDoctor);
+      expect(RUNNER_MACHINE[runner].setup).toBe(setupBrowser);
+    }
     expect(d.captures).toEqual([]);
     expect(existsSync(join(root, '.cache'))).toBe(false);
   });

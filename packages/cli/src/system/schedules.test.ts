@@ -212,9 +212,9 @@ describe('Codex browser locations in scheduled jobs', () => {
     expect(states(join(root, 'vault'), realCli())).toEqual(['stale', 'off', 'stale']);
   });
 
-  it('keeps other runners’ job environment and identity independent of browser locations', async () => {
+  it('keeps Claude’s job environment and identity independent of browser locations', async () => {
     setLocations();
-    for (const runner of ['claude', 'cursor-agent'] as const) {
+    for (const runner of ['claude'] as const) {
       await selectRunner(runner);
       install(join(root, 'vault'), realCli());
       expect(plan()?.files[0]?.content).not.toContain('XDG_CACHE_HOME');

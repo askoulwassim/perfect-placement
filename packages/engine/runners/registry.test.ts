@@ -8,8 +8,8 @@ describe('runner registry (#160)', () => {
     for (const command of RUNNER_COMMANDS) expect(RUNNERS[command].command).toBe(command);
   });
 
-  it('only Claude reports denied tools; only Codex keeps job environment', () => {
+  it('only Claude reports denied tools; the runners on the browser adapter keep job environment', () => {
     expect(RUNNER_COMMANDS.filter((c) => RUNNERS[c].deniedTools)).toEqual(['claude']);
-    expect(RUNNER_COMMANDS.filter((c) => RUNNERS[c].jobEnv)).toEqual(['codex']);
+    expect(RUNNER_COMMANDS.filter((c) => RUNNERS[c].jobEnv)).toEqual(['codex', 'cursor-agent']);
   });
 });
