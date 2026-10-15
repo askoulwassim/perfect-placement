@@ -67,7 +67,7 @@ export function deniedToolsError(skill: Skill, tools: readonly string[]): string
       : []),
     ...(extra.length
       ? [
-          `${extra.join(', ')} ${extra.length > 1 ? 'are' : 'is'} not granted to ${skill}: if the skill truly needs it, add it to SKILL_TOOLS in packages/engine/ops/runner.ts (or to config.runner.args: ["--allowedTools", "${extra.join(',')}"]).`,
+          `${extra.join(', ')} ${extra.length > 1 ? 'are' : 'is'} not granted to ${skill}: if the skill truly needs it, add it to SKILL_TOOLS in packages/engine/runners/grants.ts (or to config.runner.args: ["--allowedTools", "${extra.join(',')}"]).`,
         ]
       : []),
   ];
