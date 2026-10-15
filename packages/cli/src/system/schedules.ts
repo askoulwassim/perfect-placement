@@ -7,8 +7,9 @@
  *   Linux   systemd user timers: ~/.config/systemd/user/pp-<key>.{service,timer} (Persistent=true)
  *   other   no job manager: crontab lines are printed for the user to add (state `manual`)
  * Every machine call goes through SystemDeps (tests: temp HOME, fake capture). Each job file carries a
- * fingerprint line (key, spec, vault, node, cli) so status compares files without asking launchd. The paths
- * compare by file identity (realpath), so a symlinked repo, vault or node is not reported stale (#97).
+ * fingerprint line (key, spec, vault, node, cli, optional Codex browser locations) so status compares
+ * files without asking launchd. Paths compare by file identity (realpath), so a symlinked repo, vault
+ * or node is not reported stale (#97).
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -74,11 +75,13 @@ export interface JobInputs {
   home: string;
   node: string;
   cli: string;
+  /** Only Codex schedules retain the browser's user/cache/profile/temp locations. */
+  browserEnv?: Record<string, string>;
 }
 
 /** One line identifying the job (base64 JSON: safe inside an XML comment and a unit file). */
 export const fingerprint = (j: JobInputs) =>
-  `pp-schedule ${Buffer.from(JSON.stringify({ key: j.key, spec: j.spec, home: j.home, node: j.node, cli: j.cli })).toString('base64')}`;
+  `pp-schedule ${Buffer.from(JSON.stringify({ key: j.key, spec: j.spec, home: j.home, node: j.node, cli: j.cli, ...(j.browserEnv ? { browserEnv: j.browserEnv } : {}) })).toString('base64')}`;
 
 /** The command a job runs. */
 export const jobArgs = (j: Pick<JobInputs, 'key' | 'home' | 'node' | 'cli'>) => [
@@ -91,7 +94,7 @@ export const jobArgs = (j: Pick<JobInputs, 'key' | 'home' | 'node' | 'cli'>) => 
   j.home,
 ];
 
-const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#13;');
 const str = (s: string) => `<string>${xml(s)}</string>`;
 const int = (n: number) => `<integer>${n}</integer>`;
 
@@ -111,7 +114,9 @@ export function plist(j: JobInputs, p: ParsedSchedule, env: { PATH: string }, lo
       .map((a) => `    ${str(a)}`)
       .join('\n')}\n  </array>`,
     '  <key>EnvironmentVariables</key>',
-    `  <dict><key>PATH</key>${str(env.PATH)}<key>PP_HOME</key>${str(j.home)}<key>PP_NODE</key>${str(j.node)}</dict>`,
+    `  <dict>${Object.entries({ PATH: env.PATH, PP_HOME: j.home, PP_NODE: j.node, ...j.browserEnv })
+      .map(([key, value]) => `<key>${key}</key>${str(value)}`)
+      .join('')}</dict>`,
     '  <key>StartCalendarInterval</key>',
     calendar,
     `  <key>StandardOutPath</key>${str(log)}`,
@@ -132,21 +137,37 @@ export function onCalendar(p: ParsedSchedule): string {
 }
 
 const q = (s: string) => `"${s.replace(/(["\\])/g, '\\$1')}"`;
+// Environment= uses systemd's C-style escaping and expands percent specifiers, but not shell variables.
+const environmentAssignment = (key: string, value: string) => `Environment=${JSON.stringify(`${key}=${value}`).replace(/%/g, '%%')}`;
 
 export function systemdUnits(j: JobInputs, p: ParsedSchedule, env: { PATH: string }, log: string): { service: string; timer: string } {
   const head = `# ${fingerprint(j)}\n[Unit]\nDescription=Perfect Placement schedule ${j.key}\n`;
+  const environment = Object.entries({ PATH: env.PATH, PP_HOME: j.home, PP_NODE: j.node, ...j.browserEnv })
+    .map(([key, value]) => environmentAssignment(key, value))
+    .join('\n');
   return {
-    service: `${head}\n[Service]\nType=oneshot\nEnvironment=${q(`PATH=${env.PATH}`)}\nEnvironment=${q(`PP_HOME=${j.home}`)}\nEnvironment=${q(`PP_NODE=${j.node}`)}\nExecStart=${jobArgs(j).map(q).join(' ')}\nStandardOutput=append:${log}\nStandardError=append:${log}\n`,
+    service: `${head}\n[Service]\nType=oneshot\n${environment}\nExecStart=${jobArgs(j).map(q).join(' ')}\nStandardOutput=append:${log}\nStandardError=append:${log}\n`,
     timer: `${head}\n[Timer]\nOnCalendar=${onCalendar(p)}\nPersistent=true\nUnit=${unitName(j.key)}.service\n\n[Install]\nWantedBy=timers.target\n`,
   };
 }
 
+function cronQuote(value: string): string {
+  if (/[\r\n\0]/.test(value)) throw new Error('cron paths and environment values cannot contain line breaks or NUL');
+  // Cron processes percent even inside shell quotes. Keep each escaped percent between quoted
+  // segments, so a preceding backslash in the original value cannot unescape it for cron.
+  return value
+    .split('%')
+    .map((part) => `'${part.replace(/'/g, `'\\''`)}'`)
+    .join('\\%');
+}
+
 export function cronLine(j: JobInputs, p: ParsedSchedule, env: { PATH: string }, log: string): string {
   const dow = p.daily ? '*' : p.days.join(',');
-  const cmd = jobArgs(j)
-    .map((a) => `'${a.replace(/'/g, `'\\''`)}'`)
+  const cmd = jobArgs(j).map(cronQuote).join(' ');
+  const environment = Object.entries({ PATH: env.PATH, PP_HOME: j.home, ...j.browserEnv })
+    .map(([key, value]) => `${key}=${cronQuote(value)}`)
     .join(' ');
-  return `${p.minute} ${p.hour} * * ${dow} PATH='${env.PATH}' PP_HOME='${j.home}' ${cmd} >> '${log}' 2>&1`;
+  return `${p.minute} ${p.hour} * * ${dow} ${environment} ${cmd} >> ${cronQuote(log)} 2>&1`;
 }
 
 export interface JobOptions {
@@ -178,13 +199,14 @@ export function planJobs(home: string, schedules: Schedules, d: SystemDeps, opts
     runner = undefined;
   }
   const env = { PATH: jobPath(d, d.nodePath, runner) };
+  const browserEnv = runner === 'codex' ? ops.codexBrowserEnvironment({ ...d.env, HOME: d.home }) : undefined;
   return SCHEDULE_KEYS.map((key): JobPlan => {
     const spec = schedules[key];
     if (spec === 'off') return { key, spec, on: false, files: [] };
     const p = parseSchedule(spec);
     if (!p)
       return { key, spec, on: true, error: `cannot read "${spec}" (daily HH:MM, weekdays HH:MM, fri HH:MM, mon,thu HH:MM)`, files: [] };
-    const j: JobInputs = { key, spec, home, node: d.nodePath, cli };
+    const j: JobInputs = { key, spec, home, node: d.nodePath, cli, ...(browserEnv ? { browserEnv } : {}) };
     const log = join(scheduleLogDir(d), `${key}.log`);
     if (m === 'launchd') return { key, spec, on: true, files: [{ path: jobFile(d, key) as string, content: plist(j, p, env, log) }] };
     if (m === 'systemd') {
@@ -200,7 +222,11 @@ export function planJobs(home: string, schedules: Schedules, d: SystemDeps, opts
         ],
       };
     }
-    return { key, spec, on: true, files: [], cron: cronLine(j, p, env, log) };
+    try {
+      return { key, spec, on: true, files: [], cron: cronLine(j, p, env, log) };
+    } catch (error) {
+      return { key, spec, on: true, files: [], error: (error as Error).message };
+    }
   });
 }
 
@@ -211,6 +237,14 @@ function parseFingerprint(line: string | null): JobInputs | null {
   try {
     const j = JSON.parse(Buffer.from(line.slice('pp-schedule '.length), 'base64').toString('utf8')) as Partial<JobInputs>;
     const fields = [j.key, j.spec, j.home, j.node, j.cli];
+    if (
+      j.browserEnv !== undefined &&
+      (!j.browserEnv ||
+        typeof j.browserEnv !== 'object' ||
+        Array.isArray(j.browserEnv) ||
+        Object.values(j.browserEnv).some((value) => typeof value !== 'string'))
+    )
+      return null;
     return fields.every((f) => typeof f === 'string') ? (j as JobInputs) : null;
   } catch {
     return null;
@@ -232,7 +266,8 @@ export function samePath(a: string, b: string, realpath: (p: string) => string =
 
 /**
  * The installed fingerprint describes the job we would write: same key and spec, and home, node and cli
- * reaching the same files (#97). The written job keeps the stable node path (#33); only the comparison
+ * reaching the same files (#97), with matching browser locations when Codex is selected. The written
+ * job keeps the stable node path (#33); only the comparison
  * resolves symlinks, so an opt link and its Cellar target, or a repo symlink and its real path, match.
  */
 export function sameJob(installed: string | null, want: string | null, realpath?: (p: string) => string): boolean {
@@ -241,6 +276,10 @@ export function sameJob(installed: string | null, want: string | null, realpath?
   const a = parseFingerprint(installed);
   const b = parseFingerprint(want);
   if (!a || !b || a.key !== b.key || a.spec !== b.spec) return false;
+  const aEnv = a.browserEnv ?? {};
+  const bEnv = b.browserEnv ?? {};
+  if (Object.keys(aEnv).length !== Object.keys(bEnv).length || Object.entries(aEnv).some(([key, value]) => bEnv[key] !== value))
+    return false;
   return samePath(a.home, b.home, realpath) && samePath(a.node, b.node, realpath) && samePath(a.cli, b.cli, realpath);
 }
 
@@ -291,7 +330,7 @@ function removeJob(d: SystemDeps, key: ScheduleKey, lines: string[]): boolean {
 
 /**
  * Make the OS jobs match `schedules`: write and load the ones on, unload and remove the ones off. A job
- * already installed for the same key, spec, vault, node and cli is left alone unless `force`.
+ * already installed for the same key, spec, vault, node, cli and browser locations is left alone unless `force`.
  */
 export async function syncJobs(home: string, schedules: Schedules, d: SystemDeps, opts: JobOptions = {}): Promise<SyncResult> {
   const m = jobManager(d);

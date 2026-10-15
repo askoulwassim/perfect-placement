@@ -8,6 +8,7 @@
  *   --no-schedules   skip the OS jobs for config.schedules (#29; add later: pp schedules install)
  */
 import { existsSync } from 'node:fs';
+import { RUNNER_COMMANDS, type RunnerConfig } from '@perfect-placement/contracts';
 import { db, ops } from '@perfect-placement/engine';
 import type { Args } from '../args.js';
 import { CliError, confirm, type Io } from '../io.js';
@@ -21,6 +22,7 @@ import {
   ppMcpBin,
   registerClient,
 } from '../system/clients.js';
+import { browserNodeCheck, browserRuntimeFor, installCodexBrowser } from '../system/codex-browser.js';
 import { isKevModel, KEV_MODELS, type KevModel, kevInstalled, kevSupport } from '../system/kev.js';
 import { jobManager, syncJobs } from '../system/schedules.js';
 import { init } from './init.js';
@@ -79,6 +81,9 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
   const yes = args.has('yes');
   const d = sysOf(io);
   const model = args.get('model');
+  const requestedRunner = args.get('runner');
+  if (requestedRunner !== undefined && !(RUNNER_COMMANDS as readonly string[]).includes(requestedRunner))
+    throw new CliError(`--runner must be one of ${RUNNER_COMMANDS.join(', ')}`);
   if (model !== undefined && !isKevModel(model)) throw new CliError(`--model must be one of ${Object.keys(KEV_MODELS).join(', ')}`);
   let only: ClientId[] | null = null;
   if (args.has('mcp')) {
@@ -107,6 +112,26 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
     });
     return finish();
   }
+
+  // Runner selection is config, so it is written only through the same op as the UI and MCP.
+  if (requestedRunner !== undefined) {
+    const current = ops.readConfig(home).runner.command;
+    if (current !== requestedRunner) {
+      const engine = ops.openEngine({ home, ...(io.services ? { services: io.services } : {}) });
+      try {
+        const result = await engine.runOp(
+          'config.update',
+          { patch: { runner: { command: requestedRunner } } },
+          { actor: 'human', now: () => d.now() },
+        );
+        if (result.status !== 'ok') throw new CliError(result.status === 'error' ? result.message : 'runner selection needs a human');
+      } finally {
+        engine.close();
+      }
+    }
+    io.out(`runner: ${requestedRunner}`);
+  }
+  steps.push(await setupCodexBrowser(ops.readConfig(home).runner.command, io, yes));
 
   // (b) Kev
   steps.push(await setupKev(args, home, io, yes, model as KevModel | undefined));
@@ -169,6 +194,32 @@ export async function setupCommand(args: Args, home: string, io: Io, opts: Setup
     ].join('\n'),
   );
   return finish();
+}
+
+async function setupCodexBrowser(runner: RunnerConfig['command'], io: Io, yes: boolean): Promise<SetupStep> {
+  const step = 'browser';
+  if (runner !== 'codex') return { step, result: 'skipped', detail: `not needed for ${runner}` };
+  const d = sysOf(io);
+  try {
+    const node = browserNodeCheck(d);
+    if (!node.ok)
+      return {
+        step,
+        result: 'failed',
+        detail: node.detail,
+        fix: 'upgrade Node, rerun ./install.sh with the upgraded Node to refresh the pinned launchers, then pp setup --runner codex',
+      };
+    const runtime = browserRuntimeFor(d);
+    if (ops.codexBrowserReadiness(runtime).ok)
+      return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
+    if (!(await confirm(io, yes, `Install Codex browser support (chrome-devtools-mcp ${runtime.packageVersion})?`, true)))
+      return { step, result: 'skipped', detail: 'declined (add later: pp setup --runner codex)' };
+    await installCodexBrowser(d, runtime);
+    io.out('browser: enable remote debugging at chrome://inspect/#remote-debugging, then Allow the Chrome connection prompt');
+    return { step, result: 'ok', detail: `chrome-devtools-mcp ${runtime.packageVersion} installed` };
+  } catch (e) {
+    return { step, result: 'failed', detail: (e as Error).message, fix: 'pp setup --runner codex' };
+  }
 }
 
 async function setupKev(args: Args, home: string, io: Io, yes: boolean, model: KevModel | undefined): Promise<SetupStep> {

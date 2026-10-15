@@ -12,6 +12,7 @@ import {
   VOICE_LEARN_MAX_POSTS,
   VOICE_LEARN_SAMPLES_MAX,
 } from '@perfect-placement/contracts';
+import { codexBrowserRuntime } from './codex-browser-runtime.js';
 import { codexBrowserArgs, codexConnectorPrompt } from './codex-connectors.js';
 
 /*
@@ -589,8 +590,8 @@ export function buildRunnerSpec(opts: {
   /**
    * `fill` with assist (#123): the absolute `<PP_HOME>/files/<role_id>` folder holding the rendered PDFs. Claude gets
    * `--add-dir <it>` (that folder only, never PP_HOME or files/) so Claude in Chrome's file_upload can read the PDFs.
-   * Ignored for every other run. Codex passes this folder as the browser connector's --workspace,
-   * never as a Codex --add-dir writable root. Cursor documents no equivalent.
+   * Ignored for every other run. Codex passes this folder to PP's browser adapter, which permits
+   * only its rendered PDFs, never as a Codex --add-dir writable root. Cursor documents no equivalent.
    */
   filesDir?: string;
 }): RunnerSpec {
@@ -683,9 +684,10 @@ export function buildRunnerSpec(opts: {
       };
     }
     case 'codex': {
-      const toml = (v: unknown) => JSON.stringify(v);
+      const toml = (v: unknown) => JSON.stringify(v).replaceAll('\u007f', '\\u007f');
       const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
       const browser = usesChrome(opts.skill, opts.linkedin !== false) && !opts.gmailDraft && !opts.gmailTo;
+      const browserEnv = { ...process.env, ...env };
       const assist = opts.skill === 'fill' && opts.assist === true;
       const gmail = opts.gmailTo
         ? [GMAIL_GET_DRAFT_TOOL, GMAIL_UPDATE_TOOL]
@@ -715,9 +717,28 @@ export function buildRunnerSpec(opts: {
           // Web search per skill (SKILL_TOOLS): live retrieval for web skills, the tool removed otherwise.
           '-c',
           `web_search=${toml(SKILL_TOOLS[opts.skill].web.length ? 'live' : 'disabled')}`,
-          ...(browser ? codexBrowserArgs(assist, opts.filesDir) : []),
+          ...(browser
+            ? codexBrowserArgs({
+                nodePath: mcp.command,
+                adapterBin: join(REPO_ROOT, 'packages/mcp/dist/browser-bin.js'),
+                runtimeDir: codexBrowserRuntime({ repoRoot: REPO_ROOT, env: browserEnv }).dir,
+                env: browserEnv,
+                assist,
+                filesDir: opts.filesDir,
+              })
+            : []),
           ...extra,
-          codexWebPrompt(codexConnectorPrompt(prompt, { runId, browser, assist, gmail, web: SKILL_TOOLS[opts.skill].web }), opts.skill),
+          codexWebPrompt(
+            codexConnectorPrompt(prompt, {
+              runId,
+              browser,
+              assist,
+              uploads: assist && Boolean(opts.filesDir),
+              gmail,
+              web: SKILL_TOOLS[opts.skill].web,
+            }),
+            opts.skill,
+          ),
         ],
         cwd: home,
         env,

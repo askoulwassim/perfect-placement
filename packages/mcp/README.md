@@ -109,6 +109,12 @@ CLI equivalents: `codex mcp add pp --env PP_HOME=/ABS/VAULT -- node /ABS/PATH/pa
 
 In a fresh session with the server configured (`--fixtures` for the demo): call `roles_list` with `{ "status": ["inbox"] }`, then `roles_score` on one of those ids with nine 1 to 5 criteria and `facts: {}`, then read `pp://needs-you` or call `decisions_queue`. `roles_move` without `confidence` returns `requires_human`; with `confidence: 0.95` it applies (auto). `apply_mark_submitted` returns `requires_human` and the new decision shows up in the queue. The app never submits and never sends.
 
+## Codex browser
+
+`src/browser.ts` and `src/browser-bin.ts` are the internal Codex browser adapter. The runner launches this separate stdio server only for browser skills, using the optional runtime installed by `pp setup --runner codex`. It forwards the allowed browser tools and native schemas/results, with no client roots forwarded. Uploads require fill assist and the rendered-files directory; canonical paths must identify that role's `resume.pdf` or `cover_letter.pdf`. The entire upload array is checked before forwarding. Snapshots stay inline, navigation permits web URLs or `about:blank`, and scripts and other browser tools are rejected. Page ownership is an agent instruction, not an adapter check on `pageId`. Closing the adapter disconnects its child MCP process while leaving an attached Chrome instance and the portal tab intact.
+
+The installed native runtime includes PP's pinned upload patch: `upload_file` accepts actual file inputs and has no chooser-click fallback. An invalid target fails without clicking it. Runtime readiness includes the patch contents, so an older unpatched installation requires setup again.
+
 ## Tests
 
-`pnpm --filter @perfect-placement/mcp test`: tool generation (one per op, schemas equal `opInputJsonSchema` plus `confidence`, naming), a real MCP client over the in-memory transport on the real engine with a temp fixtures vault (list, score, confidence -> policy grid, queued decisions, `requires_human`, resources), the Streamable HTTP transport (round trip, host and method guards), and the fixtures demo engine. No network, Kev or runner spawn.
+`pnpm --filter @perfect-placement/mcp test`: tool generation (one per op, schemas equal `opInputJsonSchema` plus `confidence`, naming), a real MCP client over the in-memory transport on the real engine with a temp fixtures vault (list, score, confidence -> policy grid, queued decisions, `requires_human`, resources), the Streamable HTTP transport (round trip, host and method guards), the fixtures demo engine, and browser protocol/path checks against synthetic MCP servers and temporary files. No network, Kev or runner spawn.

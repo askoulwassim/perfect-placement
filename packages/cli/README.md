@@ -3,7 +3,7 @@
 Thin: every command goes through the engine (`openEngine({ home, services })`; `Io.services` overrides the engine services, tests pass no-network fakes).
 
 ```
-pp setup   [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]
+pp setup   [--runner claude|codex|cursor-agent] [--yes] [--no-kev|--kev] [--model m] [--no-mcp|--mcp claude-code,codex,cursor,claude-desktop] [--no-schedules]
 pp kev     install [--model m] [--yes] | start [--model m] [--wait [--timeout s]] | stop | status
 pp up      [--port 5177] [--web <dir>|none] [--fixtures] [--no-kev] [--kev] [--tool-names dotted] [--no-catch-up]
 pp init                                       new vault + default config.json (refuses an existing or git-tracked dir)
@@ -47,9 +47,13 @@ node packages/cli/dist/index.js up --fixtures            # http://127.0.0.1:5177
 
 `src/commands/setup.ts`, `src/commands/kev.ts`; machine access in `src/system/` (`SystemDeps`: platform, PATH lookup, spawn, fetch, clock), the only cli code allowed to write files (agent client configs with `.bak-<timestamp>` backups, and Kev runtime files in `$PP_HOME/kev/`; see the engine guard test). The Kev model goes into config through `config.update`. Tests inject a temp HOME and a fake spawn: nothing is downloaded and no real client config is read or written.
 
+`--runner` saves the runner through `config.update`; without it setup preserves the current selection. Only a selected Codex runner offers browser installation. `src/system/codex-browser.ts` installs the standalone, locked `runtimes/codex-browser` package and its upload patch into a PP-owned user cache outside the vault, using pinned pnpm with lifecycle scripts disabled. It verifies the installation before publishing the completed cache directory, and repeated setup reuses it only when the manifest, lockfile and patch contents match. `--mcp codex` registers the agent without selecting it; browser installation still follows the current runner selection. `pp doctor` checks browser readiness for Codex; missing or stale installations are repaired with `pp setup --runner codex`. If Node needs upgrading, rerun `./install.sh` with the upgraded Node to refresh the pinned launchers before retrying setup. Browser runs never install packages. See [Chrome setup](../../docs/install.md#chrome-setup-for-codex).
+
 ## Schedules (#29)
 
 `config.schedules` (`daily HH:MM`, `weekdays HH:MM`, `fri HH:MM`, `mon,thu HH:MM`, or `off`; local time) runs as OS jobs, so runs happen with the UI closed. `src/system/schedules.ts` writes one job per schedule that is on, each running `node packages/cli/dist/index.js run <skill> --schedule --home <PP_HOME>` (`pp run`: `runs.start` with actor `schedule` and `schedule` set, then `pp drain` until the run and the runs it triggered finish; `scout_score` queues scout and the pipeline queues score and research). The job's environment has `PATH` (node's dir, the runner's dir, the installing shell's PATH, system dirs), `PP_HOME` and `PP_NODE`; output goes to `~/Library/Logs/perfect-placement/<key>.log` (Linux: `~/.local/state/perfect-placement/`).
+
+Codex schedules also retain browser location settings: `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `TMPDIR`, `TMP`, `TEMP`, `LOCALAPPDATA` and `APPDATA` when set. These settings reach the browser MCP server explicitly, so it uses the same runtime cache and Chrome profile locations. After changing them, rerun `pp setup --runner codex` for runtime setup and `pp schedules install` to refresh installed jobs.
 
 | OS | Job | Loaded with |
 | --- | --- | --- |
@@ -62,7 +66,7 @@ node packages/cli/dist/index.js up --fixtures            # http://127.0.0.1:5177
 - `pp up` catches up: a schedule that is on, ran before, and fired since its last run started (machine off, no job) is queued once at start (`--no-catch-up` skips). A schedule that never ran waits for its job or a Run button.
 - Resilience (#121): `pp run --schedule` holds a power assertion on its own pid while it waits (macOS `caffeinate -i -s -w <pid>`; Linux `systemd-inhibit --what=sleep:idle ... tail --pid=<pid>` when available; else nothing), released when it returns. Its drain (and `pp up`'s sweep) stops a scheduled run past its skill's wall-clock cap and finishes it `stalled`; transient failures of scheduled runs are retried after 1, 5, 15 min; when all tries fail, `pp up` catches the schedule up and `pp doctor` shows the last failure (`scheduled_failures`).
 - `pp doctor` (`schedule_jobs`): fails when installed jobs do not match `config.schedules` (stale, missing next to installed ones, or left over for a schedule turned off). No jobs at all passes with a hint (declined in setup).
-- Each job file carries a `pp-schedule <base64>` fingerprint (key, spec, vault, node, cli): status compares files only, never asks launchd or systemd. Tests use a temp HOME and a fake `capture`; nothing runs `launchctl`, `systemctl` or `crontab`.
+- Each job file carries a `pp-schedule <base64>` fingerprint (key, spec, vault, node, cli, plus browser location settings for Codex): status compares files only, never asks launchd or systemd. Codex jobs with missing or changed browser settings are stale and need refreshing. Tests use a temp HOME and a fake `capture`; nothing runs `launchctl`, `systemctl` or `crontab`.
 
 ## `pp uninstall`
 

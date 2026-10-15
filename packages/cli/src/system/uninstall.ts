@@ -335,6 +335,7 @@ export function machineResetLines(d: Pick<SystemDeps, 'platform' | 'which'>, rep
   const brew = d.platform === 'darwin' && d.which('brew') !== null;
   return [
     'Left alone: Node, pnpm, uv, Homebrew, this checkout, your agents and their other MCP servers, *.bak-* config backups.',
+    'Codex browser runtime caches are kept; other PP vaults or running sessions may use them.',
     'Full machine reset (optional; pp never runs these):',
     brew
       ? '  brew uninstall node@22                 # Node 22 (if you installed it for pp)'

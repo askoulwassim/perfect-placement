@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /
+      - /runtimes/codex-browser
     schedule:
       interval: weekly
     groups:

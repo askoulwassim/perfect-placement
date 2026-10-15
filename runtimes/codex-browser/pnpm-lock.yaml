@@ -1,0 +1,37 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+patchedDependencies:
+  chrome-devtools-mcp@1.10.1:
+    hash: plrpfc75dfuvf6xpji6o2rpc3m
+    path: patches/chrome-devtools-mcp@1.10.1.patch
+
+importers:
+
+  .:
+    dependencies:
+      chrome-devtools-mcp:
+        specifier: 1.10.1
+        version: 1.10.1(patch_hash=plrpfc75dfuvf6xpji6o2rpc3m)
+
+packages:
+
+  chrome-devtools-mcp@1.10.1:
+    resolution: {integrity: sha512-Klw6HWDqHC/XS1JwZldd2r49aUhbUJN9m9Mvcx4SEueIPXtzuQX+QelxAViobv8YUkDZ7HWDrmViR6LeYK0wAw==}
+    engines: {node: ^20.19.0 || ^22.12.0 || >=23}
+    hasBin: true
+    peerDependencies:
+      '@blackwell-systems/gcf': ^2.2.2
+      '@toon-format/toon': ^4.1.0
+    peerDependenciesMeta:
+      '@blackwell-systems/gcf':
+        optional: true
+      '@toon-format/toon':
+        optional: true
+
+snapshots:
+
+  chrome-devtools-mcp@1.10.1(patch_hash=plrpfc75dfuvf6xpji6o2rpc3m): {}
