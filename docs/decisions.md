@@ -16,6 +16,7 @@ The founding decisions behind Perfect Placement. Code and docs cite them as `dec
 | 10 | OpenUI | **Adopted for Ask replies** (parser + streaming renderer, our own components) | `wave1-decisions #21`. |
 | 11 | UI design | **The Claude Design prototype is the UI source of truth** | Its tokens and inventory are in [`design.md`](design.md). |
 | 12 | Repo | **One repo for the system; personal data lives only in the vault** | Enforced by `.gitignore` and `scripts/check-repo.mjs`. |
+| 13 | Codex Gmail | **Fail closed until exact raw-tool isolation is verified** | 2026-10-17; [#158](https://github.com/askoulwassim/perfect-placement/issues/158). See below. |
 
 ## Decision policy (confidence x impact)
 
@@ -53,3 +54,7 @@ Claude Code reads `AGENTS.md` only when **no** `CLAUDE.md` exists in the working
 - 2026-10-08: fresh start. No v1 data is imported; the v1 migration code was removed and migration 003 drops the migration-only enum values. `wave1-decisions #26`.
 - 2026-10-09: first-run guidance is a one-time Getting started card on Now. `wave1-decisions #27`.
 - 2026-10-10: open-source preparation. #9, #10 and #12 updated to their current state; the hosted decision backend that was disabled by default was removed.
+
+## 13. Codex Gmail isolation (2026-10-17)
+
+[#158](https://github.com/askoulwassim/perfect-placement/issues/158): only the canonical OpenAI Gmail plugin is eligible. Codex 0.163.0's app policy admits title aliases and ignores the ordinary MCP allowlist on its built-in app server; a synthetic headless runtime probe demonstrated execution of an unlisted tool. Keep all Gmail modes blocked before launch, record `setup required: Gmail` through `runs.finish`, and never retry setup failures. Non-Gmail runs and Ask disable apps and alternate routes in child processes. Never change persistent settings or weaken managed requirements. [Evidence, grants, identity, precedence and sparse-update contract](codex-gmail-isolation.md). No public contract change.

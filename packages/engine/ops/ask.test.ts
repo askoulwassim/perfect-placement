@@ -144,6 +144,21 @@ describe('runAsk (fake runner, recorded transcripts)', () => {
     expect(cur.at(-1)).toEqual({ type: 'done' });
   });
 
+  it('reports unsafe Codex args as a stream error without launching or leaving a busy thread (#158)', async () => {
+    const launcher = fakeAskLauncher(() => []);
+    const d = deps(launcher, { command: 'codex', args: ['--profile', 'unsafe'] });
+    const events = await collect(runAsk({ message: 'hi' }, d));
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      code: 'runner_failed',
+      message: expect.stringContaining('setup required: Gmail'),
+    });
+    expect(launcher.specs).toEqual([]);
+    const thread = (events[0] as { thread_id: string }).thread_id;
+    const again = await collect(runAsk({ message: 'again', thread_id: thread }, d));
+    expect(again.at(-1)).toMatchObject({ type: 'error', code: 'runner_failed' });
+  });
+
   it('errors: runner missing, not logged in, crash, bad input, busy thread', async () => {
     const missing = await collect(runAsk({ message: 'hi' }, deps(fakeAskLauncher(() => 'missing'))));
     expect(missing.at(-1)).toMatchObject({ type: 'error', code: 'runner_missing' });

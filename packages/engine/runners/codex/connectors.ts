@@ -3,7 +3,7 @@ import { BROWSER_SERVER, type BrowserRunPolicy } from '../browser/policy.js';
 
 /**
  * CLI overrides, scoped to the child run: the adapter gets the run's whole policy (#161), and Codex enables exactly
- * the policy's tools. Runner args can select a different browser connection.
+ * the policy's tools. Browser connection settings come from PP's browser environment, not arbitrary runner args.
  */
 export function codexBrowserArgs(opts: {
   nodePath: string;

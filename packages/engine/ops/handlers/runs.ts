@@ -4,6 +4,7 @@ import { type RenderDoc, type Run, RunTabs, SCHEDULE_SKILL, SKILLS, type Skill, 
 import { draftRecipient } from '../../people/email.js';
 import { gmailRecipient, hasNoAddress } from '../../people/outreach.js';
 import { linkedinReadsOn } from '../../people/queries.js';
+import { GmailSetupRequired, requireCodexGmailIsolation } from '../../runners/codex/gmail.js';
 import {
   type AssistUploads,
   buildRunnerSpec,
@@ -334,11 +335,21 @@ function launchRun(run: Run, h: HandlerContext): void {
       // #123: the fill assist renders the PDFs before launch, so the folder exists for --add-dir and the prompt can
       // name absolute paths; a failed render launches anyway, and the run reports both uploads as skipped.
       const spec = build(assist && s.role_id ? await renderForAssist(runOp, ctx, id, s.role_id) : undefined);
+      if (spec.command === 'codex') requireCodexGmailIsolation(spec.codexIsolation?.gmailTools ?? []);
       const started = await launcher.launch(spec);
       // Never awaited: the runner outlives this op. If it ends without runs.finish, fail the run loudly.
       started.exit?.then((r) => failIfOpen(r)).catch(() => {});
     } catch (e) {
-      await runOp('runs.finish', { run_id: id, status: 'error', note: `runner ${command} did not start: ${(e as Error).message}` }, ctx);
+      await runOp(
+        'runs.finish',
+        {
+          run_id: id,
+          status: 'error',
+          ...(e instanceof GmailSetupRequired ? { error: 'setup required: Gmail' } : {}),
+          note: `runner ${command} did not start: ${(e as Error).message}`,
+        },
+        ctx,
+      );
     }
   });
 }

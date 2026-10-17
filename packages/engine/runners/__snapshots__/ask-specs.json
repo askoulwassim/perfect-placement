@@ -85,7 +85,7 @@
       "web_search=\"live\"",
       "<sha256:0fd635775e02211a len:3509>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_ASK": "1"
@@ -116,7 +116,7 @@
       "synthetic",
       "<sha256:405dc8d15ca49d59 len:3559>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_ASK": "1"

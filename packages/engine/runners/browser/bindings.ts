@@ -22,6 +22,7 @@ export interface BindingNames {
   browserTool: (c: Capability) => string;
   /** A Gmail capability's label. */
   gmailLabel: (c: Capability) => string;
+  gmailInstruction?: string;
   /** The command that installs the browser runtime for this runner. */
   setup: string;
   /** The rule for a connector that needs setup (this runner's `connector.missing`, rendered). */
@@ -41,7 +42,7 @@ export function adapterBindings(p: PreambleContext, n: BindingNames): string[] {
           '',
           ...(gmail.length
             ? [
-                `Allowed Gmail capabilities: ${gmail.join(', ')}. These labels describe capabilities, not literal tool names. Inspect this session's connected Gmail tools (use tool discovery when available) and call their actual names and schemas. Never look for a claude.ai tool or infer an address from a missing mailbox connection.`,
+                `Allowed Gmail capabilities: ${gmail.join(', ')}. ${n.gmailInstruction ?? "These labels describe capabilities, not literal tool names. Inspect this session's connected Gmail tools (use tool discovery when available) and call their actual names and schemas. Never look for a claude.ai tool or infer an address from a missing mailbox connection."}`,
                 'Gmail is read-only except for the draft operation explicitly granted here. Never send, reply, forward, delete, trash, label or change mailbox settings. A recipient must satisfy the PP email confirmation rules before creating a draft.',
               ]
             : []),

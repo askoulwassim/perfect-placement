@@ -34,6 +34,7 @@ describe('transient-retry helper', () => {
     expect(isTransient({ message: 'tool denied: mcp__claude_ai_Gmail__create_draft' })).toBe(false);
     expect(isTransient({ code: 'other', message: 'portal questions unreadable' })).toBe(false);
     expect(isTransient({})).toBe(false);
+    expect(isTransient({ code: 'connector_unavailable', message: 'setup required: Gmail: ECONNRESET' })).toBe(false);
     // The connector policy is code-only: free text never triggers it.
     expect(isTransient({ message: 'ECONNRESET' }, CONNECTOR_RETRY)).toBe(false);
     expect(isTransient({ code: 'stalled' }, CONNECTOR_RETRY)).toBe(false);

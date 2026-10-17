@@ -9,6 +9,7 @@ import {
   VOICE_LEARN_SAMPLES_MAX,
 } from '@perfect-placement/contracts';
 import { CLAUDE_TEXT } from './claude-tools.js';
+import { CODEX_GMAIL_DRAFT_INPUT } from './codex/gmail.js';
 import { isConnectorCapability } from './grants.js';
 import { MCP_SERVER_NAME } from './mcp-server.js';
 import { RUNNERS } from './registry.js';
@@ -219,6 +220,7 @@ export function gmailDraftPrompt(skillsDir: string, c: GmailStepContext): string
     t(
       '3. Create a Gmail DRAFT with your Gmail draft tool ({{gmail.draft_tool}}), once. Never call send, reply or forward. If your Gmail draft tool is not available in this session, create nothing and finish with runs_finish { run_id: "{{run_id}}", status: "error", {{missing.error}}{{gmail.create_draft}}" }{{missing.retry_step}}.',
     ),
+    ...(c.runner === 'codex' ? [CODEX_GMAIL_DRAFT_INPUT] : []),
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the id your tool returned>", confidence: <0 to 1, how sure you are the draft matches> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you used or null>, to_reason: <to.reason when To is empty> } } (status "error" with a note if any step failed).`,
     ...(section ? ['', t(section)] : []),
@@ -243,14 +245,23 @@ export function gmailToPrompt(skillsDir: string, c: GmailStepContext): string {
     [`run_id: ${c.runId}`, `outreach_id: ${c.outreachId}`, `role_id: ${c.roleId}`, `contact_id: ${c.contactId}`].join('\n'),
     '',
     '1. Read the record: outreach_get { outreach_id }. The Gmail draft id is `outreach.gmail_draft_id`; To = `to.email` (confirmed). If `to.email` is null, change nothing and finish the run as error with a note.',
-    t(
-      '2. Read the Gmail draft with {{gmail.get_draft}} (that id). Keep its subject and body exactly as they are in Gmail. If {{gmail.get_draft}} or {{gmail.update_draft}} is not available in this session, change nothing and finish with runs_finish { run_id: "{{run_id}}", status: "error", {{missing.error}}<tool>" }{{missing.retry_step}}.',
-    ),
-    t(
-      '3. Set its To with {{gmail.update_draft}}: the same draft id, To = `to.email`, the subject and body you just read. Never call send, reply, forward, create_draft or delete.',
-    ),
+    ...(c.runner === 'codex'
+      ? [
+          '2. Require a nonempty saved outreach.gmail_draft_id, outreach.status = "in_gmail", confirmed to.email, and no to.decision_id. Otherwise change nothing and finish as error. Never substitute a message id, thread id or to.guess.',
+          t(
+            '3. Call {{gmail.update_draft}} with ONLY { draft_id: outreach.gmail_draft_id, to: to.email }. Omit payload, subject, cc, bcc and all other fields. Sparse omission preserves the subject, body, MIME tree and attachments, including edits made in Gmail. No draft read is needed or granted. Never call send, reply, forward, create_draft or delete.',
+          ),
+        ]
+      : [
+          t(
+            '2. Read the Gmail draft with {{gmail.get_draft}} (that id). Keep its subject and body exactly as they are in Gmail. If {{gmail.get_draft}} or {{gmail.update_draft}} is not available in this session, change nothing and finish with runs_finish { run_id: "{{run_id}}", status: "error", {{missing.error}}<tool>" }{{missing.retry_step}}.',
+          ),
+          t(
+            '3. Set its To with {{gmail.update_draft}}: the same draft id, To = `to.email`, the subject and body you just read. Never call send, reply, forward, create_draft or delete.',
+          ),
+        ]),
     `4. Record it: outreach_to_gmail { outreach_id: "${c.outreachId}", gmail_draft_id: "<the same draft id>", confidence: <0 to 1, how sure you are the draft now has this To> }.`,
     `5. Finish: runs_finish { run_id: "${c.runId}", status: "ok", summary: { outreach_id: "${c.outreachId}", gmail_draft_id, to: <the To you set> } } (status "error" with a note if any step failed).`,
-    ...(m ? ['', t(`## Gmail To step\n${m[1]}`.trim())] : []),
+    ...(m && c.runner !== 'codex' ? ['', t(`## Gmail To step\n${m[1]}`.trim())] : []),
   ].join('\n');
 }

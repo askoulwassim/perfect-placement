@@ -24,6 +24,8 @@ export interface RunnerFile {
 }
 
 export interface RunnerSpec {
+  /** #158: internal policy; Gmail stays blocked until exact isolation is verified. */
+  codexIsolation?: { gmailTools: string[]; servers: string[] };
   runId: string;
   command: string;
   args: string[];
@@ -61,7 +63,7 @@ export interface RunRequest {
   /**
    * The Gmail draft step (`runs.start` with `outreach_id`). Claude: no `--strict-mcp-config` (the claude.ai
    * Gmail connector must load), only its create_draft tool allowed next to pp, every other Gmail write denied, no Chrome.
-   * Codex uses connected Gmail app/MCP capabilities; Cursor uses the configured Gmail MCP server.
+   * Codex Gmail is blocked pending exact isolation (#158); Cursor uses the configured Gmail MCP server.
    */
   gmailDraft?: boolean;
   /**
@@ -102,6 +104,7 @@ export interface RunContext extends RunRequest {
 
 /** One Ask turn's process (#39). */
 export interface AskSpec {
+  codexIsolation?: { gmailTools: string[]; servers: string[] };
   command: RunnerCommand;
   args: string[];
   /** `null` = a fresh temp dir (Cursor reads its MCP config and permissions from the working directory). */

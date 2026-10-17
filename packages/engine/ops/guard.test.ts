@@ -43,6 +43,8 @@ const FS_ALLOWED = [
   'packages/engine/ops/vault.ts',
   // The spawn launcher: runner logs, pid files and Cursor's .cursor/ config in the OS temp dir. Never the vault.
   'packages/engine/runners/launcher.ts',
+  // Codex launch isolation (#158): minimal .git boundary inside the launcher's fresh temp cwd, never the vault.
+  'packages/engine/runners/codex/isolation.ts',
   // Ask turns (#39): Cursor's .cursor/ config in a temp dir, as the runner does. Never the vault.
   'packages/engine/ops/ask.ts',
   // Report CLIs: write reports to --out outside the repo, never the vault.

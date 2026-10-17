@@ -525,7 +525,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -555,7 +555,7 @@
       "synthetic",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -583,7 +583,7 @@
       "web_search=\"live\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -611,7 +611,7 @@
       "web_search=\"live\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -639,7 +639,7 @@
       "web_search=\"live\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -667,7 +667,7 @@
       "web_search=\"live\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -711,7 +711,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -755,7 +755,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -783,7 +783,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -811,7 +811,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -855,7 +855,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -883,7 +883,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -911,7 +911,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -955,7 +955,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -999,7 +999,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -1043,7 +1043,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -1087,7 +1087,7 @@
       "mcp_servers.pp_browser.startup_timeout_sec=60",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -1115,7 +1115,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"
@@ -1143,7 +1143,7 @@
       "web_search=\"disabled\"",
       "<prompt>"
     ],
-    "cwd": "/tmp/pp-snapshot-vault",
+    "cwd": null,
     "env": {
       "PP_HOME": "/tmp/pp-snapshot-vault",
       "PP_RUN_ID": "rn_snapshot"

@@ -5,7 +5,7 @@ import { browserEnvironment } from './browser/env.js';
 import { ADAPTER_TOOL, BROWSER_SERVER, type BrowserRunPolicy, browserPolicy, skillSites } from './browser/policy.js';
 import { browserRuntime } from './browser/runtime.js';
 import { CLAUDE_TOOL } from './claude-tools.js';
-import { CODEX_TEXT, CODEX_TOOL } from './codex/text.js';
+import { CODEX_TEXT, LEGACY_ADAPTER_TOOL } from './codex/text.js';
 import { type Capability, SKILL_GRANTS, usesBrowser } from './grants.js';
 import { isObj, type Obj, str } from './json.js';
 import { MCP_SERVER_NAME, REPO_ROOT } from './mcp-server.js';
@@ -20,7 +20,7 @@ import type { AskContext, AskLineParser, AskSpec, PreambleContext, RunContext, R
 
 /** Cursor's tool (or Gmail capability label) for each capability: Claude's web names, the adapter's browser tools. */
 export const CURSOR_TOOL: Readonly<Record<Capability, string>> = {
-  ...CODEX_TOOL,
+  ...LEGACY_ADAPTER_TOOL,
   'web.search': CLAUDE_TOOL['web.search'],
   'web.fetch': CLAUDE_TOOL['web.fetch'],
   ...ADAPTER_TOOL,
@@ -29,6 +29,9 @@ export const CURSOR_TOOL: Readonly<Record<Capability, string>> = {
 /** Cursor's text: the adapter runners' fragments (setup required, no connector retry) in Cursor's names. */
 export const CURSOR_TEXT: PromptText = {
   ...CODEX_TEXT,
+  'gmail.draft_tool': 'Gmail create draft',
+  'gmail.source': 'use the Gmail app or MCP server connected to this runner (its `Gmail create draft` capability).',
+  'gmail.connector_note': ' (the Gmail app or MCP server connected to this runner)',
   ...(Object.fromEntries(
     (Object.keys(CURSOR_TOOL) as Capability[]).flatMap((c) => [
       [c, CURSOR_TOOL[c]],

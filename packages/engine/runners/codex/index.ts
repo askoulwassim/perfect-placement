@@ -8,6 +8,8 @@ import { isObj, type Obj, str } from '../json.js';
 import { MCP_SERVER_NAME, REPO_ROOT } from '../mcp-server.js';
 import type { AskContext, AskLineParser, AskSpec, RunContext, RunnerBinding, RunnerSpec } from '../types.js';
 import { codexBrowserArgs } from './connectors.js';
+import { codexGmailTools } from './gmail.js';
+import { codexSafeArgs } from './isolation.js';
 import { CODEX_TEXT, codexGrants, codexPreamble, codexToolsPhrase } from './text.js';
 
 /*
@@ -16,7 +18,7 @@ import { CODEX_TEXT, codexGrants, codexPreamble, codexToolsPhrase } from './text
  */
 
 function run(opts: RunContext): RunnerSpec {
-  const { prompt, home, runId, extra, env } = opts;
+  const { prompt, runId, extra, env } = opts;
   const mcp = opts.server;
   const toml = (v: unknown) => JSON.stringify(v).replaceAll('\u007f', '\\u007f');
   const envPairs = Object.entries(env).flatMap(([k, v]) => ['-c', `mcp_servers.${MCP_SERVER_NAME}.env.${k}=${toml(v)}`]);
@@ -35,6 +37,10 @@ function run(opts: RunContext): RunnerSpec {
   });
   return {
     runId,
+    codexIsolation: {
+      gmailTools: codexGmailTools({ skill: opts.skill, mode: opts.gmailTo ? 'gmail_to' : opts.gmailDraft ? 'gmail_draft' : 'skill' }),
+      servers: ['pp', ...(browser ? ['pp_browser'] : [])],
+    },
     command: 'codex',
     args: [
       'exec',
@@ -65,20 +71,21 @@ function run(opts: RunContext): RunnerSpec {
             policy,
           })
         : []),
-      ...extra,
+      ...codexSafeArgs(extra),
       prompt,
     ],
-    cwd: home,
+    cwd: null,
     env,
     files: [],
   };
 }
 
 function ask(opts: AskContext): AskSpec {
-  const { extra, env, home } = opts;
+  const { extra, env } = opts;
   const mcp = opts.server;
   const toml = (v: unknown) => JSON.stringify(v);
   return {
+    codexIsolation: { gmailTools: [], servers: ['pp'] },
     command: 'codex',
     args: [
       'exec',
@@ -96,10 +103,10 @@ function ask(opts: AskContext): AskSpec {
       'sandbox_mode="read-only"',
       '-c',
       'web_search="live"',
-      ...extra,
+      ...codexSafeArgs(extra),
       opts.replay,
     ],
-    cwd: home,
+    cwd: null,
     env,
     files: [],
   };
