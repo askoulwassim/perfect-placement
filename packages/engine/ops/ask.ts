@@ -15,6 +15,7 @@ import {
   type RunnerConfig,
 } from '@perfect-placement/contracts';
 import type { AskThreadStore } from '../db/ask-threads.js';
+import { prepareCodex } from '../runners/codex/isolation.js';
 import { isObj, type Obj } from '../runners/json.js';
 import { MCP_SERVER_NAME } from '../runners/mcp-server.js';
 import { RUNNERS } from '../runners/registry.js';
@@ -306,7 +307,7 @@ export interface AskLauncher {
 /** Spawns the runner attached (not detached: an Ask turn ends with its HTTP request). */
 export function createAskSpawner(): AskLauncher {
   return {
-    start(spec, signal) {
+    async start(spec, signal) {
       const temp = spec.cwd === null;
       const cwd = spec.cwd ?? mkdtempSync(join(tmpdir(), 'pp-ask-'));
       for (const f of spec.files) {
@@ -317,6 +318,13 @@ export function createAskSpawner(): AskLauncher {
       const cleanup = () => {
         if (temp) rmSync(cwd, { recursive: true, force: true });
       };
+      try {
+        await prepareCodex(spec, cwd);
+        if (signal?.aborted) throw new Error('Ask cancelled');
+      } catch (error) {
+        cleanup();
+        throw error;
+      }
       return new Promise((ok, fail) => {
         const child = spawn(spec.command, spec.args, { cwd, env: { ...process.env, ...spec.env }, stdio: ['ignore', 'pipe', 'pipe'] });
         let stderr = '';
@@ -475,10 +483,10 @@ export async function* runAsk(raw: unknown, deps: AskDeps): AsyncGenerator<AskCh
   try {
     yield { type: 'thread', thread_id: thread.id, runner: runner.command };
     const message = askMessage(req.message, req.context);
-    const spec = buildAskSpec({ runner, message, home: deps.home, mcp: deps.mcp, sessionId: thread.sessionId, turns: thread.turns });
     const started = deps.threads.time();
     let proc: AskProcess;
     try {
+      const spec = buildAskSpec({ runner, message, home: deps.home, mcp: deps.mcp, sessionId: thread.sessionId, turns: thread.turns });
       proc = await deps.launcher.start(spec, deps.signal);
     } catch (e) {
       const missing = (e as NodeJS.ErrnoException).code === 'ENOENT';

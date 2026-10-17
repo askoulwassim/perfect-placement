@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { prepareCodex } from './codex/isolation.js';
 import type { RunnerExit, RunnerLauncher } from './types.js';
 
 /** Where the spawn launcher keeps runner output and pid files (OS temp dir, never the vault). */
@@ -61,8 +62,14 @@ export function killRunner(runId: string, base: string = tmpdir()): boolean {
  */
 export function createSpawnLauncher(): RunnerLauncher {
   return {
-    launch(spec) {
+    async launch(spec) {
       const cwd = spec.cwd ?? mkdtempSync(join(tmpdir(), `pp-run-${spec.runId}-`));
+      try {
+        await prepareCodex(spec, cwd);
+      } catch (error) {
+        if (spec.cwd === null) rmSync(cwd, { recursive: true, force: true });
+        throw error;
+      }
       for (const f of spec.files) {
         const abs = join(cwd, f.path);
         mkdirSync(dirname(abs), { recursive: true });

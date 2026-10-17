@@ -68,11 +68,13 @@ describe('pp setup', () => {
       return 0;
     };
     const flags = ['--yes', '--no-kev', '--no-mcp', '--no-schedules'];
-    expect(await runCli(['setup', '--runner', 'codex', ...flags], io)).toBe(0);
+    expect(await runCli(['setup', '--runner', 'codex', ...flags], io)).toBe(1);
+    expect(text()).toMatch(/FAIL {2}gmail/);
+    expect(text()).toContain('setup required: Gmail');
     expect(config().runner.command).toBe('codex');
     expect(d.runs).toHaveLength(1);
     expect(text()).toContain('chrome://inspect/#remote-debugging');
-    expect(await runCli(['setup', ...flags], io)).toBe(0);
+    expect(await runCli(['setup', ...flags], io)).toBe(1);
     expect(d.runs).toHaveLength(1);
     expect(await runCli(['setup', '--runner', 'claude', ...flags], io)).toBe(0);
     expect(config().runner.command).toBe('claude');

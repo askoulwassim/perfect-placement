@@ -123,5 +123,11 @@ describe('optional Codex browser installation', () => {
     }
     expect(d.captures).toEqual([]);
     expect(existsSync(join(root, '.cache'))).toBe(false);
+    expect(runnerDoctorChecks('codex', d)).toContainEqual({
+      name: 'gmail_isolation',
+      ok: false,
+      detail: expect.stringContaining('setup required: Gmail'),
+    });
+    expect(runnerDoctorChecks('cursor-agent', d).some((check) => check.name === 'gmail_isolation')).toBe(false);
   });
 });

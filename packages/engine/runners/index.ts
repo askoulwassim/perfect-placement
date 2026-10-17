@@ -16,6 +16,7 @@ export {
   gmailDeniedTools,
 } from './claude.js';
 export * from './claude-tools.js';
+export { CODEX_GMAIL, CODEX_GMAIL_BLOCKER } from './codex/gmail.js';
 export { codex } from './codex/index.js';
 export { CODEX_TEXT, CODEX_TOOL, codexGrants, codexPreamble, codexToolsPhrase } from './codex/text.js';
 export { cursorAgent, cursorPermissions } from './cursor.js';

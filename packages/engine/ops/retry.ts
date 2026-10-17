@@ -97,6 +97,8 @@ export function transientMarker(output: string): string | null {
 
 /** Is this failure transient under the policy? */
 export function isTransient(f: Failure, policy: Pick<RetryPolicy, 'codes' | 'patterns'> = {}): boolean {
+  // Setup failures need a human/configuration change, even if a stale transient code accompanies them (#158).
+  if (f.message?.startsWith('setup required:')) return false;
   const codes = policy.codes ?? TRANSIENT_ERROR_CODES;
   if (f.code && codes.includes(f.code)) return true;
   const text = f.message ?? '';

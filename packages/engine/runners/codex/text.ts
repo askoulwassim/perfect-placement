@@ -2,16 +2,17 @@ import { adapterBindings, adapterGrants } from '../browser/bindings.js';
 import { ADAPTER_TOOL, BROWSER_SERVER } from '../browser/policy.js';
 import type { Capability } from '../grants.js';
 import { type PromptText, renderText } from '../text.js';
-import type { PreambleContext } from '../types.js';
+import type { GrantRequest, PreambleContext } from '../types.js';
+import { CODEX_GMAIL_DRAFT_INPUT, CODEX_GMAIL_TOOLS, codexGmailCaps } from './gmail.js';
 
 /*
  * Codex's names and text for every capability and placeholder (#159). Web is the built-in web tool's actions; the
- * browser is PP's Chrome DevTools adapter (`pp_browser`, #157); Gmail is whatever Gmail app or MCP server the user
- * connected, so it is named by capability and the session finds the actual tools.
+ * browser is PP's Chrome DevTools adapter (`pp_browser`, #157). Gmail names come from the canonical policy (#158);
+ * Gmail-dependent launches are blocked until exact isolation is verified. Cursor retains the legacy labels.
  */
 
 /** Codex's tool (or Gmail capability label) for each capability. */
-export const CODEX_TOOL: Readonly<Record<Capability, string>> = {
+export const LEGACY_ADAPTER_TOOL: Readonly<Record<Capability, string>> = {
   'web.search': 'web.run search',
   'web.fetch': 'web.run open',
   'gmail.search': 'Gmail search',
@@ -22,6 +23,12 @@ export const CODEX_TOOL: Readonly<Record<Capability, string>> = {
   'gmail.update_draft': 'Gmail update draft recipient',
   // The PP browser adapter's tools (#161).
   ...ADAPTER_TOOL,
+};
+
+export const CODEX_TOOL: Readonly<Record<Capability, string>> = {
+  ...LEGACY_ADAPTER_TOOL,
+  ...Object.fromEntries(Object.entries(CODEX_GMAIL_TOOLS).map(([cap, raw]) => [cap, `mcp__codex_apps__${raw.split('.').join('_')}`])),
+  'gmail.get_draft': 'unavailable (no get_draft in the supported plugin)',
 };
 
 const fullName = (c: Capability): string => (c.startsWith('browser.') ? `mcp__${BROWSER_SERVER}__${CODEX_TOOL[c]}` : CODEX_TOOL[c]);
@@ -48,9 +55,10 @@ export const CODEX_TEXT: PromptText = {
   'connector.not_loaded': 'not connected in this session: finish with `error: "setup required: <capability>"` (Tools below)',
   'missing.error': 'error: "setup required: ',
   'missing.retry_step': '',
-  'gmail.draft_tool': 'Gmail create draft',
-  'gmail.source': 'use the Gmail app or MCP server connected to this runner (its `Gmail create draft` capability).',
-  'gmail.connector_note': ' (the Gmail app or MCP server connected to this runner)',
+  'gmail.draft_tool': CODEX_TOOL['gmail.create_draft'],
+  'gmail.source':
+    'only the canonical OpenAI Gmail plugin is eligible; alternate providers and fallback tools are forbidden. Headless Gmail is blocked until exact isolation is verified (#158).',
+  'gmail.connector_note': ' (canonical OpenAI Gmail plugin only; headless isolation currently blocked)',
   'gmail.other_clients': '',
   'connect.draft_retry': '; it is not retried: Gmail needs connecting for this runner first, then the step can run again.',
   'connect.tools_note':
@@ -64,7 +72,10 @@ export const CODEX_TEXT: PromptText = {
 };
 
 /** Codex's grants: the adapter's (#157, #161). */
-export const codexGrants = adapterGrants;
+export const codexGrants = (g: GrantRequest): Capability[] => {
+  const base = adapterGrants(g);
+  return [...base.filter((c) => c.startsWith('web.')), ...codexGmailCaps(g), ...base.filter((c) => c.startsWith('browser.'))];
+};
 
 const unique = (names: readonly string[]): string[] => [...new Set(names)];
 
@@ -80,6 +91,7 @@ export function codexToolsPhrase(caps: readonly Capability[]): string {
 export function codexPreamble(p: PreambleContext): string[] {
   const web = p.caps.filter((c) => c.startsWith('web.'));
   return [
+    ...(p.caps.includes('gmail.create_draft') ? [CODEX_GMAIL_DRAFT_INPUT] : []),
     ...(web.length
       ? [
           'Codex web tools: use the built-in web tool (web.run) for the web actions below. Its open action fetches a URL; click and find read linked pages and page content. These are actions of one tool, not separate tools to discover.',
@@ -94,6 +106,8 @@ export function codexPreamble(p: PreambleContext): string[] {
       heading: '## Codex tool bindings',
       browserTool: fullName,
       gmailLabel: (c) => CODEX_TOOL[c],
+      gmailInstruction:
+        'Only these exact tools from the canonical OpenAI Gmail plugin are eligible. No provider aliases or fallback tools. Codex 0.163.0 cannot enforce the required exact allowlist; PP blocks this run before launch with setup required: Gmail.',
       setup: 'pp setup --runner codex',
       missing: renderText('{{connector.missing}}', CODEX_TEXT, { runId: p.runId }),
     }),

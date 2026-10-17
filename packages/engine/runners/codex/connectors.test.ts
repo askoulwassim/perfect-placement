@@ -253,16 +253,16 @@ describe('Codex connector bindings', () => {
     expect(tools).not.toContain('mcp__pp_browser__upload_file');
   });
 
-  it('binds Gmail to connected capabilities without inventing server names or retrying missing setup', () => {
+  it('binds only canonical Gmail tools and states the pre-launch blocker', () => {
     for (const skill of ['inbox', 'voice', 'connect'] as const) {
       const prompt = spec(skill).args.at(-1) as string;
-      expect(prompt).toContain('Gmail search');
-      expect(prompt).toContain('call their actual names and schemas');
+      expect(prompt).toContain('mcp__codex_apps__gmail_search_emails');
+      expect(prompt).toContain('Only these exact tools from the canonical OpenAI Gmail plugin');
       expect(prompt).toContain('setup required: <capability>');
       expect(prompt).not.toMatch(/mcp__claude_ai_Gmail|error_code: "connector_unavailable"/);
       expect(prompt).not.toContain('engine retries');
       const grants = prompt.split('\n').find((line) => line.startsWith('Allowed Gmail capabilities:'));
-      expect(grants?.includes('Gmail create draft')).toBe(skill === 'connect');
+      expect(grants?.includes('gmail_create_draft')).toBe(skill === 'connect');
       expect(grants).not.toContain('update draft');
     }
   });
@@ -280,10 +280,10 @@ describe('Codex connector bindings', () => {
         .at(-1)
         ?.split('\n')
         .find((line) => line.startsWith('Allowed Gmail capabilities:'));
-    expect(grants(draft.args)).toContain('Gmail create draft');
+    expect(grants(draft.args)).toContain('gmail_create_draft');
     expect(grants(draft.args)).not.toContain('update draft');
-    expect(grants(update.args)).toContain('Gmail read draft, Gmail update draft recipient');
-    expect(grants(update.args)).not.toContain('Gmail create draft');
+    expect(grants(update.args)).toContain('gmail_update_draft');
+    expect(grants(update.args)).not.toContain('gmail_create_draft');
   });
 
   it('sweeps every skill and mode for legacy tool names and mismatched upload grants', () => {

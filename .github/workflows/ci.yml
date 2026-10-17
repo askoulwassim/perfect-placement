@@ -37,7 +37,8 @@ jobs:
           XDG_CACHE_HOME: ${{ runner.temp }}/pp-browser-cache
           COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
           OPENUI_TELEMETRY_DISABLED: '1'
-        run: node packages/cli/dist/index.js setup --home "$RUNNER_TEMP/pp-vault" --runner codex --yes --no-kev --no-mcp --no-schedules
+        # Cursor uses the same pinned adapter; Codex setup deliberately reports the Gmail isolation blocker (#158).
+        run: node packages/cli/dist/index.js setup --home "$RUNNER_TEMP/pp-vault" --runner cursor-agent --yes --no-kev --no-mcp --no-schedules
       - name: Let headless Chrome use its sandbox (Ubuntu 24.04 restricts unprivileged user namespaces)
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Real-browser regression

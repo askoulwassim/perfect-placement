@@ -139,6 +139,22 @@ describe('run queue: scheduled runs (#121)', () => {
     expect(await catchUpSchedules(e.db, e.runOp, readConfig(e.home), x.now)).toEqual([]);
   });
 
+  it('setup required overrides transient codes in retry, manual retry_of and scheduled catch-up (#158)', async () => {
+    const x = setup();
+    const r = await x.scheduled();
+    const done = okOut(
+      await x.finish(r.id, {
+        status: 'error',
+        error_code: 'connector_unavailable',
+        error: 'setup required: Gmail: ECONNRESET',
+      }),
+    ).run as Run;
+    expect(done.summary_json).not.toHaveProperty('retried');
+    expect(x.timers).toEqual([]);
+    expect(await catchUpSchedules(e.db, e.runOp, readConfig(e.home), x.now)).toEqual([]);
+    expect(await e.runOp('runs.start', { skill: 'inbox', retry_of: r.id }, x.human)).toMatchObject({ code: 'conflict' });
+  });
+
   it('no double retry: a scheduled connector_unavailable follows the schedule policy only; a human run keeps 45 s once', async () => {
     const x = setup();
     const unavailable = { status: 'error', error_code: 'connector_unavailable', error: 'connector_unavailable: gmail' };
