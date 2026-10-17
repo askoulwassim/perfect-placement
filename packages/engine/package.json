@@ -29,7 +29,7 @@
     "@perfect-placement/contracts": "workspace:*",
     "@perfect-placement/resolver": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "docx": "^9.10.0",
+    "docx": "^9.11.0",
     "pdfkit": "^0.20.2",
     "unpdf": "^1.8.1",
     "zod": "^4.6.7"
