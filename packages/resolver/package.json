@@ -19,7 +19,7 @@
     "eval": "node dist/eval/cli.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0",
+    "@anthropic-ai/sdk": "^0.137.0",
     "@perfect-placement/contracts": "workspace:*",
     "zod": "^4.6.7"
   },
