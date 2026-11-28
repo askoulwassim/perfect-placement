@@ -29,7 +29,7 @@
     "@perfect-placement/contracts": "workspace:*"
   },
   "devDependencies": {
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.2.0",
     "@types/better-sqlite3": "^9.6.0"
   }
 }
